@@ -1,0 +1,34 @@
+[package]
+name = "sentinel-discovery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sentinel-protocol = { workspace = true }
+sentinel-store = { workspace = true }
+sentinel-scan = { workspace = true }
+sentinel-detect = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+dirs = "5"
+walkdir = "2"
+toml = "0.8"
+serde_yaml = "0.9"
+sysinfo = "0.32"
+once_cell = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }
+wiremock = "0.6"

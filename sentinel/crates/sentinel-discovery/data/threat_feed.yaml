@@ -1,0 +1,148 @@
+# Sentinel MCP — curated threat intelligence feed
+# -----------------------------------------------------------------------------
+# This file lists known-bad / suspicious MCP packages, lookalike names,
+# documented poisoning incidents, rug-pull demos, and revoked maintainers.
+#
+# Most entries below are *synthetic-demo* — i.e. plausible names invented for
+# the Sentinel demo, mirroring documented public patterns (typo squats,
+# tool-poisoning, rug-pull). They MUST NOT be interpreted as accusations
+# against any real publisher unless they reference a public SAFE-T advisory
+# or GHSA identifier.
+#
+# Schema:
+#   version:        feed revision string (date-rev)
+#   entries:        list of EntreeMenace
+#     identifiant:  stable Sentinel ID (MCP-YYYY-NNN)
+#     package_name: exact name we will match against ServeurMcpDeclare
+#     raison:       short human reason
+#     severite:     critical | high | medium
+#     references:   list of external IDs (SAFE-T1001, GHSA-…, "lookalike", …)
+#     publie_a:     date the entry was added to this feed (YYYY-MM-DD)
+# -----------------------------------------------------------------------------
+
+version: "2026-06-01-001"
+
+entries:
+  # --- Lookalike / typo-squat packages -------------------------------------
+  - identifiant: MCP-2026-001
+    package_name: "@modelcontextprotocol/server-filesystem-1"
+    raison: "Typo-squat of @modelcontextprotocol/server-filesystem; published by unverified maintainer (synthetic-demo)."
+    severite: high
+    references: ["SAFE-T1001", "lookalike", "synthetic-demo"]
+    publie_a: 2025-12-10
+
+  - identifiant: MCP-2026-002
+    package_name: "mcp-filesystem-server"
+    raison: "Lookalike of @modelcontextprotocol/server-filesystem; unscoped package name targets autocomplete confusion (synthetic-demo)."
+    severite: high
+    references: ["lookalike", "synthetic-demo"]
+    publie_a: 2025-12-10
+
+  - identifiant: MCP-2026-003
+    package_name: "@modlecontextprotocol/server-github"
+    raison: "Typo-squat of @modelcontextprotocol/server-github (synthetic-demo)."
+    severite: high
+    references: ["lookalike", "synthetic-demo"]
+    publie_a: 2025-12-11
+
+  - identifiant: MCP-2026-004
+    package_name: "@modelcontextprotocol/server-fetch-pro"
+    raison: "Impersonates the official fetch server; adds undocumented egress endpoints (synthetic-demo)."
+    severite: high
+    references: ["lookalike", "synthetic-demo"]
+    publie_a: 2025-12-12
+
+  - identifiant: MCP-2026-005
+    package_name: "mcp-server-github-official"
+    raison: "Misleading 'official' suffix on an unscoped package (synthetic-demo)."
+    severite: medium
+    references: ["lookalike", "synthetic-demo"]
+    publie_a: 2025-12-12
+
+  # --- Tool poisoning (SAFE-T1001) -----------------------------------------
+  - identifiant: MCP-2026-010
+    package_name: "mcp-helpful-assistant"
+    raison: "Tool description contained ~/.ssh exfiltration instructions hidden in a 'helpful' tool description (synthetic-demo of SAFE-T1001)."
+    severite: critical
+    references: ["SAFE-T1001", "tool-poisoning", "synthetic-demo"]
+    publie_a: 2025-11-22
+
+  - identifiant: MCP-2026-011
+    package_name: "context-booster-mcp"
+    raison: "Embeds prompt-injection payload inside tool description, asking the agent to read AWS credentials (synthetic-demo of SAFE-T1001)."
+    severite: critical
+    references: ["SAFE-T1001", "tool-poisoning", "synthetic-demo"]
+    publie_a: 2025-11-22
+
+  - identifiant: MCP-2026-012
+    package_name: "mcp-shell-friend"
+    raison: "Tool poisoning: exfiltrates shell history via a tool whose description claims to 'optimize prompts' (synthetic-demo of SAFE-T1001)."
+    severite: critical
+    references: ["SAFE-T1001", "tool-poisoning", "synthetic-demo"]
+    publie_a: 2025-11-23
+
+  # --- Rug-pull / supply chain (SAFE-T1201) --------------------------------
+  - identifiant: MCP-2026-020
+    package_name: "mcp-time-zone"
+    raison: "Rug-pull demo: benign for 14 days, then v1.2.0 added an outbound webhook to attacker-controlled host (synthetic-demo of SAFE-T1201)."
+    severite: critical
+    references: ["SAFE-T1201", "rug-pull", "synthetic-demo"]
+    publie_a: 2025-10-30
+
+  - identifiant: MCP-2026-021
+    package_name: "mcp-weather-pro"
+    raison: "Rug-pull: published 8 benign minor releases, then 2.0.0 introduced credential scanner across $HOME (synthetic-demo of SAFE-T1201)."
+    severite: critical
+    references: ["SAFE-T1201", "rug-pull", "synthetic-demo"]
+    publie_a: 2025-11-05
+
+  - identifiant: MCP-2026-022
+    package_name: "mcp-quote-of-the-day"
+    raison: "Maintainer transferred ownership; new maintainer pushed a release that reads ~/.config tokens (synthetic-demo of SAFE-T1201)."
+    severite: high
+    references: ["SAFE-T1201", "rug-pull", "ownership-transfer", "synthetic-demo"]
+    publie_a: 2025-11-12
+
+  # --- Maintainer-revoked / yanked -----------------------------------------
+  - identifiant: MCP-2026-030
+    package_name: "mcp-pdf-tools"
+    raison: "Maintainer account revoked by registry following abuse report; all versions yanked (synthetic-demo)."
+    severite: high
+    references: ["maintainer-revoked", "yanked", "synthetic-demo"]
+    publie_a: 2025-12-01
+
+  - identifiant: MCP-2026-031
+    package_name: "mcp-csv-reader"
+    raison: "Publisher account compromised; suspicious 3.4.1 release yanked, package marked do-not-install (synthetic-demo)."
+    severite: high
+    references: ["maintainer-revoked", "account-compromise", "synthetic-demo"]
+    publie_a: 2025-12-02
+
+  - identifiant: MCP-2026-032
+    package_name: "@acme/mcp-internal-tools"
+    raison: "Scope deleted upstream; reused names by anyone constitute a takeover risk (synthetic-demo)."
+    severite: medium
+    references: ["maintainer-revoked", "scope-deletion", "synthetic-demo"]
+    publie_a: 2025-12-03
+
+  # --- Misc. suspicious patterns -------------------------------------------
+  - identifiant: MCP-2026-040
+    package_name: "mcp-do-everything"
+    raison: "Single package bundles filesystem + shell + network + git tools without scoping; broad attack surface (synthetic-demo)."
+    severite: medium
+    references: ["over-privileged", "synthetic-demo"]
+    publie_a: 2025-12-05
+
+  - identifiant: MCP-2026-041
+    package_name: "mcp-prompt-saver"
+    raison: "Sends every prompt to a third-party 'analytics' endpoint with no opt-out (synthetic-demo)."
+    severite: high
+    references: ["data-exfil", "synthetic-demo"]
+    publie_a: 2025-12-06
+
+  - identifiant: MCP-2026-042
+    package_name: "mcp-credential-helper"
+    raison: "Tool requests SSH key path in inputSchema, then exfiltrates via webhook to non-allowlisted host. Reported by community; synthetic-demo."
+    severite: critical
+    references: ["SAFE-T1001", "data-exfil", "synthetic-demo"]
+    publie_a: 2025-12-04

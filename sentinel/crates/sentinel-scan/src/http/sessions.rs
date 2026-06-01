@@ -1,0 +1,113 @@
+//! Suivi des sessions HTTP par `Mcp-Session-Id`.
+//!
+//! Une session HTTP MCP naît sur `initialize`, porte un identifiant opaque
+//! transmis dans l'en-tête `Mcp-Session-Id`, et associe le client à un
+//! serveur upstream particulier. Ce module maintient ce mapping en mémoire.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use chrono::{DateTime, Utc};
+
+/// Informations conservées pour une session HTTP active.
+#[derive(Debug, Clone)]
+pub struct InfoSession {
+    /// Identifiant brut de la session (valeur de `Mcp-Session-Id`).
+    pub id: String,
+    /// URL upstream associée à cette session.
+    pub upstream: String,
+    /// Horodatage du premier message observé.
+    pub premier_contact: DateTime<Utc>,
+    /// Horodatage du dernier message observé.
+    pub dernier_contact: DateTime<Utc>,
+    /// Nombre de messages observés.
+    pub nb_messages: u64,
+}
+
+/// Table des sessions HTTP actives, partagée entre les tâches du proxy.
+///
+/// Thread-safe via `Arc<Mutex<_>>`.
+#[derive(Debug, Clone)]
+pub struct SuiviSessionsHttp {
+    sessions: Arc<Mutex<HashMap<String, InfoSession>>>,
+    upstream_defaut: String,
+}
+
+impl SuiviSessionsHttp {
+    /// Crée un nouveau suivi avec l'URL upstream par défaut.
+    pub fn nouveau(upstream_defaut: impl Into<String>) -> Self {
+        Self {
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            upstream_defaut: upstream_defaut.into(),
+        }
+    }
+
+    /// Enregistre ou met à jour une session à partir d'un `Mcp-Session-Id`.
+    ///
+    /// Retourne l'URL upstream à utiliser pour cette session.
+    pub fn enregistrer(&self, session_id: &str) -> String {
+        let maintenant = Utc::now();
+        let mut sessions = self.sessions.lock().expect("mutex sessions empoisonné");
+
+        let info = sessions.entry(session_id.to_string()).or_insert_with(|| InfoSession {
+            id: session_id.to_string(),
+            upstream: self.upstream_defaut.clone(),
+            premier_contact: maintenant,
+            dernier_contact: maintenant,
+            nb_messages: 0,
+        });
+
+        info.dernier_contact = maintenant;
+        info.nb_messages += 1;
+        info.upstream.clone()
+    }
+
+    /// Retourne une copie de l'info session si elle existe.
+    pub fn obtenir(&self, session_id: &str) -> Option<InfoSession> {
+        let sessions = self.sessions.lock().expect("mutex sessions empoisonné");
+        sessions.get(session_id).cloned()
+    }
+
+    /// Retourne l'upstream par défaut (utile quand aucun `Mcp-Session-Id` n'est présent).
+    pub fn upstream_defaut(&self) -> &str {
+        &self.upstream_defaut
+    }
+
+    /// Retourne le nombre de sessions actives.
+    pub fn nb_sessions(&self) -> usize {
+        let sessions = self.sessions.lock().expect("mutex sessions empoisonné");
+        sessions.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enregistrement_et_recuperation() {
+        let suivi = SuiviSessionsHttp::nouveau("http://localhost:3000");
+        let upstream = suivi.enregistrer("session-abc");
+        assert_eq!(upstream, "http://localhost:3000");
+
+        let info = suivi.obtenir("session-abc").expect("session doit exister");
+        assert_eq!(info.id, "session-abc");
+        assert_eq!(info.nb_messages, 1);
+    }
+
+    #[test]
+    fn incrementation_messages() {
+        let suivi = SuiviSessionsHttp::nouveau("http://localhost:3000");
+        suivi.enregistrer("session-xyz");
+        suivi.enregistrer("session-xyz");
+        suivi.enregistrer("session-xyz");
+
+        let info = suivi.obtenir("session-xyz").unwrap();
+        assert_eq!(info.nb_messages, 3);
+    }
+
+    #[test]
+    fn session_inconnue_retourne_none() {
+        let suivi = SuiviSessionsHttp::nouveau("http://localhost:3000");
+        assert!(suivi.obtenir("inexistant").is_none());
+    }
+}

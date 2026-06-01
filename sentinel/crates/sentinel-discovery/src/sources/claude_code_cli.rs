@@ -1,0 +1,289 @@
+//! Detection source for **Claude Code CLI** (Anthropic's official terminal coding agent).
+//!
+//! Claude Code stores its primary configuration in `~/.claude.json` (a single
+//! large JSON file with a top-level `mcpServers` key — same shape as Claude
+//! Desktop). It also supports:
+//!   * an alternate user-level location: `~/.config/claude/mcp.json`
+//!   * per-project `.mcp.json` files (merged at runtime when you open Claude
+//!     Code inside that directory).
+//!
+//! This source probes all of the above plus tries to locate the `claude`
+//! binary (via `which`, plus the standard install paths) and capture its
+//! `--version` output.
+
+use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::SourceClient;
+use async_trait::async_trait;
+use chrono::Utc;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use tokio::process::Command;
+
+pub struct SourceClaudeCodeCli;
+
+#[async_trait]
+impl SourceClient for SourceClaudeCodeCli {
+    fn id(&self) -> &'static str {
+        "claude-code-cli"
+    }
+
+    async fn detecter(&self) -> Vec<ClientDecouvert> {
+        let home = match dirs::home_dir() {
+            Some(h) => h,
+            None => return vec![],
+        };
+        detecter_avec_home(&home).await
+    }
+}
+
+/// Core detection routine that is parameterised by `$HOME` so tests can pass a
+/// synthetic root.
+pub async fn detecter_avec_home(home: &Path) -> Vec<ClientDecouvert> {
+    let mut client = ClientDecouvert::nouveau(ClientKind::ClaudeCodeCli);
+
+    // -- 1. Locate the `claude` binary ---------------------------------------
+    if let Some((path, version)) = localiser_binaire().await {
+        client.binary_path = Some(path);
+        client.version = version;
+    }
+
+    // -- 2. Primary config: ~/.claude.json (top-level mcpServers) ------------
+    let primary = home.join(".claude.json");
+    parser_config_globale(&primary, &mut client);
+
+    // -- 3. Alt config: ~/.config/claude/mcp.json ---------------------------
+    let alt = home.join(".config").join("claude").join("mcp.json");
+    parser_config_globale(&alt, &mut client);
+
+    // -- 4. Per-project .mcp.json files -------------------------------------
+    // v1 scope: ~/.mcp.json + any ~/<dir>/.mcp.json one level deep.
+    let root_project = home.join(".mcp.json");
+    parser_project_mcp(&root_project, &mut client);
+
+    if let Ok(mut rd) = tokio::fs::read_dir(home).await {
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            let p = entry.path();
+            if p.is_dir() {
+                let candidate = p.join(".mcp.json");
+                if candidate.is_file() {
+                    parser_project_mcp(&candidate, &mut client);
+                }
+            }
+        }
+    }
+
+    // -- 5. Decide whether we actually found anything ------------------------
+    let found_something = client.binary_path.is_some() || !client.configs.is_empty();
+    if !found_something {
+        return vec![];
+    }
+
+    if client.serveurs.is_empty() && !client.configs.is_empty() {
+        client.notes.push("no MCP servers declared".to_string());
+    }
+    if client.configs.is_empty() && client.binary_path.is_some() {
+        client.notes.push("binary present but no config file found".to_string());
+    }
+
+    vec![client]
+}
+
+/// Locate the `claude` executable. Returns its path + `claude --version`.
+async fn localiser_binaire() -> Option<(PathBuf, Option<String>)> {
+    // Try `which claude` first.
+    let mut path: Option<PathBuf> = None;
+    if let Ok(out) = Command::new("which").arg("claude").output().await {
+        if out.status.success() {
+            let txt = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !txt.is_empty() {
+                let p = PathBuf::from(&txt);
+                if p.exists() {
+                    path = Some(p);
+                }
+            }
+        }
+    }
+
+    if path.is_none() {
+        for candidate in [
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
+        ] {
+            let p = PathBuf::from(candidate);
+            if p.exists() {
+                path = Some(p);
+                break;
+            }
+        }
+        if path.is_none() {
+            if let Some(home) = dirs::home_dir() {
+                let p = home.join(".claude").join("local").join("claude");
+                if p.exists() {
+                    path = Some(p);
+                }
+            }
+        }
+    }
+
+    let p = path?;
+    let version = Command::new(&p)
+        .arg("--version")
+        .output()
+        .await
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            } else {
+                None
+            }
+        });
+
+    Some((p, version))
+}
+
+/// Parse a global Claude config (`~/.claude.json` or `~/.config/claude/mcp.json`)
+/// looking for a top-level `mcpServers` map.
+fn parser_config_globale(path: &Path, client: &mut ClientDecouvert) {
+    if !path.is_file() {
+        return;
+    }
+    let raw = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => {
+            client
+                .notes
+                .push(format!("config not readable: {}", path.display()));
+            return;
+        }
+    };
+    let value: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => {
+            client
+                .notes
+                .push(format!("config not parseable: {}", path.display()));
+            return;
+        }
+    };
+
+    client.configs.push(ConfigSource {
+        config_path: path.to_path_buf(),
+        source_id: "claude-code-cli".to_string(),
+        vu_a: Utc::now(),
+    });
+
+    if let Some(map) = value.get("mcpServers").and_then(|v| v.as_object()) {
+        for (nom, entry) in map {
+            if let Some(s) = serveur_depuis_entree(nom, entry) {
+                client.serveurs.push(s);
+            }
+        }
+    }
+}
+
+/// Parse a per-project `.mcp.json` file. These have the shape:
+/// `{ "mcpServers": { … } }` (top-level wrapper) OR just `{ <name>: {…} }`.
+fn parser_project_mcp(path: &Path, client: &mut ClientDecouvert) {
+    if !path.is_file() {
+        return;
+    }
+    let raw = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let value: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    client.configs.push(ConfigSource {
+        config_path: path.to_path_buf(),
+        source_id: "claude-code-cli".to_string(),
+        vu_a: Utc::now(),
+    });
+
+    // Prefer wrapped form.
+    let map_opt = value
+        .get("mcpServers")
+        .and_then(|v| v.as_object())
+        .or_else(|| value.as_object());
+
+    if let Some(map) = map_opt {
+        for (nom, entry) in map {
+            // Skip non-server top-level keys when the file is unwrapped.
+            if !entry.is_object() {
+                continue;
+            }
+            if let Some(s) = serveur_depuis_entree(nom, entry) {
+                client.serveurs.push(s);
+            }
+        }
+    }
+}
+
+/// Map a single `mcpServers[<name>]` JSON entry to our flat struct.
+///
+/// Handles three shapes:
+///   * stdio: `{ "command": "npx", "args": [...], "env": {...} }`
+///   * sse:   `{ "type": "sse",  "url": "https://…" }`
+///   * http:  `{ "type": "http", "url": "https://…" }`
+fn serveur_depuis_entree(nom: &str, entry: &Value) -> Option<ServeurMcpDeclare> {
+    let obj = entry.as_object()?;
+
+    let type_field = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let url = obj.get("url").and_then(|v| v.as_str()).map(str::to_string);
+    let disabled = obj
+        .get("disabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let env_keys: Vec<String> = obj
+        .get("env")
+        .and_then(|v| v.as_object())
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default();
+
+    let is_remote = matches!(type_field, "sse" | "http") || (url.is_some() && obj.get("command").is_none());
+
+    if is_remote {
+        return Some(ServeurMcpDeclare {
+            nom: nom.to_string(),
+            transport: "http".to_string(),
+            commande: None,
+            args: vec![],
+            env_keys,
+            url,
+            disabled,
+        });
+    }
+
+    // Stdio path. If neither command nor url present, skip.
+    let commande = obj
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    if commande.is_none() && url.is_none() {
+        return None;
+    }
+    let args: Vec<String> = obj
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+
+    Some(ServeurMcpDeclare {
+        nom: nom.to_string(),
+        transport: "stdio".to_string(),
+        commande,
+        args,
+        env_keys,
+        url,
+        disabled,
+    })
+}

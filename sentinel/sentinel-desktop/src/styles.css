@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    color: theme('colors.sentinel.text-primary');
+    background: #070a14;
+    font-feature-settings: 'ss01', 'cv01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: rgba(34, 211, 238, 0.40);
+    color: #fff;
+  }
+}
+
+@layer components {
+  /* App background — warm aurora (teal → violet → coral) over deep navy */
+  .app-bg {
+    background-color: #070a14;
+    background-image: theme('backgroundImage.aurora-1');
+    background-attachment: fixed;
+    background-size: 100% 100%;
+  }
+
+  /* Glass surfaces — more opaque than before, CleanMyMac feel */
+  .glass {
+    background: theme('colors.sentinel.glass-strong');
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid theme('colors.sentinel.glass-border');
+    box-shadow: theme('boxShadow.glass');
+  }
+  .glass-strong {
+    background: rgba(20, 27, 49, 0.78);
+    backdrop-filter: blur(32px) saturate(180%);
+    -webkit-backdrop-filter: blur(32px) saturate(180%);
+    border: 1px solid theme('colors.sentinel.glass-border');
+    box-shadow: theme('boxShadow.glass');
+  }
+  .glass-soft {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: theme('boxShadow.glass-soft');
+  }
+
+  /* Status pills */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-[11px] font-semibold tracking-wide uppercase;
+  }
+  .pill-green {
+    color: #d1fae5;
+    background: rgba(52, 211, 153, 0.18);
+    border: 1px solid rgba(52, 211, 153, 0.38);
+  }
+  .pill-orange,
+  .pill-amber {
+    color: #fef3c7;
+    background: rgba(251, 191, 36, 0.18);
+    border: 1px solid rgba(251, 191, 36, 0.40);
+  }
+  .pill-red,
+  .pill-coral {
+    color: #ffe4e6;
+    background: rgba(239, 68, 68, 0.20);
+    border: 1px solid rgba(239, 68, 68, 0.48);
+    box-shadow: 0 0 18px rgba(239, 68, 68, 0.22);
+  }
+  .pill-blue,
+  .pill-cyan {
+    color: #cffafe;
+    background: rgba(34, 211, 238, 0.18);
+    border: 1px solid rgba(34, 211, 238, 0.38);
+  }
+  .pill-violet {
+    color: #e9d5ff;
+    background: rgba(167, 139, 250, 0.18);
+    border: 1px solid rgba(167, 139, 250, 0.40);
+  }
+
+  /* Status dots */
+  .dot {
+    @apply inline-block h-2 w-2 rounded-full;
+  }
+  .dot-green {
+    background: theme('colors.sentinel.green');
+    box-shadow: theme('boxShadow.glow-green');
+  }
+  .dot-orange,
+  .dot-amber {
+    background: theme('colors.sentinel.amber');
+    box-shadow: theme('boxShadow.glow-amber');
+  }
+  .dot-red {
+    background: theme('colors.sentinel.red');
+    box-shadow: theme('boxShadow.glow-red');
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-pill px-3.5 py-2 text-sm font-medium transition-all duration-150;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
+  .btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .btn:active {
+    transform: translateY(0.5px) scale(0.99);
+  }
+  .btn-primary {
+    background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+    color: #042f1c;
+    border-color: rgba(52, 211, 153, 0.7);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    background: linear-gradient(180deg, #4ade80 0%, #22c55e 100%);
+  }
+  .btn-danger {
+    background: linear-gradient(180deg, #fb7185 0%, #f43f5e 100%);
+    color: #ffffff;
+    border-color: rgba(251, 113, 133, 0.7);
+    box-shadow: 0 6px 20px rgba(244, 63, 94, 0.40);
+  }
+  .btn-amber {
+    background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%);
+    color: #422006;
+    border-color: rgba(251, 191, 36, 0.7);
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.40);
+  }
+
+  /* Card */
+  .card {
+    @apply glass rounded-glass p-5;
+  }
+  .card-hover {
+    @apply card;
+    transition: transform 220ms cubic-bezier(0.2, 0, 0, 1), box-shadow 220ms;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.14) inset,
+      0 0 0 1px rgba(255, 255, 255, 0.10),
+      0 24px 60px rgba(0, 0, 0, 0.45);
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full rounded-pill px-3.5 py-2 text-sm;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: theme('colors.sentinel.text-primary');
+  }
+  .input:focus {
+    outline: none;
+    border-color: rgba(34, 211, 238, 0.6);
+    box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.20);
+  }
+
+  /* Section headings */
+  .section-heading {
+    @apply text-[10px] font-semibold uppercase tracking-[0.16em];
+    color: theme('colors.sentinel.text-tertiary');
+  }
+
+  /* Shimmer used for skeletons */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.05) 0%,
+      rgba(255, 255, 255, 0.12) 50%,
+      rgba(255, 255, 255, 0.05) 100%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer rounded-md;
+  }
+
+  /* Traffic-light area: extra space at the top of the sidebar */
+  .titlebar {
+    -webkit-app-region: drag;
+    padding-top: 18px;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  /* Global window-drag strip — top 28 px of the whole window is draggable so
+     the user can move the app from anywhere along the top edge. */
+  .window-drag-strip {
+    -webkit-app-region: drag;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 28px;
+    z-index: 1; /* below interactive UI but above background */
+  }
+}

@@ -1,0 +1,49 @@
+[workspace]
+
+[package]
+name = "sentinel-desktop"
+version = "0.1.0"
+description = "Sentinel MCP — Mac desktop app"
+authors = ["Sentinel MCP Team"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "sentinel_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "sentinel-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.9.2", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+toml = "0.8"
+notify = "6"
+dirs = "5"
+
+# Sentinel MCP crates — backend logic.
+sentinel-protocol = { path = "../../crates/sentinel-protocol" }
+sentinel-store = { path = "../../crates/sentinel-store" }
+sentinel-scan = { path = "../../crates/sentinel-scan" }
+sentinel-monitor = { path = "../../crates/sentinel-monitor" }
+sentinel-detect = { path = "../../crates/sentinel-detect" }
+sentinel-alerts = { path = "../../crates/sentinel-alerts" }
+sentinel-report = { path = "../../crates/sentinel-report" }
+sentinel-discovery = { path = "../../crates/sentinel-discovery" }

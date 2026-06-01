@@ -1,0 +1,45 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Rust
+target/
+**/target/
+Cargo.lock
+
+# Node / Vite / Tauri
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+
+# Tauri build artifacts (we ship the .dmg via Releases, not in git)
+sentinel/sentinel-desktop/src-tauri/target/
+sentinel/sentinel-desktop/src-tauri/gen/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+Thumbs.db
+ehthumbs.db
+
+# Tests output
+/tmp/sentinel-emails/
+/tmp/sentinel-mcp/

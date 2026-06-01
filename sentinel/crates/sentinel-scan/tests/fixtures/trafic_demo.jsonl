@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"agent-ia","version":"1.0.0"}}}
+{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"serveur-fichiers","version":"1.0.0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"read_file","description":"Lit un fichier depuis le système de fichiers local","inputSchema":{"type":"object","properties":{"path":{"type":"string","description":"Chemin absolu du fichier à lire"}},"required":["path"]}},{"name":"write_file","description":"Écrit du contenu dans un fichier local","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}}]}}

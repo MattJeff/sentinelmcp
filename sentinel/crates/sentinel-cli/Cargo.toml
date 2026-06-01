@@ -1,0 +1,28 @@
+[package]
+name = "sentinel-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sentinel"
+path = "src/main.rs"
+
+[dependencies]
+sentinel-protocol = { workspace = true }
+sentinel-store = { workspace = true }
+sentinel-scan = { workspace = true }
+sentinel-monitor = { workspace = true }
+sentinel-detect = { workspace = true }
+sentinel-alerts = { workspace = true }
+sentinel-report = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
