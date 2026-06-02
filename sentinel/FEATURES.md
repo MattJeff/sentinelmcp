@@ -6,6 +6,10 @@ ses agents IA. Cette page liste **toutes** les fonctionnalités livrées dans
 la version 0.2.0 — à quoi elles servent, dans quel cas elles se déclenchent,
 et quelles questions de sécurité ou de conformité elles résolvent.
 
+> Note v0.3 : ajoute l'export **STIX 2.1 / push TAXII 2.1** (canal
+> d'intégration SOC/GRC) et la **signature Developer ID + notarisation
+> Apple** du bundle desktop (installation sans avertissement Gatekeeper).
+
 Le document n'est pas un manuel d'API ni un guide d'installation. C'est la
 référence à donner à un auditeur, un acheteur ou un nouveau membre de
 l'équipe pour comprendre ce que l'application fait, sans avoir à lire le
@@ -97,7 +101,7 @@ workspace et d'une UI Tauri 2 + React 19.
 | sentinel-discovery   | Lecture des configs des 12 clients IA, threat intel feed     |
 | sentinel-cli         | Interface ligne de commande (scan, report, list…)            |
 
-L'interface Tauri appelle ces crates via 38 commandes exposées par
+L'interface Tauri appelle ces crates via 42 commandes exposées par
 l'application desktop. Chaque action de l'UI (bouton, toggle, dialog)
 est câblée à une commande Tauri et persiste son effet.
 
@@ -687,7 +691,14 @@ Chaque détection est mappée nativement vers OWASP MCP, SAFE-MCP, SOC 2
 et ISO 27001. Le rapport signé Ed25519 est utilisable tel quel par un
 auditeur, sans retraitement.
 
-### Surveillance temps réel (différenciateur n°6)
+### Export STIX 2.1 / push TAXII 2.1 (différenciateur n°6)
+
+Sentinel exporte les constats et indicateurs au format **STIX 2.1**
+(bundle JSON) et peut les pousser automatiquement vers une **collection
+TAXII 2.1** externe (SOC, GRC, plateforme TIP). Intégration directe
+dans les flux de threat intel d'entreprise, sans retraitement.
+
+### Surveillance temps réel (différenciateur n°7)
 
 Sentinel tourne en continu : boucle tokio + file watcher (`notify`)
 sur les fichiers de config. Tout changement de `mcpServers` est
@@ -859,12 +870,19 @@ Ed25519 stockée dans le dossier de support. La signature est
 vérifiable hors-ligne par n'importe quel tiers via la clé publique
 embarquée dans le bundle.
 
+### Distribution signée et notarisée Apple
+
+L'application est **signée Developer ID Application** et **notarisée
+Apple** (notarization ticket agrafé au bundle). Conséquence : elle
+s'installe sans avertissement Gatekeeper sur n'importe quelle machine
+macOS, sans manipulation `xattr` ni clic-droit « Ouvrir ».
+
 ### Sandbox Tauri 2
 
 - CSP désactivée seulement pour permettre les SVG inline du Trust
   graph, sinon stricte.
 - Aucun accès filesystem global : les commandes Rust qui lisent /
-  écrivent sont enumérées et auditables (38 commandes en tout).
+  écrivent sont enumérées et auditables (42 commandes en tout).
 - Aucun shell exec arbitraire : seul `nouveau` (le wrapper stdio)
   spawne des processus, et seulement après résolution absolue du
   binaire.
@@ -874,9 +892,6 @@ embarquée dans le bundle.
 ## 19. Limites connues
 
 - Couverture macOS uniquement en v0.2.0 (Apple Silicon — Tauri 2).
-- Pas encore d'export STIX/TAXII (prévu en v0.3).
-- Pas de signature Apple Developer ID (l'utilisateur doit autoriser
-  l'application via Gatekeeper à la première ouverture).
 - Pas de plugin Cursor / Continue / Aider pour interception en flux —
   passage par le proxy mode B nécessaire si on veut capter le trafic
   HTTP runtime.
@@ -890,7 +905,7 @@ embarquée dans le bundle.
 
 ## Annexe — Cartographie des commandes Tauri
 
-L'application expose 38 commandes Tauri, regroupées par module :
+L'application expose 42 commandes Tauri, regroupées par module :
 
 - **Scan / discovery** : `start_scan`, `stop_scan`, `scan_progress`,
   `discover_clients`, `probe_live`.
@@ -902,6 +917,8 @@ L'application expose 38 commandes Tauri, regroupées par module :
 - **Proxy** : `start_proxy`, `stop_proxy`, `proxy_status`.
 - **Lookalikes** : `scan_lookalikes`.
 - **SIEM** : `siem_test_send`, `siem_save_config`, `siem_get_config`.
+- **STIX / TAXII** : `stix_export_bundle`, `taxii_save_config`,
+  `taxii_get_config`, `taxii_test_send`.
 - **Alerts** : `list_alerts`, `test_email_channel`, `test_webhook_channel`.
 - **Settings** : `load_settings`, `save_settings`, `set_live_interval`,
   `get_live_status`.

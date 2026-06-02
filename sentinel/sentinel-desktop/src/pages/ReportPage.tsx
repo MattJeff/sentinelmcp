@@ -14,6 +14,7 @@ import {
   FileText,
   FileJson,
   Lock,
+  Share2,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ import {
 import { api } from '../api/tauri';
 import type { ReportBundle } from '../api/contract';
 import MarkdownView from '../components/MarkdownView';
+import { useToastStore } from '../hooks/useToast';
 
 const SWR_KEY = 'generate_report';
 
@@ -41,10 +43,19 @@ function formatTimestamp(iso: string | null): string {
   return iso;
 }
 
+function basename(path: string): string {
+  // Tolerate both POSIX and Windows separators since the backend hands us
+  // whatever the host filesystem produced.
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
 export default function ReportPage() {
   const [activeTab, setActiveTab] = useState<TabId>('executive');
   const [generating, setGenerating] = useState(false);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
+  const [exportingStix, setExportingStix] = useState(false);
+  const pushToast = useToastStore((s) => s.push);
 
   // SWR cache only — we never fetch on mount; bundle generation is explicit.
   const { data, mutate } = useSWR<ReportBundle | null>(SWR_KEY, null, {
@@ -74,6 +85,34 @@ export default function ReportPage() {
       await api.openReportFile(path);
     } finally {
       setOpeningPath(null);
+    }
+  };
+
+  // Export a STIX 2.1 bundle of the current Sentinel state, then reveal the
+  // resulting `.stix.json` file in the system file browser. Errors are
+  // surfaced through the global toast store so the user gets actionable
+  // feedback even when the Tauri command fails (e.g. permission denied).
+  const handleExportStix = async () => {
+    setExportingStix(true);
+    try {
+      const { path } = await api.stixExportBundle();
+      // Reuse the existing "open in Finder" path so STIX bundles behave
+      // exactly like the PDF/JSON artefacts: the OS picks a sensible
+      // default (Finder reveal on macOS, Explorer on Windows).
+      await api.openReportFile(path);
+      pushToast({
+        title: `STIX bundle exported to ${basename(path)}`,
+        description: path,
+        severity: 'info',
+      });
+    } catch (err) {
+      pushToast({
+        title: 'STIX export failed',
+        description: err instanceof Error ? err.message : String(err),
+        severity: 'high',
+      });
+    } finally {
+      setExportingStix(false);
     }
   };
 
@@ -134,6 +173,24 @@ export default function ReportPage() {
                 >
                   <FileJson className="w-4 h-4" />
                   Open JSON
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={exportingStix}
+                  onClick={handleExportStix}
+                >
+                  {exportingStix ? (
+                    <>
+                      <span className="skeleton h-3 w-3 rounded-full" />
+                      Exporting…
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-4 h-4" />
+                      Export STIX bundle
+                    </>
+                  )}
                 </button>
                 <button
                   type="button"

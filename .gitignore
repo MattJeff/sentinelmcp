@@ -36,6 +36,13 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
+# Apple signing / notarization artifacts — never commit these
+*.p12
+*.provisionprofile
+*.cer
+*.mobileprovision
+*.certSigningRequest
+
 # OS
 Thumbs.db
 ehthumbs.db

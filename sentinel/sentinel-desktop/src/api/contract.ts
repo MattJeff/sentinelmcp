@@ -563,6 +563,7 @@ export const COMMANDS = {
   listBaselines: 'list_baselines',
   generateReport: 'generate_report',
   openReportFile: 'open_report_file',
+  stixExportBundle: 'stix_export_bundle',
   executiveSummary: 'executive_summary',
   complianceReferences: 'compliance_references',
   appVersion: 'app_version',

@@ -1,0 +1,41 @@
+{
+  "$id": "sentinel://stix/2.1/common.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "STIX 2.1 common definitions",
+  "description": "Self-contained subset of OASIS STIX 2.1 common types, re-extracted for offline JSON Schema validation in sentinel-stix. Not authoritative; see LICENSE-STIX-SCHEMAS.md for attribution.",
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "description": "STIX 2.1 identifier: <type>--<UUIDv4 or v5>.",
+      "pattern": "^[a-z][a-z0-9-]+--[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "RFC 3339 timestamp with mandatory 'Z' suffix or numeric offset.",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "spec_version_2_1": {
+      "type": "string",
+      "enum": ["2.1"]
+    },
+    "external_reference": {
+      "type": "object",
+      "properties": {
+        "source_name": { "type": "string" },
+        "description": { "type": "string" },
+        "url": { "type": "string" },
+        "external_id": { "type": "string" },
+        "hashes": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["source_name"],
+      "additionalProperties": true
+    },
+    "labels": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

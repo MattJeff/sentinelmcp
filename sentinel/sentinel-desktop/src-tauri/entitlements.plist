@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Sentinel macOS entitlements (hardened runtime + notarization compatible).
+
+    Principle: minimal & restrictive. Only entitlements strictly required by
+    Sentinel's runtime behavior are enabled. The app is NOT sandboxed
+    (no com.apple.security.app-sandbox) because Sentinel spawns arbitrary
+    MCP stdio servers via npx/uvx and performs filesystem export to
+    user-chosen locations; the App Sandbox would block these flows.
+
+    Explicitly NOT included:
+      - com.apple.security.cs.allow-jit
+          Tauri 2's macOS WKWebView does not require a JIT entitlement for
+          the host process by default. Omitting it reduces attack surface.
+      - com.apple.security.cs.allow-unsigned-executable-memory
+          Not needed; we do not generate or map unsigned executable pages
+          inside the Sentinel host process.
+      - com.apple.security.network.server
+          Sentinel is a client only (registry lookups, SMTP, webhooks,
+          SIEM, TAXII). It does not listen on sockets.
+      - com.apple.security.app-sandbox
+          Sentinel is intentionally non-sandboxed (see above).
+-->
+<plist version="1.0">
+<dict>
+
+    <!--
+        com.apple.security.cs.disable-library-validation = true
+        Required: Sentinel spawns child processes via `npx` and `uvx` to
+        launch MCP stdio servers. These child processes load Node.js
+        native addons (.node) and Python C-extensions that are signed by
+        third parties (or unsigned) and not by Sentinel's Team ID.
+        Without disabling library validation, dyld refuses to load those
+        libraries inside child processes inheriting our code signature,
+        causing MCP servers to crash at startup.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!--
+        com.apple.security.cs.allow-dyld-environment-variables = true
+        Required: npm/npx/uvx and the Node.js / Python runtimes they
+        invoke depend on environment variables such as PATH, NODE_PATH,
+        DYLD_FALLBACK_LIBRARY_PATH, and PYTHONPATH to resolve modules and
+        shared libraries. Under hardened runtime, DYLD_* variables are
+        scrubbed by dyld unless this entitlement is set.
+    -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!--
+        com.apple.security.network.client = true
+        Required: Sentinel performs outbound HTTPS/TCP connections for:
+          - Domain/IP/package registry lookups (typosquat & lookalike checks)
+          - SMTP alert delivery
+          - Outbound webhook notifications
+          - SIEM forwarding (Splunk HEC, Elastic, syslog)
+          - TAXII / threat intel feeds
+        (Only relevant when App Sandbox is enabled, but harmless and
+        explicit under hardened runtime.)
+    -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!--
+        com.apple.security.files.user-selected.read-write = true
+        Required: the user explicitly picks a destination folder via the
+        macOS Open/Save panel to export investigation reports as PDF,
+        JSON, or STIX bundles. This entitlement grants write access
+        scoped to user-selected paths only (no broad disk access).
+    -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+</dict>
+</plist>

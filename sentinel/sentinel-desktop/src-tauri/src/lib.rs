@@ -11,6 +11,8 @@ mod commands_lookalikes;
 mod commands_proxy;
 mod commands_settings;
 mod commands_siem;
+mod commands_stix;
+mod commands_taxii;
 mod state;
 
 use tauri::Manager;
@@ -62,6 +64,10 @@ pub fn run() {
             commands_siem::siem_test_send,
             commands_siem::siem_save_config,
             commands_siem::siem_get_config,
+            commands_taxii::taxii_test_send,
+            commands_taxii::taxii_save_config,
+            commands_taxii::taxii_get_config,
+            commands_stix::stix_export_bundle,
         ])
         .setup(|app| {
             log::info!("Sentinel MCP desktop launched");

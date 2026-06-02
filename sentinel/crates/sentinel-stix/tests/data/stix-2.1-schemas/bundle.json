@@ -1,0 +1,30 @@
+{
+  "$id": "sentinel://stix/2.1/bundle.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "STIX 2.1 bundle (subset)",
+  "description": "Validates only the bundle envelope (type, id, objects array). Individual objects are validated separately, each against its own per-type schema.",
+  "type": "object",
+  "properties": {
+    "type": { "type": "string", "const": "bundle" },
+    "id": {
+      "type": "string",
+      "pattern": "^bundle--[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]+--[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          }
+        },
+        "required": ["type", "id"]
+      }
+    }
+  },
+  "required": ["type", "id", "objects"],
+  "additionalProperties": true
+}

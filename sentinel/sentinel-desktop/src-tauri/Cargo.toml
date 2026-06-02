@@ -47,3 +47,5 @@ sentinel-detect = { path = "../../crates/sentinel-detect" }
 sentinel-alerts = { path = "../../crates/sentinel-alerts" }
 sentinel-report = { path = "../../crates/sentinel-report" }
 sentinel-discovery = { path = "../../crates/sentinel-discovery" }
+sentinel-stix = { path = "../../crates/sentinel-stix" }
+sentinel-taxii = { path = "../../crates/sentinel-taxii" }

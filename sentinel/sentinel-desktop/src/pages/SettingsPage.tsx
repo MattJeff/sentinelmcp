@@ -19,6 +19,7 @@ import {
 } from '../api/contract';
 import SettingRow from '../components/SettingRow';
 import SiemSettings from '../components/settings/SiemSettings';
+import TaxiiSettings from '../components/settings/TaxiiSettings';
 
 // ─── Settings model + store ────────────────────────────────────────────────
 
@@ -557,6 +558,19 @@ export default function SettingsPage() {
         >
           <SectionHeading id="settings-siem" title="SIEM" />
           <SiemSettings />
+        </section>
+
+        {/* ── STIX / TAXII ── */}
+        <section
+          className="card min-w-0 min-[1100px]:col-span-2"
+          aria-labelledby="settings-taxii"
+        >
+          <SectionHeading id="settings-taxii" title="STIX / TAXII" />
+          <p className="mb-2 text-[12px] text-sentinel-text-tertiary">
+            Export findings as STIX 2.1 and push to a TAXII 2.1 collection
+            (SOC/GRC integration).
+          </p>
+          <TaxiiSettings outboundEnabled={draft.privacy.outboundLookups} />
         </section>
 
         {/* ── Retention ── */}

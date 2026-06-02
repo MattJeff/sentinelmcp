@@ -1,0 +1,69 @@
+{
+  "$id": "sentinel://stix/2.1/indicator.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "STIX 2.1 indicator (subset)",
+  "type": "object",
+  "properties": {
+    "type": { "type": "string", "const": "indicator" },
+    "spec_version": { "type": "string", "const": "2.1" },
+    "id": {
+      "type": "string",
+      "pattern": "^indicator--[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "created": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "modified": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "valid_from": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "valid_until": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "pattern": { "type": "string", "minLength": 1 },
+    "pattern_type": { "type": "string", "minLength": 1 },
+    "pattern_version": { "type": "string" },
+    "indicator_types": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "labels": { "type": "array", "items": { "type": "string" } },
+    "external_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_name": { "type": "string" },
+          "url": { "type": "string" },
+          "external_id": { "type": "string" }
+        },
+        "required": ["source_name"],
+        "additionalProperties": true
+      }
+    },
+    "kill_chain_phases": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "created",
+    "modified",
+    "pattern",
+    "pattern_type",
+    "valid_from"
+  ],
+  "additionalProperties": true
+}

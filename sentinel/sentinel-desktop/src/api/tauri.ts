@@ -70,6 +70,17 @@ export const api = {
     call<BaselineSummary[]>(COMMANDS.listBaselines, { serverId }),
   generateReport: () => call<ReportBundle>(COMMANDS.generateReport),
   openReportFile: (path: string) => call<{ ok: boolean }>(COMMANDS.openReportFile, { path }),
+  /**
+   * Export a signed STIX 2.1 bundle of the current Sentinel state to disk
+   * and return the absolute path of the resulting `.stix.json` file. The
+   * backend command (`stix_export_bundle`) is responsible for serialising
+   * the bundle via `sentinel-stix::export_bundle` and writing it to a
+   * stable location alongside the other report artefacts.
+   *
+   * Temporary wrapper — once the Tauri command lands the shape below
+   * (`{ path: string }`) becomes the canonical contract.
+   */
+  stixExportBundle: () => call<{ path: string }>(COMMANDS.stixExportBundle),
   executiveSummary: () => call<ExecutiveSummary>(COMMANDS.executiveSummary),
   complianceReferences: () => call<ComplianceReference[]>(COMMANDS.complianceReferences),
   appVersion: () => call<string>(COMMANDS.appVersion),
@@ -191,6 +202,65 @@ export const api = {
    * object (empty `kind`, null fields) when no config has been saved.
    */
   siemGetConfig: () => call<SiemConfig>(COMMANDS.siemGetConfig),
+};
+
+// ─── STIX / TAXII (V0.3) ──────────────────────────────────────────────────
+// Exposes the backend bridge that turns Sentinel findings into a STIX 2.1
+// bundle and pushes it through a TAXII 2.1 collection. Wrappers are exported
+// at module scope (independent of the `api` surface) so they can be imported
+// directly by `SettingsPage.tsx` without bloating the shared object.
+
+export type TaxiiAuth =
+  | { kind: 'none' }
+  | { kind: 'basic'; user: string; pass: string }
+  | { kind: 'bearer'; token: string };
+
+export interface TaxiiConfig {
+  enabled: boolean;
+  api_root_url: string;
+  collection_id: string;
+  auth: TaxiiAuth;
+  verify_tls: boolean;
+}
+
+export interface TaxiiTestResult {
+  ok: boolean;
+  status_code: number | null;
+  message: string;
+  taxii_status_id: string | null;
+}
+
+const TAXII_DEFAULT: TaxiiConfig = {
+  enabled: false,
+  api_root_url: '',
+  collection_id: '',
+  auth: { kind: 'none' },
+  verify_tls: true,
+};
+
+export const stix_export_bundle = (): Promise<string> => {
+  if (hasTauri) return invoke<string>('stix_export_bundle');
+  return Promise.resolve('{"type":"bundle","id":"bundle--mock","objects":[]}');
+};
+
+export const taxii_save_config = (config: TaxiiConfig): Promise<void> => {
+  if (hasTauri) return invoke<void>('taxii_save_config', { config });
+  return Promise.resolve();
+};
+
+export const taxii_get_config = (): Promise<TaxiiConfig> => {
+  if (hasTauri) return invoke<TaxiiConfig>('taxii_get_config');
+  return Promise.resolve({ ...TAXII_DEFAULT });
+};
+
+export const taxii_test_send = (): Promise<TaxiiTestResult> => {
+  if (hasTauri) return invoke<TaxiiTestResult>('taxii_test_send');
+  return Promise.resolve({
+    ok: true,
+    status_code: 202,
+    message: 'Mock TAXII collection accepted the bundle.',
+    taxii_status_id: 'mock-status-0000',
+  });
 };
 
 export async function onScanProgress(cb: (p: ScanProgress) => void): Promise<UnlistenFn> {
@@ -317,6 +387,13 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
       error: null,
     };
     return Promise.resolve(result as unknown as T);
+  }
+  // STIX export mock: synthesise a fake bundle path so the Report page is
+  // interactive in browser dev mode. Real backend writes the actual file.
+  if (name === COMMANDS.stixExportBundle) {
+    return Promise.resolve({
+      path: '/tmp/sentinel-mcp/sentinel-bundle.stix.json',
+    } as unknown as T);
   }
   // Synthesise a successful probe so the Discovery page is interactive in dev.
   if (name === COMMANDS.probeServer) {
