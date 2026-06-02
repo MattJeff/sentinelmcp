@@ -20,12 +20,53 @@ import { api } from '../api/tauri';
 import {
   COMMANDS,
   type ApprovalDecision,
+  type DiscoveredClient,
+  type DiscoveredClientKind,
+  type DiscoveryReport,
+  type EnforcementRemoveResult,
+  type Investigation,
   type ProbeResult,
   type ServerDetail,
   type ServerStatus,
+  type Settings,
   type Tool,
 } from '../api/contract';
 import ToolList from './ToolList';
+import InvestigateDialog, {
+  subscribeInvestigations,
+} from './InvestigateDialog';
+import EnforcementConfirmDialog from './EnforcementConfirmDialog';
+import { useToastStore } from '../hooks/useToast';
+
+interface DeclaringClient {
+  kind: DiscoveredClientKind;
+  configPath: string | null;
+}
+
+/**
+ * Walk the Discovery snapshot to find which AI client declares `endpoint`.
+ * Mirrors the helper used on the Approvals page.
+ */
+function findDeclaringClient(
+  report: DiscoveryReport | undefined,
+  endpoint: string,
+): DeclaringClient | null {
+  if (!report) return null;
+  const needle = deriveServerName(endpoint).toLowerCase();
+  for (const client of report.clients as DiscoveredClient[]) {
+    if (!client.installed) continue;
+    const match = client.servers.find(
+      (s) => s.name.toLowerCase() === needle,
+    );
+    if (match) {
+      return {
+        kind: client.kind,
+        configPath: client.configs[0] ?? null,
+      };
+    }
+  }
+  return null;
+}
 
 export interface ServerDetailDrawerProps {
   serverId: string | null;
@@ -93,6 +134,19 @@ export default function ServerDetailDrawer({
   // Per-decision loading state — only one action runs at a time.
   const [busy, setBusy] = useState<ApprovalDecision['decision'] | null>(null);
 
+  // Surface the enforcement toggle + Discovery snapshot so the Block button
+  // knows whether to escalate to the rewrite dialog and which config to
+  // surface in it.
+  const { data: settings } = useSWR<Settings>(
+    COMMANDS.getSettings,
+    () => api.getSettings(),
+  );
+  const { data: discovery } = useSWR<DiscoveryReport>(
+    COMMANDS.discoverSystem,
+    () => api.discoverSystem(),
+  );
+  const enforcementEnabled = settings?.enforcement?.enabled ?? false;
+
   // Live probe state.
   const [probing, setProbing] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
@@ -101,11 +155,54 @@ export default function ServerDetailDrawer({
   // Copy-fingerprint feedback.
   const [copied, setCopied] = useState(false);
 
+  // Investigate dialog target + past investigation entries for this server.
+  const [investigateOpen, setInvestigateOpen] = useState(false);
+  const [investigations, setInvestigations] = useState<Investigation[]>([]);
+
+  // Enforcement dialog state — only meaningful when `enforcementEnabled`.
+  const [enforceOpen, setEnforceOpen] = useState(false);
+  const [lastBackup, setLastBackup] = useState<EnforcementRemoveResult | null>(
+    null,
+  );
+  const [restoring, setRestoring] = useState(false);
+
+  const pushToast = useToastStore((s) => s.push);
+
   // Reset transient state whenever the drawer switches servers.
   useEffect(() => {
     setProbeResult(null);
     setProbeError(null);
     setCopied(false);
+    setInvestigateOpen(false);
+    setEnforceOpen(false);
+    setLastBackup(null);
+  }, [serverId]);
+
+  // Load past investigation notes whenever the drawer opens on a new server,
+  // and refresh on every store update (e.g. after the dialog records one).
+  useEffect(() => {
+    if (!serverId) {
+      setInvestigations([]);
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      api
+        .listInvestigations(serverId)
+        .then((entries) => {
+          if (!cancelled) setInvestigations(entries);
+        })
+        .catch((err) => {
+          console.error('[ServerDetailDrawer] listInvestigations failed', err);
+          if (!cancelled) setInvestigations([]);
+        });
+    };
+    refresh();
+    const unsubscribe = subscribeInvestigations(refresh);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [serverId]);
 
   // Close on Escape.
@@ -501,6 +598,49 @@ export default function ServerDetailDrawer({
                   </a>
                 </div>
               </section>
+
+              {/* Investigations — past notes attached to this server */}
+              <section className="card animate-fade-up">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="section-heading">
+                    Investigations ({investigations.length})
+                  </div>
+                  <button
+                    type="button"
+                    className="text-[12px] text-sentinel-blue-glow hover:underline no-drag"
+                    onClick={() => setInvestigateOpen(true)}
+                  >
+                    Open new
+                  </button>
+                </div>
+                {investigations.length === 0 ? (
+                  <p className="text-[12px] text-sentinel-text-tertiary">
+                    No investigation has been opened on this server yet.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {investigations.map((entry) => (
+                      <li
+                        key={entry.id}
+                        className="rounded-glass border border-white/10 bg-black/20 p-3"
+                      >
+                        <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-sentinel-text-primary">
+                          {entry.note}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-sentinel-text-tertiary">
+                          <span className="font-medium text-sentinel-text-secondary">
+                            {entry.operator ?? entry.created_by}
+                          </span>
+                          <span aria-hidden>·</span>
+                          <time dateTime={entry.created_at}>
+                            {formatAppleDate(entry.created_at)}
+                          </time>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </>
           )}
         </div>
@@ -524,20 +664,22 @@ export default function ServerDetailDrawer({
             type="button"
             className="btn no-drag flex-1 justify-center"
             disabled={busy !== null || !serverId}
-            onClick={() => handleApproval('investigate')}
+            onClick={() => setInvestigateOpen(true)}
           >
-            {busy === 'investigate' ? (
-              <Loader2 size={14} className="animate-spin" aria-hidden />
-            ) : (
-              <Search size={14} />
-            )}
+            <Search size={14} />
             Investigate
           </button>
           <button
             type="button"
             className="btn btn-danger no-drag flex-1 justify-center"
             disabled={busy !== null || !serverId}
-            onClick={() => handleApproval('block')}
+            onClick={() => {
+              // Enforcement is opt-in. When enabled, route the Block click
+              // through the second-confirmation dialog (config rewrite +
+              // backup); otherwise keep the advisory status update.
+              if (enforcementEnabled) setEnforceOpen(true);
+              else void handleApproval('block');
+            }}
           >
             {busy === 'block' ? (
               <Loader2 size={14} className="animate-spin" aria-hidden />
@@ -547,7 +689,126 @@ export default function ServerDetailDrawer({
             Block
           </button>
         </footer>
+        {lastBackup && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="border-t border-white/[0.08] px-4 py-2 flex items-center gap-2 text-[11px] text-sentinel-text-secondary glass-soft"
+          >
+            <span className="font-mono truncate flex-1 min-w-0" title={lastBackup.backup_path}>
+              Backup: {lastBackup.backup_path}
+            </span>
+            <button
+              type="button"
+              className="no-drag text-sentinel-blue-glow hover:underline disabled:opacity-60 shrink-0"
+              disabled={restoring}
+              onClick={async () => {
+                if (!lastBackup || restoring) return;
+                setRestoring(true);
+                try {
+                  const r = await api.enforcementRestore(
+                    lastBackup.backup_path,
+                  );
+                  if (r.ok) {
+                    pushToast({
+                      title: 'Restored from backup',
+                      description: r.config_path,
+                      severity: 'info',
+                    });
+                    setLastBackup(null);
+                    await Promise.all([
+                      mutate(),
+                      globalMutate(COMMANDS.getServerDetail),
+                      globalMutate(COMMANDS.listServers),
+                    ]);
+                  } else {
+                    pushToast({
+                      title: 'Restore failed',
+                      description: r.error ?? 'Unknown error',
+                      severity: 'high',
+                    });
+                  }
+                } catch (err) {
+                  pushToast({
+                    title: 'Restore failed',
+                    description:
+                      err instanceof Error ? err.message : String(err),
+                    severity: 'high',
+                  });
+                } finally {
+                  setRestoring(false);
+                }
+              }}
+            >
+              {restoring ? 'Restoring…' : 'Restore from backup'}
+            </button>
+          </div>
+        )}
       </aside>
+
+      <InvestigateDialog
+        serverId={investigateOpen && serverId ? serverId : null}
+        endpoint={server?.endpoint ?? null}
+        onOpenChange={(next) => setInvestigateOpen(next)}
+        onSubmitted={async () => {
+          // Refresh the drawer's own detail plus any inventory/approvals
+          // consumers, mirroring how `handleApproval` revalidates the cache.
+          await Promise.all([
+            mutate(),
+            globalMutate(COMMANDS.getServerDetail),
+            globalMutate(COMMANDS.listServers),
+          ]);
+        }}
+      />
+
+      <EnforcementConfirmDialog
+        open={enforceOpen}
+        onOpenChange={setEnforceOpen}
+        endpoint={server?.endpoint ?? null}
+        configPath={
+          server ? findDeclaringClient(discovery, server.endpoint)?.configPath ?? null : null
+        }
+        backupPath={(() => {
+          if (!server) return null;
+          const cfg = findDeclaringClient(discovery, server.endpoint)?.configPath;
+          return cfg ? `${cfg}.sentinel-backup` : null;
+        })()}
+        onConfirm={async () => {
+          if (!serverId || !server) return;
+          const declaring = findDeclaringClient(discovery, server.endpoint);
+          try {
+            const result = await api.enforcementRemoveServer(
+              serverId,
+              declaring?.kind ?? null,
+            );
+            setEnforceOpen(false);
+            if (result.ok) {
+              setLastBackup(result);
+              pushToast({
+                title: 'Removed from AI client config',
+                description: `Config: ${result.config_path} · Backup: ${result.backup_path}`,
+                severity: 'info',
+              });
+              // Mirror the advisory side-effect: mark the server Bloque in
+              // Sentinel's own audit trail via the usual approval pipeline.
+              await handleApproval('block');
+            } else {
+              pushToast({
+                title: 'Enforcement failed',
+                description: result.error ?? 'Unknown error',
+                severity: 'high',
+              });
+            }
+          } catch (err) {
+            setEnforceOpen(false);
+            pushToast({
+              title: 'Enforcement failed',
+              description: err instanceof Error ? err.message : String(err),
+              severity: 'high',
+            });
+          }
+        }}
+      />
     </div>
   );
 }

@@ -63,6 +63,12 @@ export interface Finding {
   state: 'open' | 'investigating' | 'resolved' | 'ignored';
 }
 
+/** Payload for the `resolve_finding` command — marks a finding as resolved. */
+export interface ResolveFindingInput {
+  finding_id: string;
+  note: string | null;
+}
+
 export interface Alert {
   id: string;
   finding_id: string;
@@ -80,6 +86,13 @@ export interface ScanProgress {
   tools_discovered: number;
   time_to_first_red_ms: number | null;
   log_line?: string;
+}
+
+/** Parameters accepted by `start_scan`. */
+export interface ScanParams {
+  mode?: 'stdio' | 'http';
+  /** Required when `mode === 'http'`: the Streamable HTTP MCP endpoint to probe. */
+  httpUrl?: string | null;
 }
 
 export interface ExecutiveSummary {
@@ -259,6 +272,27 @@ export interface ThreatEntry {
   matches_count: number;
 }
 
+// ─── Lookalike scan (scan_lookalikes) ─────────────────────────────────────
+// One row returned by the registry-backed brand-similarity sweep. A match
+// means a registry entry whose name/description is suspiciously close to
+// one of the user's own declared servers but is NOT the exact same
+// identifier (i.e. a likely typo-squat / doppelganger).
+
+export interface LookalikeMatch {
+  /** Declared package on this Mac (server name). */
+  declared_package: string;
+  /** Short id of the registry where the candidate was found. */
+  registry: string;
+  /** Candidate name as published in the registry. */
+  candidate_name: string;
+  /** Candidate description as published in the registry. */
+  candidate_description: string;
+  /** Combined similarity score in [0.0 ; 1.0]. */
+  similarity_score: number;
+  /** "critical" | "high" | "medium". */
+  severity: string;
+}
+
 export interface DiscoveredClient {
   kind: DiscoveredClientKind;
   label: string;
@@ -341,11 +375,56 @@ export interface SettingsPrivacy {
   outbound_lookups: boolean;
 }
 
+/**
+ * Optional enforcement mode added by V8.
+ * When `enabled` is true, the Block action in the Approvals queue and the
+ * ServerDetailDrawer footer triggers a real removal of the server from the
+ * declaring AI-client config file, with a timestamped backup written next
+ * to it. OFF by default — Sentinel stays read-only until the operator
+ * explicitly opts in.
+ */
+export interface SettingsEnforcement {
+  enabled: boolean;
+}
+
 export interface Settings {
   capture: SettingsCapture;
   alerts: SettingsAlerts;
   retention: SettingsRetention;
   privacy: SettingsPrivacy;
+  enforcement: SettingsEnforcement;
+}
+
+// ─── Enforcement DTOs (mirrors src-tauri/src/commands_enforcement.rs) ──────
+
+/**
+ * Outcome of an enforcement removal — emitted by `enforcement_remove_server`.
+ * `config_path` is the AI-client config file Sentinel rewrote; `backup_path`
+ * is the absolute path of the timestamped backup written next to it.
+ */
+export interface EnforcementRemoveResult {
+  ok: boolean;
+  server_id: string;
+  /** Client whose config was edited. */
+  client_kind: DiscoveredClientKind | null;
+  /** Absolute path of the config file that was rewritten. */
+  config_path: string;
+  /** Absolute path of the backup written next to the config. */
+  backup_path: string;
+  /** Populated when `ok === false`. */
+  error: string | null;
+}
+
+/**
+ * Outcome of an enforcement restore — emitted by `enforcement_restore`.
+ * Re-inserts the previously removed declaration from the backup file and
+ * returns the same paths so the UI can confirm the round-trip.
+ */
+export interface EnforcementRestoreResult {
+  ok: boolean;
+  config_path: string;
+  backup_path: string;
+  error: string | null;
 }
 
 // ─── Test email channel DTOs ───────────────────────────────────────────────
@@ -398,6 +477,57 @@ export interface LiveTick {
   findings_total: number;
 }
 
+// ─── Investigations (create_investigation / list_investigations) ──────────
+// An investigation is a persisted free-form note attached to a server, opened
+// from the "Investigate" action. Surfaced in the audit trail.
+
+export interface Investigation {
+  id: string;
+  server_id: string;
+  note: string;
+  created_by: string;
+  /**
+   * Mirror of `created_by` exposed for compatibility with UI components
+   * written against the legacy "operator" shape. Populated by the TS wrapper.
+   */
+  operator: string;
+  created_at: string; // ISO-8601
+  state: string; // 'ouvert' by default
+}
+
+// ─── SIEM sink configuration (siem_test_send / siem_save_config /
+//     siem_get_config) — mirrors src-tauri/src/commands_siem.rs.
+//
+// Three backends are supported. `kind` selects which fields are required:
+//   * `"splunk"`  — `url` (HEC URL) + `token`.
+//   * `"elastic"` — `url` (cluster base URL) + `index`; optional Basic
+//     auth via `user` + `pass`.
+//   * `"syslog"`  — `addr` (`host:port`, UDP).
+// Unused fields may be `null` or omitted.
+
+export type SiemKind = 'splunk' | 'elastic' | 'syslog';
+
+export interface SiemConfig {
+  kind: SiemKind | string;
+  url?: string | null;
+  token?: string | null;
+  index?: string | null;
+  user?: string | null;
+  pass?: string | null;
+  addr?: string | null;
+}
+
+// ─── Active MCP proxy (start_proxy / stop_proxy / proxy_status) ───────────
+// Snapshot of the local mode-B proxy task (sentinel_scan::http::proxy::ProxyMcp).
+// `port` and `upstream` are null while the proxy is idle.
+
+export interface ProxyStatus {
+  running: boolean;
+  port: number | null;
+  upstream: string | null;
+  events_seen: number;
+}
+
 // Tauri command names — must match exactly the #[tauri::command] functions.
 export const COMMANDS = {
   listServers: 'list_servers',
@@ -406,6 +536,7 @@ export const COMMANDS = {
   stopScan: 'stop_scan',
   scanProgress: 'scan_progress',
   listFindings: 'list_findings',
+  resolveFinding: 'resolve_finding',
   listAlerts: 'list_alerts',
   applyApproval: 'apply_approval',
   listBaselines: 'list_baselines',
@@ -417,6 +548,7 @@ export const COMMANDS = {
   discoverSystem: 'discover_system',
   computeTrustGraph: 'compute_trust_graph',
   listThreats: 'list_threats',
+  scanLookalikes: 'scan_lookalikes',
   probeServer: 'probe_server',
   listObservedEvents: 'list_observed_events',
   getSettings: 'get_settings',
@@ -425,6 +557,16 @@ export const COMMANDS = {
   testWebhookChannel: 'test_webhook_channel',
   getLiveStatus: 'get_live_status',
   setLiveInterval: 'set_live_interval',
+  createInvestigation: 'create_investigation',
+  listInvestigations: 'list_investigations',
+  enforcementRemoveServer: 'enforcement_remove_server',
+  enforcementRestore: 'enforcement_restore',
+  startProxy: 'start_proxy',
+  stopProxy: 'stop_proxy',
+  proxyStatus: 'proxy_status',
+  siemTestSend: 'siem_test_send',
+  siemSaveConfig: 'siem_save_config',
+  siemGetConfig: 'siem_get_config',
 } as const;
 
 // Tauri events broadcast from backend to frontend.

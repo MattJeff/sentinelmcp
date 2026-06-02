@@ -3,12 +3,35 @@
 // when running outside of Tauri).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
+import useSWR from 'swr';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 
 import ScanRunner, { type ScanMode } from '@/components/ScanRunner';
 import LiveLog, { type LogEntry } from '@/components/LiveLog';
 import { api, onScanProgress } from '@/api/tauri';
 import type { ScanProgress } from '@/api/contract';
+
+// ─── Proxy capture (mode B) status ───────────────────────────────────────
+
+interface ProxyStatus {
+  running: boolean;
+  port: number | null;
+  upstream: string | null;
+  events_seen: number;
+}
+
+async function fetchProxyStatus(): Promise<ProxyStatus> {
+  try {
+    return await invoke<ProxyStatus>('proxy_status');
+  } catch {
+    return { running: false, port: null, upstream: null, events_seen: 0 };
+  }
+}
+
+async function stopProxyCmd(): Promise<void> {
+  await invoke('proxy_stop');
+}
 
 type Status = 'idle' | 'running' | 'finished' | 'error';
 
@@ -25,6 +48,7 @@ const hasTauri = () =>
 
 export default function ScanPage() {
   const [mode, setMode] = useState<ScanMode>('stdio');
+  const [httpUrl, setHttpUrl] = useState<string>('https://localhost:8765/mcp');
   const [status, setStatus] = useState<Status>('idle');
   const [progress, setProgress] = useState<ScanProgress>(INITIAL_PROGRESS);
   const [entries, setEntries] = useState<LogEntry[]>([]);
@@ -137,9 +161,14 @@ export default function ScanPage() {
     setProgress(INITIAL_PROGRESS);
     setEntries([]);
     pushLog(`Starting scan in ${mode} mode…`);
+    if (mode === 'http') {
+      pushLog(`HTTP endpoint: ${httpUrl}`);
+    }
 
     try {
-      await api.startScan({ mode });
+      const startParams =
+        mode === 'http' ? { mode, httpUrl } : { mode };
+      await api.startScan(startParams as Parameters<typeof api.startScan>[0]);
     } catch (err) {
       pushLog(`startScan failed: ${(err as Error).message ?? String(err)}`);
       setStatus('error');
@@ -149,7 +178,7 @@ export default function ScanPage() {
     if (!hasTauri()) {
       startMock(mode);
     }
-  }, [mode, pushLog, startMock]);
+  }, [mode, httpUrl, pushLog, startMock]);
 
   const handleStop = useCallback(async () => {
     stopMock();
@@ -170,6 +199,8 @@ export default function ScanPage() {
 
   return (
     <div className="relative mx-auto w-full max-w-[1600px] flex flex-col gap-6 pb-16 px-4 sm:px-6">
+      <ProxyBanner />
+
       <ScanRunner
         mode={mode}
         onModeChange={setMode}
@@ -177,11 +208,54 @@ export default function ScanPage() {
         onStart={handleStart}
         onStop={handleStop}
         progress={progress}
+        httpUrl={httpUrl}
+        onHttpUrlChange={setHttpUrl}
       />
 
       <LiveLog entries={entries} />
 
       <StatusPill status={status} />
+    </div>
+  );
+}
+
+function ProxyBanner() {
+  const { data, mutate } = useSWR<ProxyStatus>(
+    'proxy_status',
+    () => fetchProxyStatus(),
+    { refreshInterval: 3000, revalidateOnFocus: false },
+  );
+  const [stopping, setStopping] = useState(false);
+
+  if (!data?.running) return null;
+
+  const handleStop = async () => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      await stopProxyCmd();
+      await mutate();
+    } catch {
+      // Surface stays silent; Settings page exposes the error path.
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-3 glass-soft rounded-md px-3 py-2">
+      <span className="pill pill-green">
+        <span className="dot dot-green" />
+        Proxy capture · :{data.port ?? '—'} active
+      </span>
+      <button
+        type="button"
+        className="text-[12px] text-sentinel-blue hover:underline disabled:opacity-50"
+        onClick={handleStop}
+        disabled={stopping}
+      >
+        {stopping ? 'Stopping…' : 'Stop'}
+      </button>
     </div>
   );
 }

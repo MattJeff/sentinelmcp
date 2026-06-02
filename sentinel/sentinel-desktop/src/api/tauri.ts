@@ -10,20 +10,28 @@ import {
   type BaselineSummary,
   type ComplianceReference,
   type DeclaredServer,
+  type DiscoveredClientKind,
   type DiscoveryReport,
+  type EnforcementRemoveResult,
+  type EnforcementRestoreResult,
   type ExecutiveSummary,
   type Finding,
+  type Investigation,
   type LiveStatus,
   type LiveTick,
+  type LookalikeMatch,
   type ObservedDirection,
   type ObservedEvent,
   type ObservedEventFilter,
   type ProbeResult,
+  type ProxyStatus,
   type ReportBundle,
+  type ScanParams,
   type ScanProgress,
   type ServerCard,
   type ServerDetail,
   type Settings,
+  type SiemConfig,
   type TestEmailInput,
   type TestEmailResult,
   type TestWebhookInput,
@@ -42,11 +50,18 @@ async function call<T>(name: string, args?: Record<string, unknown>): Promise<T>
 export const api = {
   listServers: () => call<ServerCard[]>(COMMANDS.listServers),
   getServerDetail: (id: string) => call<ServerDetail>(COMMANDS.getServerDetail, { id }),
-  startScan: (params?: { mode?: 'fixture' | 'stdio' | 'http' }) =>
-    call<{ ok: boolean }>(COMMANDS.startScan, { params: params ?? {} }),
+  startScan: (params?: ScanParams) =>
+    call<{ ok: boolean }>(COMMANDS.startScan, {
+      params: {
+        mode: params?.mode,
+        httpUrl: params?.httpUrl ?? null,
+      },
+    }),
   stopScan: () => call<{ ok: boolean }>(COMMANDS.stopScan),
   scanProgress: () => call<ScanProgress>(COMMANDS.scanProgress),
   listFindings: () => call<Finding[]>(COMMANDS.listFindings),
+  resolveFinding: (findingId: string, note?: string) =>
+    call<void>(COMMANDS.resolveFinding, { findingId, note: note ?? null }),
   listAlerts: () => call<Alert[]>(COMMANDS.listAlerts),
   applyApproval: (serverId: string, decision: ApprovalDecision) =>
     call<ServerCard>(COMMANDS.applyApproval, { serverId, decision }),
@@ -60,6 +75,7 @@ export const api = {
   discoverSystem: () => call<DiscoveryReport>(COMMANDS.discoverSystem),
   computeTrustGraph: () => call<TrustGraphComputed>(COMMANDS.computeTrustGraph),
   listThreats: () => call<ThreatEntry[]>(COMMANDS.listThreats),
+  scanLookalikes: () => call<LookalikeMatch[]>(COMMANDS.scanLookalikes),
   probeServer: (server: DeclaredServer) =>
     call<ProbeResult>(COMMANDS.probeServer, {
       server: {
@@ -85,6 +101,95 @@ export const api = {
   getLiveStatus: () => call<LiveStatus>(COMMANDS.getLiveStatus),
   setLiveInterval: (secs: number) =>
     call<void>(COMMANDS.setLiveInterval, { secs }),
+  /**
+   * Open a persisted investigation note on a server. The Rust backend returns
+   * the new row's id; the wrapper synthesises the full `Investigation` entry
+   * so consumers (e.g. `InvestigateDialog`) have everything they need without
+   * a second round-trip.
+   */
+  createInvestigation: async (
+    serverId: string,
+    note: string,
+    operator: string,
+  ): Promise<Investigation> => {
+    const id = await call<string>(COMMANDS.createInvestigation, {
+      serverId,
+      note,
+      operator,
+    });
+    return {
+      id,
+      server_id: serverId,
+      note,
+      operator,
+      created_by: operator,
+      created_at: new Date().toISOString(),
+      state: 'ouvert',
+    };
+  },
+  listInvestigations: async (serverId?: string): Promise<Investigation[]> => {
+    const rows = await call<Array<Investigation & { created_by?: string }>>(
+      COMMANDS.listInvestigations,
+      { serverId: serverId ?? null },
+    );
+    // Normalise: backend uses `created_by`; expose `operator` too so UI
+    // components written against the V7 shape work unchanged.
+    return rows.map((r) => ({
+      ...r,
+      operator: r.operator ?? r.created_by ?? '',
+    }));
+  },
+  /**
+   * Enforcement (V8, opt-in via `settings.enforcement.enabled`).
+   *
+   * Rewrites the AI-client config that declares `serverId`, dropping the
+   * matching block and writing a timestamped backup next to the original
+   * file. Pass `clientKind` when the UI already knows which client owns
+   * the declaration; pass `null` to let the backend resolve from its
+   * Discovery snapshot.
+   */
+  enforcementRemoveServer: (
+    serverId: string,
+    clientKind: DiscoveredClientKind | null,
+  ) =>
+    call<EnforcementRemoveResult>(COMMANDS.enforcementRemoveServer, {
+      serverId,
+      clientKind,
+    }),
+  /**
+   * Reverse a previous `enforcementRemoveServer` call by restoring the
+   * given backup file over its original config.
+   */
+  enforcementRestore: (backupPath: string) =>
+    call<EnforcementRestoreResult>(COMMANDS.enforcementRestore, {
+      backupPath,
+    }),
+  /**
+   * Start the local active MCP proxy on `127.0.0.1:<port>` forwarding to
+   * `upstream`. Idempotent: if a proxy is already running, returns its
+   * current status without spawning a new one.
+   */
+  startProxy: (port: number, upstream: string) =>
+    call<ProxyStatus>(COMMANDS.startProxy, { port, upstream }),
+  /** Stop the active proxy task. No-op if not running. */
+  stopProxy: () => call<void>(COMMANDS.stopProxy),
+  /** Snapshot of the proxy task (running flag, port, upstream, events seen). */
+  proxyStatus: () => call<ProxyStatus>(COMMANDS.proxyStatus),
+  /**
+   * Dispatch a synthetic alert through the SIEM sink described by `cfg`.
+   * Returns successfully when the sink accepts the payload; throws on any
+   * network / HTTP / config error so the UI can surface a failure toast.
+   */
+  siemTestSend: (cfg: SiemConfig) =>
+    call<void>(COMMANDS.siemTestSend, { cfg }),
+  /** Persist the last-used SIEM configuration to `siem.json` on disk. */
+  siemSaveConfig: (cfg: SiemConfig) =>
+    call<void>(COMMANDS.siemSaveConfig, { cfg }),
+  /**
+   * Read the persisted SIEM configuration back. Returns a default-shape
+   * object (empty `kind`, null fields) when no config has been saved.
+   */
+  siemGetConfig: () => call<SiemConfig>(COMMANDS.siemGetConfig),
 };
 
 export async function onScanProgress(cb: (p: ScanProgress) => void): Promise<UnlistenFn> {
@@ -124,11 +229,90 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
     };
     return Promise.resolve(result as unknown as T);
   }
+  // SIEM mocks: pretend the test alert was accepted and the config saved.
+  if (
+    name === COMMANDS.siemTestSend ||
+    name === COMMANDS.siemSaveConfig
+  ) {
+    return Promise.resolve(undefined as unknown as T);
+  }
+  if (name === COMMANDS.siemGetConfig) {
+    const result: SiemConfig = {
+      kind: '',
+      url: null,
+      token: null,
+      index: null,
+      user: null,
+      pass: null,
+      addr: null,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
   if (name === COMMANDS.testWebhookChannel) {
     const result: TestWebhookResult = {
       ok: true,
       status: 200,
       body_preview: '{"alerte":{"titre":"Sentinel MCP test"}}',
+      error: null,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
+  // Investigations: synthesise a UUID-ish id on create, empty list on read.
+  if (name === COMMANDS.createInvestigation) {
+    return Promise.resolve('mock-investigation-id' as unknown as T);
+  }
+  if (name === COMMANDS.listInvestigations) {
+    return Promise.resolve([] as unknown as T);
+  }
+  // Active proxy mock: return an idle status so the UI can render without
+  // a live backend.
+  if (name === COMMANDS.startProxy) {
+    const args = (_args ?? {}) as { port?: number; upstream?: string };
+    const result: ProxyStatus = {
+      running: true,
+      port: args.port ?? null,
+      upstream: args.upstream ?? null,
+      events_seen: 0,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
+  if (name === COMMANDS.proxyStatus) {
+    const result: ProxyStatus = {
+      running: false,
+      port: null,
+      upstream: null,
+      events_seen: 0,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
+  if (name === COMMANDS.stopProxy) {
+    return Promise.resolve(undefined as unknown as T);
+  }
+  // Enforcement mock: pretend we rewrote the config and dropped a backup
+  // next to it. Real backend (V8) returns the actual paths.
+  if (name === COMMANDS.enforcementRemoveServer) {
+    const args = (_args ?? {}) as {
+      serverId?: string;
+      clientKind?: DiscoveredClientKind | null;
+    };
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const result: EnforcementRemoveResult = {
+      ok: true,
+      server_id: args.serverId ?? 'mock-server',
+      client_kind: args.clientKind ?? 'claude-code-cli',
+      config_path: '/Users/dev/.claude.json',
+      backup_path: `/Users/dev/.claude.json.sentinel-backup-${stamp}`,
+      error: null,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
+  if (name === COMMANDS.enforcementRestore) {
+    const args = (_args ?? {}) as { backupPath?: string };
+    const result: EnforcementRestoreResult = {
+      ok: true,
+      config_path: '/Users/dev/.claude.json',
+      backup_path:
+        args.backupPath ?? '/Users/dev/.claude.json.sentinel-backup-mock',
       error: null,
     };
     return Promise.resolve(result as unknown as T);
@@ -436,8 +620,10 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
       },
       retention: { contacts_days: 60, findings_days: 180, alerts_days: 90 },
       privacy: { in_flight_only: true, outbound_lookups: false },
+      enforcement: { enabled: false },
     } as Settings,
     [COMMANDS.saveSettings]: undefined,
+    [COMMANDS.resolveFinding]: undefined,
     [COMMANDS.listThreats]: [
       {
         identifier: 'MCP-2026-001',
@@ -449,6 +635,24 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
         matches_count: 0,
       },
     ] as ThreatEntry[],
+    [COMMANDS.scanLookalikes]: [
+      {
+        declared_package: 'filesystem',
+        registry: 'pulsemcp',
+        candidate_name: 'filesysten',
+        candidate_description: 'Mock typo-squat of the filesystem server.',
+        similarity_score: 0.94,
+        severity: 'critical',
+      },
+      {
+        declared_package: 'github',
+        registry: 'smithery',
+        candidate_name: 'github-mcp',
+        candidate_description: 'Mock doppelganger close to the github server.',
+        similarity_score: 0.89,
+        severity: 'high',
+      },
+    ] as LookalikeMatch[],
     [COMMANDS.getLiveStatus]: {
       interval_secs: 30,
       last_refresh_iso: now,

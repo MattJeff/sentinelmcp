@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use sentinel_store::Store;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use tauri::async_runtime::JoinHandle;
 use tauri::{App, Manager};
 use tokio::sync::RwLock;
 
@@ -21,6 +22,16 @@ pub struct AppState {
     /// Timestamp of the most recent background scan, surfaced to the UI via
     /// `get_live_status` so the sidebar can render "Last refresh HH:MM:SS".
     pub last_refresh_at: Arc<RwLock<DateTime<Utc>>>,
+    /// Handle to the running active proxy (mode B) task — `Some` while the
+    /// proxy is serving, `None` otherwise. Wrapped in an `RwLock` so the
+    /// `start_proxy` / `stop_proxy` Tauri commands can mutate it safely.
+    pub proxy_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
+    /// Current proxy listening port (set when proxy starts, cleared on stop).
+    pub proxy_port: Arc<RwLock<Option<u16>>>,
+    /// Current proxy upstream URL (set when proxy starts, cleared on stop).
+    pub proxy_upstream: Arc<RwLock<Option<String>>>,
+    /// Number of MCP events seen by the proxy since it started.
+    pub proxy_events_seen: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -33,6 +44,10 @@ impl AppState {
             scan_running: Arc::new(RwLock::new(false)),
             live_interval_secs: Arc::new(AtomicU64::new(DEFAULT_LIVE_INTERVAL_SECS)),
             last_refresh_at: Arc::new(RwLock::new(Utc::now())),
+            proxy_handle: Arc::new(RwLock::new(None)),
+            proxy_port: Arc::new(RwLock::new(None)),
+            proxy_upstream: Arc::new(RwLock::new(None)),
+            proxy_events_seen: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -85,6 +100,10 @@ impl AppState {
             scan_running: Arc::new(RwLock::new(false)),
             live_interval_secs: Arc::new(AtomicU64::new(DEFAULT_LIVE_INTERVAL_SECS)),
             last_refresh_at: Arc::new(RwLock::new(Utc::now())),
+            proxy_handle: Arc::new(RwLock::new(None)),
+            proxy_port: Arc::new(RwLock::new(None)),
+            proxy_upstream: Arc::new(RwLock::new(None)),
+            proxy_events_seen: Arc::new(AtomicU64::new(0)),
         }
     }
 }

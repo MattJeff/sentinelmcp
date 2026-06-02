@@ -14,12 +14,29 @@ interface ScanRunnerProps {
   onStart: () => void;
   onStop: () => void;
   progress: ScanProgress;
+  httpUrl: string;
+  onHttpUrlChange: (url: string) => void;
 }
 
 const MODES: { id: ScanMode; label: string; hint: string }[] = [
   { id: 'stdio', label: 'Stdio', hint: 'Probe declared MCP servers locally' },
-  { id: 'http', label: 'HTTP', hint: 'Hit a remote MCP endpoint' },
+  {
+    id: 'http',
+    label: 'HTTP',
+    hint: 'Hit a remote Streamable HTTP MCP endpoint and probe its tools/list.',
+  },
 ];
+
+function isValidHttpUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
 
 function stageRatio(stage: ScanProgress['stage']): number {
   switch (stage) {
@@ -43,9 +60,14 @@ export default function ScanRunner({
   onStart,
   onStop,
   progress,
+  httpUrl,
+  onHttpUrlChange,
 }: ScanRunnerProps) {
   const ratio = stageRatio(progress.stage);
   const pct = Math.max(0, Math.min(1, ratio)) * 100;
+  const httpUrlValid = isValidHttpUrl(httpUrl);
+  const httpUrlInvalid = mode === 'http' && httpUrl.trim().length > 0 && !httpUrlValid;
+  const startDisabled = mode === 'http' && !httpUrlValid;
 
   return (
     <section className="card animate-fade-up">
@@ -84,10 +106,12 @@ export default function ScanRunner({
         <button
           type="button"
           onClick={running ? onStop : onStart}
+          disabled={!running && startDisabled}
           className={clsx(
             'btn',
             running ? 'btn-danger' : 'btn-primary',
             'px-5 py-2.5 text-[13px] min-h-[44px] w-full md:w-auto justify-center',
+            !running && startDisabled && 'opacity-50 cursor-not-allowed',
           )}
         >
           {running ? (
@@ -103,6 +127,41 @@ export default function ScanRunner({
           )}
         </button>
       </div>
+
+      {mode === 'http' && (
+        <div className="mt-4">
+          <label
+            htmlFor="scan-http-endpoint"
+            className="section-heading mb-1.5 block"
+          >
+            HTTP endpoint
+          </label>
+          <input
+            id="scan-http-endpoint"
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={running}
+            value={httpUrl}
+            onChange={(e) => onHttpUrlChange(e.target.value)}
+            placeholder="https://localhost:8765/mcp"
+            aria-invalid={httpUrlInvalid}
+            className={clsx(
+              'glass-soft w-full rounded-glass px-3 py-2 text-[13px] text-white placeholder:text-sentinel-text-tertiary outline-none transition-colors',
+              httpUrlInvalid
+                ? 'ring-1 ring-sentinel-red/60 focus:ring-sentinel-red'
+                : 'focus:ring-1 focus:ring-sentinel-blue-glow',
+              running && 'opacity-60 cursor-not-allowed',
+            )}
+          />
+          <div className="mt-1 text-[11px] text-sentinel-text-tertiary">
+            {httpUrlInvalid
+              ? 'Enter a valid http(s) URL, e.g. https://localhost:8765/mcp'
+              : 'Streamable HTTP MCP endpoint that exposes a tools/list method.'}
+          </div>
+        </div>
+      )}
 
       {/* KPI tiles */}
       <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">

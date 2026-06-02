@@ -11,10 +11,58 @@ import { api } from '../api/tauri';
 import {
   COMMANDS,
   type ApprovalDecision,
+  type DiscoveredClient,
+  type DiscoveredClientKind,
+  type DiscoveryReport,
+  type EnforcementRemoveResult,
   type ServerCard,
+  type Settings,
 } from '../api/contract';
+import InvestigateDialog from '../components/InvestigateDialog';
+import EnforcementConfirmDialog from '../components/EnforcementConfirmDialog';
+import { useToastStore } from '../hooks/useToast';
 
 const OPERATOR = 'operator@local';
+
+// Best-effort: strip the trailing transport hint from a server endpoint to
+// match the `name` field used by AI-client config files (e.g.
+// `filesystem-server (stdio)` → `filesystem-server`).
+function deriveDeclaredName(endpoint: string): string {
+  const match = endpoint.match(/^(.*?)\s*\((?:stdio|http)\)\s*$/i);
+  return match ? match[1].trim() : endpoint;
+}
+
+interface DeclaringClient {
+  kind: DiscoveredClientKind;
+  configPath: string | null;
+}
+
+/**
+ * Walk the Discovery snapshot to find which AI client declares `endpoint`.
+ * Returns `null` when the snapshot is empty or the server isn't matched —
+ * the backend will still resolve at confirm time, and the dialog gracefully
+ * renders a `(detected on confirm)` placeholder.
+ */
+function findDeclaringClient(
+  report: DiscoveryReport | undefined,
+  endpoint: string,
+): DeclaringClient | null {
+  if (!report) return null;
+  const needle = deriveDeclaredName(endpoint).toLowerCase();
+  for (const client of report.clients as DiscoveredClient[]) {
+    if (!client.installed) continue;
+    const match = client.servers.find(
+      (s) => s.name.toLowerCase() === needle,
+    );
+    if (match) {
+      return {
+        kind: client.kind,
+        configPath: client.configs[0] ?? null,
+      };
+    }
+  }
+  return null;
+}
 
 export default function ApprovalsPage() {
   const { data, isLoading, mutate: mutateLocal } = useSWR<ServerCard[]>(
@@ -22,13 +70,44 @@ export default function ApprovalsPage() {
     () => api.listServers(),
   );
 
+  // Surface the enforcement toggle and the latest Discovery snapshot so the
+  // Block flow knows (a) whether to escalate to the enforcement dialog and
+  // (b) which client config will be rewritten.
+  const { data: settings } = useSWR<Settings>(
+    COMMANDS.getSettings,
+    () => api.getSettings(),
+  );
+  const { data: discovery } = useSWR<DiscoveryReport>(
+    COMMANDS.discoverSystem,
+    () => api.discoverSystem(),
+  );
+  const enforcementEnabled = settings?.enforcement?.enabled ?? false;
+
   // Optimistic removal: ids that have just been decided.
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   // Ids whose decision failed — render an inline "Failed — try again" pill.
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
   const [blockTarget, setBlockTarget] = useState<ServerCard | null>(null);
+  const [enforceTarget, setEnforceTarget] = useState<ServerCard | null>(null);
+  const [investigateTarget, setInvestigateTarget] =
+    useState<ServerCard | null>(null);
   // Approved-since-mount counter, surfaced as a top inline status.
   const [approvedCount, setApprovedCount] = useState(0);
+
+  const pushToast = useToastStore((s) => s.push);
+
+  // Backup of the last enforcement removal, so we can offer a one-click
+  // "Restore from backup" link to the operator.
+  const [lastBackup, setLastBackup] = useState<EnforcementRemoveResult | null>(
+    null,
+  );
+  const [restoring, setRestoring] = useState(false);
+
+  // Resolve the AI client that declares the target server, used to populate
+  // the enforcement dialog's paths and the `clientKind` arg.
+  const declaringClient = enforceTarget
+    ? findDeclaringClient(discovery, enforceTarget.endpoint)
+    : null;
 
   const queue = (data ?? [])
     .filter((s) => s.status !== 'approved')
@@ -115,8 +194,15 @@ export default function ApprovalsPage() {
                 server={server}
                 failed={failedIds.has(server.id)}
                 onApprove={() => decide(server, 'approve')}
-                onInvestigate={() => decide(server, 'investigate')}
-                onBlock={() => setBlockTarget(server)}
+                onInvestigate={() => setInvestigateTarget(server)}
+                onBlock={() =>
+                  // When enforcement is enabled, the Block button opens the
+                  // EnforcementConfirmDialog (config rewrite + backup). When
+                  // disabled, fall back to the original advisory confirmation.
+                  enforcementEnabled
+                    ? setEnforceTarget(server)
+                    : setBlockTarget(server)
+                }
               />
             </li>
           ))}
@@ -133,6 +219,129 @@ export default function ApprovalsPage() {
           const target = blockTarget;
           setBlockTarget(null);
           await decide(target, 'block');
+        }}
+      />
+
+      <EnforcementConfirmDialog
+        open={enforceTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setEnforceTarget(null);
+        }}
+        endpoint={enforceTarget?.endpoint ?? null}
+        configPath={declaringClient?.configPath ?? null}
+        backupPath={
+          declaringClient?.configPath
+            ? `${declaringClient.configPath}.sentinel-backup`
+            : null
+        }
+        onConfirm={async () => {
+          if (!enforceTarget) return;
+          const target = enforceTarget;
+          try {
+            const result = await api.enforcementRemoveServer(
+              target.id,
+              declaringClient?.kind ?? null,
+            );
+            setEnforceTarget(null);
+            if (result.ok) {
+              setLastBackup(result);
+              pushToast({
+                title: 'Removed from AI client config',
+                description: `Config: ${result.config_path} · Backup: ${result.backup_path}`,
+                severity: 'info',
+              });
+              // Mirror the advisory side-effect: the server is also marked
+              // Bloque in Sentinel's own audit trail.
+              await decide(target, 'block');
+            } else {
+              pushToast({
+                title: 'Enforcement failed',
+                description: result.error ?? 'Unknown error',
+                severity: 'high',
+              });
+            }
+          } catch (err) {
+            setEnforceTarget(null);
+            pushToast({
+              title: 'Enforcement failed',
+              description: err instanceof Error ? err.message : String(err),
+              severity: 'high',
+            });
+          }
+        }}
+      />
+
+      {lastBackup && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="self-start glass-soft rounded-pill px-3 py-1.5 text-[12px] text-sentinel-text-secondary inline-flex items-center gap-2 animate-fade-up"
+        >
+          <span className="font-mono text-[11px] truncate max-w-xs">
+            Backup: {lastBackup.backup_path}
+          </span>
+          <button
+            type="button"
+            className="text-sentinel-blue-glow hover:underline disabled:opacity-60"
+            disabled={restoring}
+            onClick={async () => {
+              if (!lastBackup || restoring) return;
+              setRestoring(true);
+              try {
+                const r = await api.enforcementRestore(lastBackup.backup_path);
+                if (r.ok) {
+                  pushToast({
+                    title: 'Restored from backup',
+                    description: r.config_path,
+                    severity: 'info',
+                  });
+                  setLastBackup(null);
+                  await mutateLocal();
+                  await mutate(COMMANDS.listServers);
+                } else {
+                  pushToast({
+                    title: 'Restore failed',
+                    description: r.error ?? 'Unknown error',
+                    severity: 'high',
+                  });
+                }
+              } catch (err) {
+                pushToast({
+                  title: 'Restore failed',
+                  description: err instanceof Error ? err.message : String(err),
+                  severity: 'high',
+                });
+              } finally {
+                setRestoring(false);
+              }
+            }}
+          >
+            {restoring ? 'Restoring…' : 'Restore from backup'}
+          </button>
+        </div>
+      )}
+
+      <InvestigateDialog
+        serverId={investigateTarget?.id ?? null}
+        endpoint={investigateTarget?.endpoint ?? null}
+        defaultOperator={OPERATOR}
+        onOpenChange={(open) => {
+          if (!open) setInvestigateTarget(null);
+        }}
+        onSubmitted={async () => {
+          // The dialog already issued apply_approval(investigate) — reuse the
+          // same optimistic-removal path so the row leaves the queue.
+          const target = investigateTarget;
+          setInvestigateTarget(null);
+          if (target) {
+            setPendingIds((prev) => {
+              const next = new Set(prev);
+              next.add(target.id);
+              return next;
+            });
+          }
+          await mutateLocal();
+          await mutate(COMMANDS.listServers);
         }}
       />
       </div>

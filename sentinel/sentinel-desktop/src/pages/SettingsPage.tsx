@@ -7,7 +7,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR, { mutate as globalMutate } from 'swr';
 import { create } from 'zustand';
 import clsx from 'clsx';
-import { Info, Lock, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Info, Lock, ShieldCheck } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 
 import { api } from '../api/tauri';
 import {
@@ -17,6 +18,7 @@ import {
   type Settings as PersistedSettings,
 } from '../api/contract';
 import SettingRow from '../components/SettingRow';
+import SiemSettings from '../components/settings/SiemSettings';
 
 // ─── Settings model + store ────────────────────────────────────────────────
 
@@ -51,6 +53,9 @@ interface Settings {
     inFlightOnly: true; // locked
     outboundLookups: boolean;
   };
+  enforcement: {
+    enabled: boolean;
+  };
 }
 
 const INITIAL: Settings = {
@@ -77,6 +82,11 @@ const INITIAL: Settings = {
   privacy: {
     inFlightOnly: true,
     outboundLookups: false,
+  },
+  // Enforcement is OPT-IN. Sentinel stays advisory until the operator
+  // flips this toggle in Settings → Enforcement.
+  enforcement: {
+    enabled: false,
   },
 };
 
@@ -124,6 +134,10 @@ function fromPersisted(p: PersistedSettings): Settings {
       inFlightOnly: true,
       outboundLookups: p.privacy.outbound_lookups,
     },
+    enforcement: {
+      // Default to OFF when older TOML files don't carry the block yet.
+      enabled: p.enforcement?.enabled ?? false,
+    },
   };
 }
 
@@ -145,6 +159,9 @@ function toPersisted(s: Settings): PersistedSettings {
     privacy: {
       in_flight_only: true,
       outbound_lookups: s.privacy.outboundLookups,
+    },
+    enforcement: {
+      enabled: s.enforcement.enabled,
     },
   };
 }
@@ -356,6 +373,18 @@ export default function SettingsPage() {
           </SettingRow>
         </section>
 
+        {/* ── Proxy capture (mode B) ── */}
+        <section
+          className="card min-w-0 min-[1100px]:col-span-2"
+          aria-labelledby="settings-proxy"
+        >
+          <SectionHeading
+            id="settings-proxy"
+            title="Proxy capture (mode B) — experimental"
+          />
+          <ProxyCaptureRows />
+        </section>
+
         {/* ── Alerts ── */}
         <section className="card min-w-0" aria-labelledby="settings-alerts">
           <SectionHeading id="settings-alerts" title="Alerts" />
@@ -521,6 +550,15 @@ export default function SettingsPage() {
           </SettingRow>
         </section>
 
+        {/* ── SIEM ── */}
+        <section
+          className="card min-w-0 min-[1100px]:col-span-2"
+          aria-labelledby="settings-siem"
+        >
+          <SectionHeading id="settings-siem" title="SIEM" />
+          <SiemSettings />
+        </section>
+
         {/* ── Retention ── */}
         <section className="card min-w-0" aria-labelledby="settings-retention">
           <SectionHeading id="settings-retention" title="Retention" />
@@ -603,6 +641,37 @@ export default function SettingsPage() {
                 })
               }
               ariaLabel="Enable outbound registry lookups"
+            />
+          </SettingRow>
+        </section>
+
+        {/* ── Enforcement (experimental) ── */}
+        <section
+          className="card min-w-0 min-[1100px]:col-span-2"
+          aria-labelledby="settings-enforcement"
+        >
+          <SectionHeading
+            id="settings-enforcement"
+            title="Enforcement (experimental)"
+          />
+          <SettingRow
+            label={
+              <span className="inline-flex items-center gap-1.5">
+                Allow Sentinel to remove blocked servers from your AI client configs
+                <AlertTriangle className="h-3 w-3 text-sentinel-orange" />
+              </span>
+            }
+            description="When enabled, the Block action in the Approvals queue and the server detail drawer will rewrite the declaring config file on disk and write a timestamped backup next to it. Off by default — Sentinel stays advisory until you opt in."
+            last
+          >
+            <Toggle
+              checked={draft.enforcement.enabled}
+              onChange={(v) =>
+                set((s) => {
+                  s.enforcement.enabled = v;
+                })
+              }
+              ariaLabel="Enable enforcement mode"
             />
           </SettingRow>
         </section>
@@ -918,6 +987,243 @@ function LiveIntervalRow() {
         ) : null}
       </div>
     </SettingRow>
+  );
+}
+
+// ─── Proxy capture (mode B) ──────────────────────────────────────────────
+//
+// Thin wrappers around the `proxy_start`, `proxy_stop` and `proxy_status`
+// Tauri commands introduced in V11. We call `invoke` directly so this page
+// doesn't need a corresponding entry on the shared `api` surface — keeps the
+// change scoped to the UI layer.
+
+interface ProxyStatus {
+  running: boolean;
+  port: number | null;
+  upstream: string | null;
+  events_seen: number;
+}
+
+async function proxyStart(port: number, upstream: string): Promise<void> {
+  await invoke('proxy_start', { port, upstream });
+}
+
+async function proxyStop(): Promise<void> {
+  await invoke('proxy_stop');
+}
+
+async function proxyStatus(): Promise<ProxyStatus> {
+  try {
+    return await invoke<ProxyStatus>('proxy_status');
+  } catch {
+    return { running: false, port: null, upstream: null, events_seen: 0 };
+  }
+}
+
+function ProxyCaptureRows() {
+  const { data, mutate } = useSWR<ProxyStatus>(
+    'proxy_status',
+    () => proxyStatus(),
+    { refreshInterval: 3000, revalidateOnFocus: false },
+  );
+
+  const running = !!data?.running;
+  const livePort = data?.port ?? null;
+  const eventsSeen = data?.events_seen ?? 0;
+
+  const [port, setPort] = useState<number>(8765);
+  const [upstream, setUpstream] = useState<string>('');
+  const [pending, setPending] = useState<'start' | 'stop' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+
+  // Hydrate inputs from backend status (when running already on mount).
+  useEffect(() => {
+    if (data?.port && data.port !== port && !running) return;
+    if (data?.port) setPort(data.port);
+    if (data?.upstream && upstream === '') setUpstream(data.upstream);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.port, data?.upstream]);
+
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
+  const handleStart = async () => {
+    if (pending) return;
+    setError(null);
+    if (!upstream.trim()) {
+      setError('Upstream URL is required.');
+      return;
+    }
+    if (!port || port < 1 || port > 65535) {
+      setError('Port must be between 1 and 65535.');
+      return;
+    }
+    setPending('start');
+    try {
+      await proxyStart(port, upstream.trim());
+      await mutate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const handleStop = async () => {
+    if (pending) return;
+    setError(null);
+    setPending('stop');
+    try {
+      await proxyStop();
+      await mutate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const proxyUrl = `http://127.0.0.1:${running && livePort ? livePort : port}/mcp`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(proxyUrl);
+      setCopied(true);
+      if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard may be unavailable; ignore silently.
+    }
+  };
+
+  return (
+    <>
+      <SettingRow
+        label="Enable proxy"
+        description="Run an in-process HTTP proxy that forwards MCP traffic to an upstream server while emitting capture events."
+      >
+        <div className="flex items-center gap-3">
+          <span
+            className={clsx('pill', running ? 'pill-green' : 'pill-orange')}
+            role="status"
+            aria-live="polite"
+          >
+            <span
+              className={clsx('dot', running ? 'dot-green' : 'dot-orange')}
+            />
+            {running
+              ? `Running on :${livePort ?? port}`
+              : 'Stopped'}
+          </span>
+          <Toggle
+            checked={running}
+            onChange={(v) => {
+              if (v && !running) void handleStart();
+              else if (!v && running) void handleStop();
+            }}
+            disabled={pending !== null || (!running && !upstream.trim())}
+            ariaLabel="Enable proxy capture"
+          />
+        </div>
+      </SettingRow>
+
+      <SettingRow label="Port" htmlForId="proxy-port">
+        <input
+          id="proxy-port"
+          type="number"
+          min={1024}
+          max={65535}
+          value={port}
+          onChange={(e) => setPort(Number(e.target.value) || 0)}
+          disabled={running || pending !== null}
+          className="input w-28 text-right tabular-nums"
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Upstream URL"
+        description="Where the proxy forwards MCP requests. Required to start."
+        htmlForId="proxy-upstream"
+        align="top"
+      >
+        <input
+          id="proxy-upstream"
+          className="input w-72"
+          placeholder="https://your-mcp-server.example.com/mcp"
+          value={upstream}
+          onChange={(e) => setUpstream(e.target.value)}
+          disabled={running || pending !== null}
+        />
+      </SettingRow>
+
+      <SettingRow label="Controls">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn"
+            onClick={handleStart}
+            disabled={
+              running || pending !== null || !upstream.trim()
+            }
+            title={
+              !upstream.trim()
+                ? 'Set the upstream URL first'
+                : 'Start the proxy listener'
+            }
+          >
+            {pending === 'start' ? 'Starting…' : 'Start'}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={handleStop}
+            disabled={!running || pending !== null}
+          >
+            {pending === 'stop' ? 'Stopping…' : 'Stop'}
+          </button>
+        </div>
+      </SettingRow>
+
+      <SettingRow
+        label="Events captured"
+        description="Total MCP requests/responses observed by the proxy since it started."
+      >
+        <span className="font-mono text-[12px] tabular-nums text-sentinel-text-secondary">
+          {eventsSeen.toLocaleString()}
+        </span>
+      </SettingRow>
+
+      <SettingRow
+        label="Client redirect"
+        description="Point your MCP client to this URL instead of the upstream directly."
+        last
+      >
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            <code className="font-mono text-[12px] text-sentinel-text-secondary glass-soft rounded-md px-2 py-1">
+              {proxyUrl}
+            </code>
+            <button
+              type="button"
+              className="btn"
+              onClick={handleCopy}
+              aria-label="Copy proxy URL"
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          {error ? (
+            <span className="pill pill-red text-[11px]">Error: {error}</span>
+          ) : null}
+        </div>
+      </SettingRow>
+    </>
   );
 }
 

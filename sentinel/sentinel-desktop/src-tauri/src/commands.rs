@@ -112,8 +112,11 @@ pub struct ReportBundle {
 }
 
 #[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanParams {
     pub mode: Option<String>,
+    /// Required when `mode == "http"`: the Streamable HTTP MCP endpoint to probe.
+    pub http_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -258,17 +261,23 @@ pub async fn start_scan(
         *running = true;
     }
     let mode = params.mode.unwrap_or_else(|| "stdio".to_string());
+    let http_url = params.http_url;
     let app_clone = app.clone();
     let state_clone = state.inner().clone();
 
     tokio::spawn(async move {
-        let _ = run_scan_loop(app_clone, state_clone, mode).await;
+        let _ = run_scan_loop(app_clone, state_clone, mode, http_url).await;
     });
 
     Ok(serde_json::json!({ "ok": true }))
 }
 
-async fn run_scan_loop(app: AppHandle, state: AppState, mode: String) -> anyhow::Result<()> {
+async fn run_scan_loop(
+    app: AppHandle,
+    state: AppState,
+    mode: String,
+    http_url: Option<String>,
+) -> anyhow::Result<()> {
     use sentinel_detect::InspecteurPoisoning;
     use sentinel_discovery::{
         active_probe::{EtatProbe, ProbeurActif},
@@ -282,8 +291,50 @@ async fn run_scan_loop(app: AppHandle, state: AppState, mode: String) -> anyhow:
 
     let start = std::time::Instant::now();
 
-    // HTTP mode is not yet implemented — emit a log line + finished, then bail.
+    // HTTP mode: probe a single Streamable HTTP MCP endpoint provided by the UI.
     if mode.eq_ignore_ascii_case("http") {
+        use sentinel_discovery::active_probe_http::ProbeurHttp;
+
+        let url = match http_url.as_ref().map(|u| u.trim()).filter(|u| !u.is_empty()) {
+            Some(u) => u.to_string(),
+            None => {
+                let _ = app.emit(
+                    "sentinel://scan-progress",
+                    ScanProgress {
+                        stage: "error".into(),
+                        servers_discovered: 0,
+                        tools_discovered: 0,
+                        time_to_first_red_ms: None,
+                        log_line: Some(
+                            "HTTP scan requires an endpoint URL — none provided".into(),
+                        ),
+                    },
+                );
+                *state.scan_running.write().await = false;
+                return Ok(());
+            }
+        };
+
+        // Derive a stable logical name from the URL host (best-effort: split
+        // on "://" then on "/" — no extra crate needed for this lightweight
+        // labelling).
+        let nom = {
+            let apres_schema = url
+                .split_once("://")
+                .map(|(_, rest)| rest)
+                .unwrap_or(url.as_str());
+            let host = apres_schema
+                .split('/')
+                .next()
+                .unwrap_or(apres_schema)
+                .trim();
+            if host.is_empty() {
+                url.clone()
+            } else {
+                host.to_string()
+            }
+        };
+
         let _ = app.emit(
             "sentinel://scan-progress",
             ScanProgress {
@@ -291,16 +342,105 @@ async fn run_scan_loop(app: AppHandle, state: AppState, mode: String) -> anyhow:
                 servers_discovered: 0,
                 tools_discovered: 0,
                 time_to_first_red_ms: None,
-                log_line: Some("HTTP scan mode not yet implemented".into()),
+                log_line: Some(format!("Probing HTTP {}…", url)),
             },
         );
+
+        let adaptateur = Arc::new(AdaptateurStore::nouveau(state.store.clone()));
+        let probeur = ProbeurHttp::par_defaut();
+        let rapport_probe = probeur.probe_url(&nom, &url).await;
+
+        let mut servers_discovered: u64 = 0;
+        let mut tools_discovered: u64 = 0;
+        let mut time_to_first_red_ms: Option<u64> = None;
+
+        if rapport_probe.etat != EtatProbe::Reussi {
+            let raison = rapport_probe
+                .erreur
+                .clone()
+                .unwrap_or_else(|| format!("{:?}", rapport_probe.etat));
+            let _ = app.emit(
+                "sentinel://scan-progress",
+                ScanProgress {
+                    stage: "error".into(),
+                    servers_discovered: 0,
+                    tools_discovered: 0,
+                    time_to_first_red_ms: None,
+                    log_line: Some(format!("Probe failed for {}: {}", url, raison)),
+                },
+            );
+        } else {
+            // Persist identically to stdio: scopes, inventory event, poisoning findings.
+            let portees = inferer_portee(&rapport_probe.outils);
+            let nb_outils = rapport_probe.outils.len() as u64;
+
+            let evenement = EvenementInventaire {
+                endpoint: url.clone(),
+                transport: Transport::Http,
+                outils: rapport_probe.outils.clone(),
+                portees: portees.clone(),
+            };
+
+            match adaptateur.enregistrer_inventaire(evenement).await {
+                Ok(serveur_id) => {
+                    servers_discovered = 1;
+                    tools_discovered = nb_outils;
+
+                    let constats = if rapport_probe.constats_poisoning.is_empty() {
+                        InspecteurPoisoning::inspecter(&rapport_probe.outils)
+                    } else {
+                        rapport_probe.constats_poisoning.clone()
+                    };
+                    for cp in &constats {
+                        let constat = InspecteurPoisoning::vers_constat(cp, serveur_id);
+                        if let Err(e) = state.store.enregistrer_constat(&constat) {
+                            log::warn!("could not store poisoning finding: {}", e);
+                        }
+                    }
+
+                    let est_rouge = portees
+                        .iter()
+                        .any(|p| matches!(p, Portee::Secrets | Portee::Filesystem));
+                    if est_rouge && time_to_first_red_ms.is_none() {
+                        time_to_first_red_ms = Some(start.elapsed().as_millis() as u64);
+                    }
+
+                    let _ = app.emit(
+                        "sentinel://scan-progress",
+                        ScanProgress {
+                            stage: "capturing".into(),
+                            servers_discovered,
+                            tools_discovered,
+                            time_to_first_red_ms,
+                            log_line: Some(format!(
+                                "Probed {} — {} tool(s) discovered",
+                                url, nb_outils
+                            )),
+                        },
+                    );
+                }
+                Err(e) => {
+                    let _ = app.emit(
+                        "sentinel://scan-progress",
+                        ScanProgress {
+                            stage: "error".into(),
+                            servers_discovered: 0,
+                            tools_discovered: 0,
+                            time_to_first_red_ms: None,
+                            log_line: Some(format!("Failed to persist {}: {}", url, e)),
+                        },
+                    );
+                }
+            }
+        }
+
         let _ = app.emit(
             "sentinel://scan-progress",
             ScanProgress {
                 stage: "finished".into(),
-                servers_discovered: 0,
-                tools_discovered: 0,
-                time_to_first_red_ms: None,
+                servers_discovered,
+                tools_discovered,
+                time_to_first_red_ms,
                 log_line: Some(format!(
                     "Scan finished in {} ms",
                     start.elapsed().as_millis()
@@ -520,6 +660,21 @@ pub async fn list_findings(state: State<'_, AppState>) -> Result<Vec<Finding>, S
         timestamp: c.horodatage.to_rfc3339(),
         state: format!("{:?}", c.etat).to_lowercase(),
     }).collect())
+}
+
+#[tauri::command]
+pub async fn resolve_finding(
+    state: State<'_, AppState>,
+    finding_id: String,
+    note: Option<String>,
+) -> Result<(), String> {
+    let id = Uuid::parse_str(&finding_id).map_err(|e| format!("bad uuid: {}", e))?;
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.marquer_constat_resolu(id, note))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -978,6 +1133,72 @@ pub async fn set_live_interval(
     state.live_interval_secs.store(clamped, Ordering::Relaxed);
     log::info!("live interval set to {} s", clamped);
     Ok(())
+}
+
+// ─── Investigations ────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct Investigation {
+    pub id: String,
+    pub server_id: String,
+    pub note: String,
+    pub created_by: String,
+    pub created_at: String,
+    pub state: String,
+}
+
+/// Create a persisted investigation note attached to a server. Returns the
+/// new investigation id so the UI can surface it (e.g. in a toast).
+#[tauri::command]
+pub async fn create_investigation(
+    state: State<'_, AppState>,
+    server_id: String,
+    note: String,
+    operator: String,
+) -> Result<String, String> {
+    let id: ServeurId = Uuid::parse_str(&server_id).map_err(|e| format!("bad uuid: {}", e))?;
+    let store = state.store.clone();
+    let id_str = tokio::task::spawn_blocking(move || {
+        store.enregistrer_investigation(id, &note, &operator)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(id_str)
+}
+
+/// List investigation notes, optionally filtered to a single server. Most
+/// recent first.
+#[tauri::command]
+pub async fn list_investigations(
+    state: State<'_, AppState>,
+    server_id: Option<String>,
+) -> Result<Vec<Investigation>, String> {
+    let filter = match server_id {
+        Some(s) => Some(Uuid::parse_str(&s).map_err(|e| format!("bad uuid: {}", e))?),
+        None => None,
+    };
+    let store = state.store.clone();
+    let rows = tokio::task::spawn_blocking(move || store.lister_investigations(filter))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .into_iter()
+        .map(|i| {
+            // Strip JSON quotes around state (stored as `"ouvert"`).
+            let etat = i.etat.trim_matches('"').to_string();
+            Investigation {
+                id: i.id,
+                server_id: i.serveur_id,
+                note: i.note,
+                created_by: i.cree_par,
+                created_at: i.cree_a.to_rfc3339(),
+                state: etat,
+            }
+        })
+        .collect())
 }
 
 #[tauri::command]

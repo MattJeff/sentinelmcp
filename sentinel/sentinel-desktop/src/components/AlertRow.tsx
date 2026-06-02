@@ -152,9 +152,6 @@ export default function AlertRow({ alert, onResolve }: AlertRowProps) {
                       <CheckCircle2 className="h-3.5 w-3.5 text-sentinel-text-secondary" />
                       Mark as resolved
                     </button>
-                    <div className="px-2.5 pt-1 pb-1 text-[10px] text-sentinel-text-tertiary leading-tight">
-                      Local only for now — backend resolve API not yet wired.
-                    </div>
                   </div>
                 )}
               </div>

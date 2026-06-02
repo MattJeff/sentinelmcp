@@ -7,6 +7,7 @@
 //!   SourceStatique permet l'injection de données de test sans réseau.
 
 pub mod similarity;
+pub mod sources;
 
 use std::sync::Arc;
 
@@ -111,15 +112,17 @@ impl SourceRegistre for SourcePulseMCP {
     }
 
     fn lister(&self) -> BoxFuture<'_, anyhow::Result<Vec<EntreeRegistre>>> {
-        Box::pin(async move {
-            // TODO v2 : GET https://pulsemcp.com/api/servers?page=1&limit=100
-            Ok(Vec::new())
-        })
+        Box::pin(async move { Ok(sources::pulsemcp::lister_serveurs().await) })
     }
 }
 
 /// Connecteur vers le registre officiel MCP (https://github.com/modelcontextprotocol/servers).
-/// V1 : stub sans appel réseau. V2 : lecture du fichier registry.json via GitHub API.
+///
+/// Implémentation : tente d'abord le fichier `registry.json` à la racine
+/// du dépôt (URL « raw »), puis bascule sur l'API GitHub renvoyant le
+/// `README.md` (parsing Markdown des entrées de liste) si le premier
+/// renvoie 404. Toute autre défaillance produit un Vec vide pour ne pas
+/// bloquer la collecte multi-registres (cf. `sources::mcp_registry`).
 pub struct SourceMcpRegistry;
 
 impl SourceMcpRegistry {
@@ -134,15 +137,14 @@ impl SourceRegistre for SourceMcpRegistry {
     }
 
     fn lister(&self) -> BoxFuture<'_, anyhow::Result<Vec<EntreeRegistre>>> {
-        Box::pin(async move {
-            // TODO v2 : GET https://api.github.com/repos/modelcontextprotocol/servers/contents/registry.json
-            Ok(Vec::new())
-        })
+        Box::pin(async move { Ok(sources::mcp_registry::lister_serveurs().await) })
     }
 }
 
 /// Connecteur vers Smithery (https://smithery.ai).
-/// V1 : stub sans appel réseau. V2 : GET /api/packages avec pagination.
+/// Délègue à `sources::smithery::lister_serveurs` qui interroge
+/// `https://registry.smithery.ai/servers?page_size=100` et retourne un
+/// Vec vide en cas d'erreur réseau ou de payload inattendu.
 pub struct SourceSmithery;
 
 impl SourceSmithery {
@@ -157,15 +159,14 @@ impl SourceRegistre for SourceSmithery {
     }
 
     fn lister(&self) -> BoxFuture<'_, anyhow::Result<Vec<EntreeRegistre>>> {
-        Box::pin(async move {
-            // TODO v2 : GET https://smithery.ai/api/packages?page=1&limit=50
-            Ok(Vec::new())
-        })
+        Box::pin(async move { Ok(sources::smithery::lister_serveurs().await) })
     }
 }
 
 /// Connecteur vers mcp.so (https://mcp.so).
-/// V1 : stub sans appel réseau. V2 : parsing du catalogue JSON public.
+/// Délègue à `sources::mcpso::lister_serveurs` qui interroge
+/// `https://mcp.so/api/servers?limit=100` et retourne un Vec vide en
+/// cas d'erreur réseau ou de payload inattendu.
 pub struct SourceMcpSo;
 
 impl SourceMcpSo {
@@ -180,10 +181,7 @@ impl SourceRegistre for SourceMcpSo {
     }
 
     fn lister(&self) -> BoxFuture<'_, anyhow::Result<Vec<EntreeRegistre>>> {
-        Box::pin(async move {
-            // TODO v2 : GET https://mcp.so/api/catalog
-            Ok(Vec::new())
-        })
+        Box::pin(async move { Ok(sources::mcpso::lister_serveurs().await) })
     }
 }
 

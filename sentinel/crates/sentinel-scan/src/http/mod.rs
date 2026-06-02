@@ -9,8 +9,10 @@
 //! exposés pour les tests et l'agent 1.3 (normaliseur).
 
 pub mod capture;
+pub mod proxy;
 pub mod sessions;
 pub mod sse;
 
 pub use capture::CaptureHttp;
+pub use proxy::ProxyMcp;
 pub use sessions::SuiviSessionsHttp;

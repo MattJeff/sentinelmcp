@@ -7,6 +7,7 @@ pub mod enrichment;
 pub mod dedup;
 pub mod lifecycle;
 pub mod siem;
+pub mod sinks;
 
 pub use engine::MoteurAlertes;
 pub use severity::{MatriceSeverite, ConfigSeverite};

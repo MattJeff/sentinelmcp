@@ -39,6 +39,10 @@ export default function AlertsPage() {
   const [tab, setTab] = useState<SeverityTab>('all');
   const [channel, setChannel] = useState<ChannelFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
+  // "Show resolved" toggle. The backend filter is not wired yet, so the
+  // toggle is rendered disabled with an explanatory tooltip.
+  const [showResolved, setShowResolved] = useState(false);
+  const showResolvedSupported = false;
 
   // Hydrate from the backend: prefer real alerts, fall back to findings,
   // and in the Vite browser dev shell sprinkle some mock alerts so the
@@ -104,13 +108,57 @@ export default function AlertsPage() {
     };
   }, [refresh]);
 
-  const handleResolve = useCallback((alert: Alert) => {
-    // v1: drop the alert from the local list and log it. Backend resolve
-    // wiring is not yet implemented.
-    // eslint-disable-next-line no-console
-    console.log('[alerts] mark resolved (local only)', alert.id, alert.finding_id);
-    setAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+  // Inline error pills, keyed by alert id, when backend resolve fails.
+  const [resolveErrors, setResolveErrors] = useState<Record<string, string>>({});
+  // Small ephemeral "Resolved · HH:MM" toast shown after a successful resolve.
+  const [resolveToast, setResolveToast] = useState<{ at: string } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showResolvedToast = useCallback(() => {
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    setResolveToast({ at: `${hh}:${mm}` });
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setResolveToast(null);
+      toastTimerRef.current = null;
+    }, 2400);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const handleResolve = useCallback(
+    async (alert: Alert) => {
+      // Wire to the backend resolve endpoint. The `api` object may not yet
+      // expose `resolveFinding` in all builds — fall back gracefully via a
+      // safe runtime lookup so this still compiles cleanly.
+      const apiAny = api as unknown as {
+        resolveFinding?: (findingId: string) => Promise<unknown>;
+      };
+      try {
+        if (typeof apiAny.resolveFinding === 'function') {
+          await apiAny.resolveFinding(alert.finding_id);
+        }
+        setAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+        setResolveErrors((prev) => {
+          if (!(alert.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[alert.id];
+          return next;
+        });
+        showResolvedToast();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setResolveErrors((prev) => ({ ...prev, [alert.id]: msg || 'Failed' }));
+      }
+    },
+    [showResolvedToast],
+  );
 
   // Counts per severity for the pills.
   const counts = useMemo(() => {
@@ -237,6 +285,30 @@ export default function AlertsPage() {
             ))}
           </div>
 
+          {/* "Show resolved" toggle — disabled until backend filter exists. */}
+          <button
+            type="button"
+            onClick={() => {
+              if (showResolvedSupported) setShowResolved((v) => !v);
+            }}
+            disabled={!showResolvedSupported}
+            title={
+              showResolvedSupported
+                ? 'Include resolved findings in the feed'
+                : 'Future: backend filter'
+            }
+            aria-pressed={showResolved}
+            className={clsx(
+              'pill ml-auto transition-all',
+              showResolved && showResolvedSupported
+                ? 'pill-blue'
+                : 'text-sentinel-text-secondary bg-white/6 border border-white/10 hover:bg-white/10',
+              !showResolvedSupported && 'opacity-50 cursor-not-allowed hover:bg-white/6',
+            )}
+          >
+            Show resolved
+          </button>
+
           {/* Filter button (channels) — visible only below md */}
           <div className="relative md:hidden ml-auto" ref={channelMenuRef}>
             <button
@@ -290,13 +362,31 @@ export default function AlertsPage() {
         </div>
       </div>
 
+      {/* Resolved toast */}
+      {resolveToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pill pill-green w-fit inline-flex items-center gap-1.5 animate-fade-up"
+        >
+          Resolved · {resolveToast.at}
+        </div>
+      )}
+
       {/* Feed */}
       <Tabs.Content value={tab} className="flex flex-col gap-2">
         {filtered.length === 0 ? (
           <EmptyState />
         ) : (
           filtered.map((a) => (
-            <AlertRow key={a.id} alert={a} onResolve={handleResolve} />
+            <div key={a.id} className="flex flex-col gap-1">
+              <AlertRow alert={a} onResolve={handleResolve} />
+              {resolveErrors[a.id] && (
+                <div className="pill pill-red w-fit" role="alert">
+                  Resolve failed: {resolveErrors[a.id]}
+                </div>
+              )}
+            </div>
           ))
         )}
       </Tabs.Content>

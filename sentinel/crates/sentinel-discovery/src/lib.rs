@@ -13,6 +13,7 @@ pub mod sources;
 pub mod orchestrator;
 pub mod runtime_inspector;
 pub mod active_probe;
+pub mod active_probe_http;
 pub mod supply_chain;
 pub mod threat_intel;
 pub mod trust_graph;

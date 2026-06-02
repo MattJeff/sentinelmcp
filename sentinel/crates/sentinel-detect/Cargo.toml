@@ -24,3 +24,7 @@ similar = { workspace = true }
 strsim = { workspace = true }
 reqwest = { workspace = true }
 futures = { workspace = true }
+
+[dev-dependencies]
+wiremock = "0.6"
+base64 = "0.22"

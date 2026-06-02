@@ -6,7 +6,11 @@
 mod background;
 mod commands;
 mod commands_discovery;
+mod commands_enforcement;
+mod commands_lookalikes;
+mod commands_proxy;
 mod commands_settings;
+mod commands_siem;
 mod state;
 
 use tauri::Manager;
@@ -27,6 +31,7 @@ pub fn run() {
             commands::stop_scan,
             commands::scan_progress,
             commands::list_findings,
+            commands::resolve_finding,
             commands::list_alerts,
             commands::apply_approval,
             commands::list_baselines,
@@ -40,12 +45,23 @@ pub fn run() {
             commands::test_webhook_channel,
             commands::get_live_status,
             commands::set_live_interval,
+            commands::create_investigation,
+            commands::list_investigations,
             commands_discovery::discover_system,
             commands_discovery::probe_server,
             commands_discovery::compute_trust_graph,
             commands_discovery::list_threats,
+            commands_lookalikes::scan_lookalikes,
+            commands_enforcement::enforcement_remove_server,
+            commands_enforcement::enforcement_restore,
+            commands_proxy::start_proxy,
+            commands_proxy::stop_proxy,
+            commands_proxy::proxy_status,
             commands_settings::get_settings,
             commands_settings::save_settings,
+            commands_siem::siem_test_send,
+            commands_siem::siem_save_config,
+            commands_siem::siem_get_config,
         ])
         .setup(|app| {
             log::info!("Sentinel MCP desktop launched");

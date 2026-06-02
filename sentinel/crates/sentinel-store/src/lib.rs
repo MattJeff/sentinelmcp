@@ -27,6 +27,21 @@ pub struct HistoriqueContact {
     pub horodatage: DateTime<Utc>,
 }
 
+/// DTO miroir d'une ligne de la table `investigations`.
+///
+/// Une investigation est une note libre attachée à un serveur — créée
+/// quand un opérateur décide d'« investiguer » plutôt qu'approuver ou
+/// bloquer. Persistée pour audit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Investigation {
+    pub id: String,
+    pub serveur_id: String,
+    pub note: String,
+    pub cree_par: String,
+    pub cree_a: DateTime<Utc>,
+    pub etat: String,
+}
+
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS serveurs (
     id TEXT PRIMARY KEY,
@@ -108,6 +123,17 @@ CREATE TABLE IF NOT EXISTS inventaire_approuve (
     note TEXT,
     FOREIGN KEY(serveur_id) REFERENCES serveurs(id)
 );
+
+CREATE TABLE IF NOT EXISTS investigations (
+    id TEXT PRIMARY KEY,
+    serveur_id TEXT NOT NULL,
+    note TEXT NOT NULL,
+    cree_par TEXT NOT NULL,
+    cree_a TEXT NOT NULL,
+    etat TEXT NOT NULL DEFAULT '"ouvert"'
+);
+
+CREATE INDEX IF NOT EXISTS idx_investigations_serveur ON investigations(serveur_id);
 "#;
 
 /// Store SQLite embarqué, partagé par toute l'application via Arc.
@@ -443,6 +469,97 @@ impl Store {
         let mut v = vec![];
         for r in rows {
             v.push(r?);
+        }
+        Ok(v)
+    }
+
+    /// Marque un constat comme résolu (transition Ouvert → Resolu) et,
+    /// si une note est fournie, l'ajoute en fin de `detail`.
+    pub fn marquer_constat_resolu(&self, id: ConstatId, note: Option<String>) -> Result<()> {
+        let conn = self.inner.lock().unwrap();
+        if let Some(n) = note {
+            if !n.trim().is_empty() {
+                conn.execute(
+                    r#"UPDATE constats
+                       SET etat = '"resolu"',
+                           detail = detail || char(10) || '[résolu] ' || ?2
+                       WHERE id = ?1"#,
+                    params![id.to_string(), n],
+                )?;
+                return Ok(());
+            }
+        }
+        conn.execute(
+            r#"UPDATE constats SET etat = '"resolu"' WHERE id = ?1"#,
+            params![id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Enregistre une nouvelle investigation pour un serveur et renvoie son `id`.
+    ///
+    /// L'`etat` est initialisé à `"ouvert"` (mirroir des constats).
+    pub fn enregistrer_investigation(
+        &self,
+        serveur_id: ServeurId,
+        note: &str,
+        par: &str,
+    ) -> Result<String> {
+        let conn = self.inner.lock().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            r#"INSERT INTO investigations (id, serveur_id, note, cree_par, cree_a, etat)
+               VALUES (?1, ?2, ?3, ?4, ?5, '"ouvert"')"#,
+            params![id, serveur_id.to_string(), note, par, now],
+        )?;
+        Ok(id)
+    }
+
+    /// Liste les investigations (les plus récentes d'abord), filtrables par serveur.
+    pub fn lister_investigations(
+        &self,
+        serveur_id: Option<ServeurId>,
+    ) -> Result<Vec<Investigation>> {
+        let conn = self.inner.lock().unwrap();
+        let mapper = |row: &rusqlite::Row<'_>| -> rusqlite::Result<Investigation> {
+            let cree_a: String = row.get(4)?;
+            Ok(Investigation {
+                id: row.get(0)?,
+                serveur_id: row.get(1)?,
+                note: row.get(2)?,
+                cree_par: row.get(3)?,
+                cree_a: DateTime::parse_from_rfc3339(&cree_a)
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                etat: row.get(5)?,
+            })
+        };
+        let mut v = vec![];
+        match serveur_id {
+            Some(id) => {
+                let mut stmt = conn.prepare(
+                    r#"SELECT id, serveur_id, note, cree_par, cree_a, etat
+                       FROM investigations
+                       WHERE serveur_id = ?1
+                       ORDER BY cree_a DESC"#,
+                )?;
+                let rows = stmt.query_map(params![id.to_string()], mapper)?;
+                for r in rows {
+                    v.push(r?);
+                }
+            }
+            None => {
+                let mut stmt = conn.prepare(
+                    r#"SELECT id, serveur_id, note, cree_par, cree_a, etat
+                       FROM investigations
+                       ORDER BY cree_a DESC"#,
+                )?;
+                let rows = stmt.query_map([], mapper)?;
+                for r in rows {
+                    v.push(r?);
+                }
+            }
         }
         Ok(v)
     }

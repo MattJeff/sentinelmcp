@@ -13,6 +13,7 @@ import { useDiscoveryAuth } from '@/hooks/useDiscoveryAuth';
 import { useToast } from '@/hooks/useToast';
 import AuthorizationGate from '@/components/discovery/AuthorizationGate';
 import ClientCard from '@/components/discovery/ClientCard';
+import LookalikePanel from '@/components/discovery/LookalikePanel';
 import ThreatPanel from '@/components/discovery/ThreatPanel';
 
 /**
@@ -197,6 +198,8 @@ export default function DiscoveryPage() {
         <>
           <div className="section-heading mt-4">Threat intel</div>
           <ThreatPanel />
+          <div className="section-heading mt-4">Lookalike scan</div>
+          <LookalikePanel />
         </>
       )}
 
