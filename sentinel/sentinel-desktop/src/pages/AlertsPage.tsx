@@ -39,10 +39,10 @@ export default function AlertsPage() {
   const [tab, setTab] = useState<SeverityTab>('all');
   const [channel, setChannel] = useState<ChannelFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
-  // "Show resolved" toggle. The backend filter is not wired yet, so the
-  // toggle is rendered disabled with an explanatory tooltip.
+  // "Show resolved" toggle — passes `include_resolved` through to the backend
+  // so resolved constats also appear in the list.
   const [showResolved, setShowResolved] = useState(false);
-  const showResolvedSupported = false;
+  const showResolvedSupported = true;
 
   // Hydrate from the backend: prefer real alerts, fall back to findings,
   // and in the Vite browser dev shell sprinkle some mock alerts so the
@@ -52,7 +52,7 @@ export default function AlertsPage() {
     try {
       const [realAlerts, findings] = await Promise.all([
         api.listAlerts().catch(() => [] as Alert[]),
-        api.listFindings().catch(() => [] as Finding[]),
+        api.listFindings(showResolved).catch(() => [] as Finding[]),
       ]);
 
       // De-duplicate: if a finding already shows up as an Alert (by finding_id),
@@ -70,7 +70,7 @@ export default function AlertsPage() {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [showResolved]);
 
   useEffect(() => {
     void refresh();
@@ -285,25 +285,17 @@ export default function AlertsPage() {
             ))}
           </div>
 
-          {/* "Show resolved" toggle — disabled until backend filter exists. */}
+          {/* "Show resolved" toggle — includes resolved findings in the feed. */}
           <button
             type="button"
-            onClick={() => {
-              if (showResolvedSupported) setShowResolved((v) => !v);
-            }}
-            disabled={!showResolvedSupported}
-            title={
-              showResolvedSupported
-                ? 'Include resolved findings in the feed'
-                : 'Future: backend filter'
-            }
+            onClick={() => setShowResolved((v) => !v)}
+            title="Include resolved findings in the feed"
             aria-pressed={showResolved}
             className={clsx(
               'pill ml-auto transition-all',
-              showResolved && showResolvedSupported
+              showResolved
                 ? 'pill-blue'
                 : 'text-sentinel-text-secondary bg-white/6 border border-white/10 hover:bg-white/10',
-              !showResolvedSupported && 'opacity-50 cursor-not-allowed hover:bg-white/6',
             )}
           >
             Show resolved

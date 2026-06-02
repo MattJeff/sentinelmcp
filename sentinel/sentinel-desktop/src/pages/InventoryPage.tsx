@@ -294,7 +294,7 @@ export default function InventoryPage({ onNavigate }: InventoryPageProps = {}) {
         </div>
       )}
 
-      {/* Placeholder slot for the future detail drawer. */}
+      {/* Live region for screen readers — announces the selected server. */}
       {selectedId && (
         <div className="sr-only" aria-live="polite">
           Selected server {selectedId}

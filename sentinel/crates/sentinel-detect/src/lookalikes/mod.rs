@@ -6,34 +6,142 @@
 //!   Les 4 sources prédéfinies sont des stubs v1 — les vraies requêtes HTTP arrivent en v2.
 //!   SourceStatique permet l'injection de données de test sans réseau.
 
+pub mod intra_inventory;
 pub mod similarity;
 pub mod sources;
 
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 // ---------------------------------------------------------------------------
 // Modèle de données
 // ---------------------------------------------------------------------------
 
+/// Signature compacte d'un outil exposé par un serveur MCP, utilisée pour
+/// renforcer la détection de sosies lorsque le registre source publie le
+/// schéma des outils. Permet de distinguer deux serveurs au nom proche en
+/// comparant leurs signatures d'outils plutôt que la seule description.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SignatureOutil {
+    /// Nom de l'outil tel qu'exposé par le serveur MCP.
+    pub nom: String,
+    /// Valeurs `enum` rassemblées récursivement depuis l'`inputSchema` de
+    /// l'outil, triées par ordre lexicographique et dédupliquées.
+    pub enums_tries: Vec<String>,
+    /// SHA-256 de la description de l'outil, tronqué aux 16 premiers
+    /// caractères hexadécimaux. Chaîne vide si la description est absente.
+    pub description_empreinte: String,
+}
+
 /// Entrée canonique issue d'un registre public MCP.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Le champ `outils` reste optionnel : les registres publics ne publient
+/// généralement que `nom` + `description`. Quand le registre expose le
+/// schéma des outils (ex. mcp-registry enrichi), le connecteur peut
+/// remplir `outils` pour activer la corrélation par signature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntreeRegistre {
     /// Identifiant court du registre source (ex. "pulsemcp", "smithery").
     pub registre: String,
     /// Nom du serveur tel qu'annoncé dans le registre.
     pub nom: String,
-    /// Description courte du serveur.
-    pub description: String,
-    /// Hash SHA-256 du binaire annoncé, le cas échéant.
-    pub hash_binaire: Option<String>,
-    /// URL du document SBOM pour vérification agent 3.9.
-    pub sbom_url: Option<String>,
-    /// Organisation ou individu ayant publié le serveur.
-    pub publie_par: Option<String>,
-    /// URL de déploiement ou dépôt du serveur.
-    pub url_serveur: Option<String>,
+    /// Description courte du serveur, si publiée par le registre.
+    pub description: Option<String>,
+    /// Organisation ou individu ayant publié le serveur, si connu.
+    pub auteur: Option<String>,
+    /// URL de déploiement, page de registre ou dépôt du serveur.
+    pub url: Option<String>,
+    /// Signatures d'outils si le registre les expose. `None` si le
+    /// registre ne porte que nom + description (cas le plus fréquent).
+    pub outils: Option<Vec<SignatureOutil>>,
+}
+
+impl EntreeRegistre {
+    /// Constructeur minimal pour les sources qui ne disposent que d'un
+    /// nom et d'une description. Les autres champs sont initialisés à
+    /// `None`. Garde les implémentations de `SourceRegistre` concises.
+    pub fn depuis_nom_description(
+        registre: impl Into<String>,
+        nom: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            registre: registre.into(),
+            nom: nom.into(),
+            description: Some(description.into()),
+            auteur: None,
+            url: None,
+            outils: None,
+        }
+    }
+}
+
+/// Construit une `SignatureOutil` à partir des champs publiés par un
+/// serveur MCP pour un outil donné :
+///
+/// - parcours récursif de `input_schema` à la recherche de toutes les
+///   listes `"enum": [...]` (les valeurs non-`String` sont ignorées),
+/// - tri lexicographique + déduplication des valeurs collectées,
+/// - SHA-256 de la description, tronqué aux 16 premiers caractères hex
+///   (chaîne vide si la description est absente ou vide).
+pub fn signature_outil_depuis_outil(
+    nom: &str,
+    description: Option<&str>,
+    input_schema: &serde_json::Value,
+) -> SignatureOutil {
+    let mut enums = Vec::new();
+    collecter_enums(input_schema, &mut enums);
+    enums.sort();
+    enums.dedup();
+
+    let description_empreinte = match description {
+        Some(desc) if !desc.is_empty() => {
+            let mut hasher = Sha256::new();
+            hasher.update(desc.as_bytes());
+            let hex = hex::encode(hasher.finalize());
+            hex[..16].to_string()
+        }
+        _ => String::new(),
+    };
+
+    SignatureOutil {
+        nom: nom.to_string(),
+        enums_tries: enums,
+        description_empreinte,
+    }
+}
+
+/// Parcourt récursivement un nœud JSON et ajoute à `sortie` toutes les
+/// valeurs `String` rencontrées sous une clé `"enum"` portant un tableau.
+fn collecter_enums(noeud: &serde_json::Value, sortie: &mut Vec<String>) {
+    match noeud {
+        serde_json::Value::Object(map) => {
+            for (cle, valeur) in map {
+                if cle == "enum" {
+                    if let Some(tableau) = valeur.as_array() {
+                        for element in tableau {
+                            if let Some(s) = element.as_str() {
+                                sortie.push(s.to_string());
+                            }
+                        }
+                    }
+                }
+                // Continue la descente même sous la clé "enum" pour
+                // capturer d'éventuels schémas imbriqués (rare mais
+                // toléré par JSON Schema).
+                collecter_enums(valeur, sortie);
+            }
+        }
+        serde_json::Value::Array(tableau) => {
+            for element in tableau {
+                collecter_enums(element, sortie);
+            }
+        }
+        _ => {}
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,15 +188,44 @@ impl ConnecteurRegistres {
         anyhow::bail!("registre inconnu : {}", nom_registre)
     }
 
-    /// Interroge toutes les sources et retourne leurs résultats (même en cas d'erreur partielle).
+    /// Interroge toutes les sources en parallèle et retourne leurs résultats
+    /// (même en cas d'erreur partielle).
+    ///
+    /// Fan-out borné par un timeout global de 30 secondes : si l'ensemble
+    /// dépasse ce délai, on retourne les résultats déjà collectés (Vec, jamais
+    /// de panique). Les 4 sources étant peu nombreuses, on utilise
+    /// `futures::future::join_all` plutôt qu'un `buffer_unordered` (pas de
+    /// gain de streaming attendu). Le plafond de concurrence par source
+    /// (5 détails en parallèle) est imposé en aval par L3/L4.
     pub async fn interroger_tous(&self) -> Vec<(String, anyhow::Result<Vec<EntreeRegistre>>)> {
-        let mut resultats = Vec::with_capacity(self.sources.len());
-        for source in &self.sources {
+        use std::sync::Mutex as StdMutex;
+        use std::time::Duration;
+
+        // Collecteur partagé : chaque future y pousse son résultat dès qu'elle
+        // termine. En cas d'expiration du timeout global, on récupère ce qui a
+        // déjà été produit sans rien perdre.
+        let collecteur: Arc<StdMutex<Vec<(String, anyhow::Result<Vec<EntreeRegistre>>)>>> =
+            Arc::new(StdMutex::new(Vec::with_capacity(self.sources.len())));
+
+        let futures_iter = self.sources.iter().map(|source| {
             let nom = source.nom().to_string();
-            let res = source.lister().await;
-            resultats.push((nom, res));
-        }
-        resultats
+            let collecteur = Arc::clone(&collecteur);
+            let fut = source.lister();
+            async move {
+                let res = fut.await;
+                if let Ok(mut guard) = collecteur.lock() {
+                    guard.push((nom, res));
+                }
+            }
+        });
+
+        let fanout = futures::future::join_all(futures_iter);
+        // On ignore volontairement le résultat de `timeout` : qu'on termine
+        // dans le délai ou non, on récupère le contenu du collecteur partagé.
+        let _ = tokio::time::timeout(Duration::from_secs(30), fanout).await;
+
+        let mut guard = collecteur.lock().expect("mutex empoisonné");
+        std::mem::take(&mut *guard)
     }
 }
 
@@ -210,5 +347,120 @@ impl SourceRegistre for SourceStatique {
     fn lister(&self) -> BoxFuture<'_, anyhow::Result<Vec<EntreeRegistre>>> {
         let entrees = self.entrees.clone();
         Box::pin(async move { Ok(entrees) })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests internes
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn depuis_nom_description_remplit_les_optionnels_a_none() {
+        let entree = EntreeRegistre::depuis_nom_description(
+            "pulsemcp",
+            "filesystem-server",
+            "accès au système de fichiers",
+        );
+        assert_eq!(entree.registre, "pulsemcp");
+        assert_eq!(entree.nom, "filesystem-server");
+        assert_eq!(
+            entree.description.as_deref(),
+            Some("accès au système de fichiers")
+        );
+        assert!(entree.auteur.is_none());
+        assert!(entree.url.is_none());
+        assert!(entree.outils.is_none());
+    }
+
+    #[test]
+    fn signature_outil_collecte_et_trie_les_enums() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "mode": { "type": "string", "enum": ["read", "write", "append"] },
+                "format": { "type": "string", "enum": ["json", "yaml", "json"] }
+            }
+        });
+        let sig = signature_outil_depuis_outil("fs.open", Some("ouvre un fichier"), &schema);
+        assert_eq!(sig.nom, "fs.open");
+        // Tri lexicographique et déduplication ("json" deux fois → une seule entrée)
+        assert_eq!(
+            sig.enums_tries,
+            vec![
+                "append".to_string(),
+                "json".to_string(),
+                "read".to_string(),
+                "write".to_string(),
+                "yaml".to_string(),
+            ]
+        );
+        // SHA-256 attendu (16 premiers caractères hex)
+        let mut hasher = Sha256::new();
+        hasher.update(b"ouvre un fichier");
+        let attendu = hex::encode(hasher.finalize());
+        assert_eq!(sig.description_empreinte, attendu[..16]);
+    }
+
+    #[test]
+    fn signature_outil_descend_dans_les_sous_schemas() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": { "enum": ["alpha", "beta"] }
+                        }
+                    }
+                }
+            }
+        });
+        let sig = signature_outil_depuis_outil("nested", None, &schema);
+        assert_eq!(sig.enums_tries, vec!["alpha".to_string(), "beta".to_string()]);
+        // Description absente → empreinte vide
+        assert_eq!(sig.description_empreinte, "");
+    }
+
+    #[test]
+    fn signature_outil_ignore_les_enums_non_string() {
+        let schema = json!({
+            "properties": {
+                "level": { "enum": [1, 2, 3, "high"] }
+            }
+        });
+        let sig = signature_outil_depuis_outil("mix", Some(""), &schema);
+        // Seules les chaînes sont conservées
+        assert_eq!(sig.enums_tries, vec!["high".to_string()]);
+        // Description vide → empreinte vide
+        assert_eq!(sig.description_empreinte, "");
+    }
+
+    #[test]
+    fn entree_registre_serialise_en_json() {
+        let entree = EntreeRegistre {
+            registre: "mcp-registry".to_string(),
+            nom: "demo".to_string(),
+            description: Some("demo server".to_string()),
+            auteur: Some("anthropic".to_string()),
+            url: Some("https://example.invalid/demo".to_string()),
+            outils: Some(vec![SignatureOutil {
+                nom: "echo".to_string(),
+                enums_tries: vec!["a".to_string(), "b".to_string()],
+                description_empreinte: "0123456789abcdef".to_string(),
+            }]),
+        };
+        let json = serde_json::to_value(&entree).expect("sérialisation ok");
+        assert_eq!(json["registre"], "mcp-registry");
+        assert_eq!(json["outils"][0]["nom"], "echo");
+        // Aller-retour serde
+        let retour: EntreeRegistre = serde_json::from_value(json).expect("désérialisation ok");
+        assert_eq!(retour, entree);
     }
 }

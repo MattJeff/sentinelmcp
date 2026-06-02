@@ -4,6 +4,8 @@
 //! des contacts, les constats et les alertes. Aucun contenu de `tools/call`
 //! n'est persisté — règle non négociable.
 
+pub mod registry_cache;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -436,12 +438,23 @@ impl Store {
     }
 
     pub fn lister_constats_ouverts(&self) -> Result<Vec<Constat>> {
+        self.lister_constats(false)
+    }
+
+    /// Liste les constats. `inclure_resolus = true` retourne aussi ceux marqués
+    /// résolus (utilisé par le toggle "Show resolved" du tableau d'alertes).
+    pub fn lister_constats(&self, inclure_resolus: bool) -> Result<Vec<Constat>> {
         let conn = self.inner.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let sql = if inclure_resolus {
             r#"SELECT id, serveur_id, outil_nom, type_constat, severite, titre, detail,
                 diff, references_conformite, horodatage, etat
-               FROM constats WHERE etat = '"ouvert"'"#,
-        )?;
+               FROM constats ORDER BY horodatage DESC"#
+        } else {
+            r#"SELECT id, serveur_id, outil_nom, type_constat, severite, titre, detail,
+                diff, references_conformite, horodatage, etat
+               FROM constats WHERE etat = '"ouvert"' ORDER BY horodatage DESC"#
+        };
+        let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
             let serveur_id: String = row.get(1)?;

@@ -41,24 +41,39 @@ async fn smithery_parse_correctement_payload_nominal() {
         .mount(&serveur)
         .await;
 
+    // Les requêtes de détail sont tentées mais aucune route ne les
+    // satisfait : elles retournent 404 et l'enrichissement est sauté
+    // (les entrées gardent `outils: None`).
     let url = format!("{}/servers?page_size=100", serveur.uri());
     let entrees = lister_smithery(&url).await;
 
     assert_eq!(entrees.len(), 2);
 
-    let github = &entrees[0];
+    // Les entrées sont produites en parallèle via buffer_unordered :
+    // on les retrouve par nom plutôt que par index.
+    let github = entrees
+        .iter()
+        .find(|e| e.nom == "GitHub MCP")
+        .expect("GitHub MCP présent");
     assert_eq!(github.registre, "smithery");
-    assert_eq!(github.nom, "GitHub MCP");
-    assert_eq!(github.description, "Accès aux dépôts GitHub.");
-    assert!(github.hash_binaire.is_none());
-    assert!(github.sbom_url.is_none());
-    assert!(github.publie_par.is_none());
-    assert!(github.url_serveur.is_none());
+    assert_eq!(
+        github.description.as_deref(),
+        Some("Accès aux dépôts GitHub.")
+    );
+    assert!(github.auteur.is_none());
+    assert!(github.url.is_none());
+    assert!(github.outils.is_none());
 
-    let fs = &entrees[1];
+    let fs = entrees
+        .iter()
+        .find(|e| e.nom == "Filesystem MCP")
+        .expect("Filesystem MCP présent");
     assert_eq!(fs.registre, "smithery");
-    assert_eq!(fs.nom, "Filesystem MCP");
-    assert_eq!(fs.description, "Lecture/écriture sur le FS local.");
+    assert_eq!(
+        fs.description.as_deref(),
+        Some("Lecture/écriture sur le FS local.")
+    );
+    assert!(fs.outils.is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +122,85 @@ async fn smithery_fallback_sur_qualified_name() {
 
     assert_eq!(entrees.len(), 1);
     assert_eq!(entrees[0].nom, "@only/qualified");
-    assert_eq!(entrees[0].description, "Sans displayName.");
+    assert_eq!(
+        entrees[0].description.as_deref(),
+        Some("Sans displayName.")
+    );
+    // Détail non monté → outils restent None.
+    assert!(entrees[0].outils.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Smithery — Test 3 bis : enrichissement par détail → SignatureOutil
+//   Le payload de détail expose un tableau `tools` ; on vérifie que
+//   `outils` est rempli et que les valeurs `enum` du schéma sont
+//   collectées, triées et dédupliquées.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn smithery_enrichit_outils_depuis_endpoint_detail() {
+    let serveur = MockServer::start().await;
+
+    // Liste : une seule entrée avec un `qualifiedName` simple (sans
+    // caractères réservés, pour que la route de détail soit prévisible
+    // après encodage).
+    let liste = serde_json::json!({
+        "servers": [
+            {
+                "qualifiedName": "acme-search",
+                "displayName": "Acme Search",
+                "description": "Moteur de recherche."
+            }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/servers"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(liste))
+        .expect(1)
+        .mount(&serveur)
+        .await;
+
+    // Détail enrichi : un outil `search` avec un `inputSchema` portant
+    // un `enum` ["fast","slow"].
+    let detail = serde_json::json!({
+        "tools": [
+            {
+                "name": "search",
+                "description": "Recherche textuelle.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": { "enum": ["fast", "slow"] }
+                    }
+                }
+            }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/servers/acme-search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(detail))
+        .expect(1)
+        .mount(&serveur)
+        .await;
+
+    let url = format!("{}/servers?page_size=100", serveur.uri());
+    let entrees = lister_smithery(&url).await;
+
+    assert_eq!(entrees.len(), 1);
+    let entree = &entrees[0];
+    assert_eq!(entree.nom, "Acme Search");
+    let outils = entree
+        .outils
+        .as_ref()
+        .expect("outils enrichis depuis le détail");
+    assert_eq!(outils.len(), 1);
+    assert_eq!(outils[0].nom, "search");
+    assert_eq!(
+        outils[0].enums_tries,
+        vec!["fast".to_string(), "slow".to_string()]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -140,14 +233,16 @@ async fn mcpso_parse_correctement_payload_nominal() {
     let meteo = &entrees[0];
     assert_eq!(meteo.registre, "mcp.so");
     assert_eq!(meteo.nom, "weather-mcp");
-    assert_eq!(meteo.description, "API météo.");
-    assert!(meteo.hash_binaire.is_none());
-    assert!(meteo.sbom_url.is_none());
+    assert_eq!(meteo.description.as_deref(), Some("API météo."));
+    assert!(meteo.auteur.is_none());
+    assert!(meteo.url.is_none());
+    assert!(meteo.outils.is_none());
 
     let cal = &entrees[1];
     assert_eq!(cal.registre, "mcp.so");
     assert_eq!(cal.nom, "calendar-mcp");
-    assert_eq!(cal.description, "Calendrier Google.");
+    assert_eq!(cal.description.as_deref(), Some("Calendrier Google."));
+    assert!(cal.outils.is_none());
 }
 
 // ---------------------------------------------------------------------------

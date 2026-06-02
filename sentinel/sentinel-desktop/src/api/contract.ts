@@ -278,19 +278,40 @@ export interface ThreatEntry {
 // one of the user's own declared servers but is NOT the exact same
 // identifier (i.e. a likely typo-squat / doppelganger).
 
+/** Per-signal contribution to the combined similarity score. */
+export interface LookalikeScoreBreakdown {
+  /** Jaro-Winkler on the names. */
+  name: number;
+  /** Jaccard on description tokens. */
+  description: number;
+  /** Jaccard on tool names. */
+  tools: number;
+  /** Jaccard on the union of declared enum values. */
+  enums: number;
+}
+
 export interface LookalikeMatch {
+  /** "registry" (public registry match) or "intra-inventory" (pair of declared servers). */
+  source?: string;
+  /** UUID of the declared server in the local inventory, when known. */
+  declared_id?: string | null;
   /** Declared package on this Mac (server name). */
   declared_package: string;
-  /** Short id of the registry where the candidate was found. */
+  /** Short id of the registry where the candidate was found, or "intra" for intra-inventory pairs. */
   registry: string;
-  /** Candidate name as published in the registry. */
+  /** Candidate name as published in the registry, or name of the other declared server. */
   candidate_name: string;
-  /** Candidate description as published in the registry. */
+  /** Candidate description as published in the registry. Empty for intra-inventory pairs. */
   candidate_description: string;
   /** Combined similarity score in [0.0 ; 1.0]. */
   similarity_score: number;
   /** "critical" | "high" | "medium". */
   severity: string;
+  /** Signals that individually crossed the 0.7 confidence threshold
+   *  ("name", "description", "tool-overlap", "enum-overlap"). */
+  signals?: string[];
+  /** Per-signal score breakdown so the UI can render a sparkbar. */
+  score_breakdown?: LookalikeScoreBreakdown;
 }
 
 export interface DiscoveredClient {

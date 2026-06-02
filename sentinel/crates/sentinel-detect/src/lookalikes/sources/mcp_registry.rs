@@ -25,7 +25,7 @@ use base64_decode::decode_standard;
 use serde_json::Value;
 use tracing::warn;
 
-use crate::lookalikes::EntreeRegistre;
+use crate::lookalikes::{EntreeRegistre, SignatureOutil};
 
 /// URL « raw » par défaut du fichier `registry.json` (étape 1).
 pub const MCP_REGISTRY_RAW_URL: &str =
@@ -197,17 +197,16 @@ fn extraire_entree_json(node: &Value) -> Option<EntreeRegistre> {
     let description = node
         .get("description")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+        .map(|s| s.to_string());
 
-    let url_serveur = node
+    let url = node
         .get("url")
         .or_else(|| node.get("homepage"))
         .or_else(|| node.get("repository"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let publie_par = node
+    let auteur = node
         .get("publisher")
         .or_else(|| node.get("author"))
         .or_else(|| node.get("owner"))
@@ -218,10 +217,9 @@ fn extraire_entree_json(node: &Value) -> Option<EntreeRegistre> {
         registre: "mcp-registry".to_string(),
         nom,
         description,
-        hash_binaire: None,
-        sbom_url: None,
-        publie_par,
-        url_serveur,
+        auteur,
+        url,
+        outils: None,
     })
 }
 
@@ -235,33 +233,152 @@ fn extraire_entree_json(node: &Value) -> Option<EntreeRegistre> {
 /// ```
 ///
 /// Les lignes ne respectant pas le motif sont ignorées silencieusement.
+///
+/// En complément, après l'extraction d'une entrée serveur, on scanne les
+/// lignes suivantes (jusqu'à la prochaine entrée de serveur ou à un
+/// en-tête de section) à la recherche de noms d'outils délimités par des
+/// backticks (`` `read_file` ``, `` `write_file` ``…). Tout identifiant
+/// `snake_case` rencontré est promu en `SignatureOutil` minimale.
 fn parser_readme_markdown(markdown: &str) -> Vec<EntreeRegistre> {
-    let mut entrees = Vec::new();
+    let mut entrees: Vec<EntreeRegistre> = Vec::new();
+    // Index dans `entrees` de la dernière entrée serveur extraite ; sert à
+    // accrocher les outils trouvés sur les lignes qui suivent.
+    let mut courant: Option<usize> = None;
+    // Accumulateur d'outils pour l'entrée courante (préserve l'ordre
+    // d'apparition tout en évitant les doublons).
+    let mut outils_courant: Vec<String> = Vec::new();
 
-    for ligne in markdown.lines() {
+    let lignes: Vec<&str> = markdown.lines().collect();
+    for ligne in &lignes {
         let nettoye = ligne.trim_start();
-        if !nettoye.starts_with("- ") && !nettoye.starts_with("* ") {
+
+        // Un en-tête Markdown (`#`, `##`, …) ferme la section courante.
+        if nettoye.starts_with('#') {
+            attacher_outils(&mut entrees, courant.take(), &mut outils_courant);
             continue;
         }
-        let reste = &nettoye[2..];
 
-        if let Some((nom, description)) = extraire_lien_markdown(reste) {
-            if nom.is_empty() {
+        if nettoye.starts_with("- ") || nettoye.starts_with("* ") {
+            let reste = &nettoye[2..];
+
+            if let Some((nom, description)) = extraire_lien_markdown(reste) {
+                if nom.is_empty() {
+                    continue;
+                }
+                // Le bullet décrit une nouvelle entrée serveur → on ferme
+                // la précédente puis on en ouvre une nouvelle.
+                attacher_outils(&mut entrees, courant.take(), &mut outils_courant);
+                entrees.push(EntreeRegistre {
+                    registre: "mcp-registry".to_string(),
+                    nom,
+                    description: if description.is_empty() {
+                        None
+                    } else {
+                        Some(description)
+                    },
+                    auteur: None,
+                    url: None,
+                    outils: None,
+                });
+                courant = Some(entrees.len() - 1);
                 continue;
             }
-            entrees.push(EntreeRegistre {
-                registre: "mcp-registry".to_string(),
-                nom,
-                description,
-                hash_binaire: None,
-                sbom_url: None,
-                publie_par: None,
-                url_serveur: None,
-            });
+
+            // Bullet sans lien Markdown : potentiellement un sous-bullet
+            // énumérant un outil → on scanne les backticks.
+            if courant.is_some() {
+                collecter_outils_backticks(reste, &mut outils_courant);
+            }
+            continue;
+        }
+
+        // Toute autre ligne (paragraphe, ligne vide…) : on extrait
+        // également les backticks éventuels, qui sont parfois utilisés en
+        // prose pour énumérer les outils d'un serveur (`tool_a`, `tool_b`).
+        if courant.is_some() {
+            collecter_outils_backticks(nettoye, &mut outils_courant);
         }
     }
 
+    // Fin de fichier : ne pas oublier la dernière entrée.
+    attacher_outils(&mut entrees, courant.take(), &mut outils_courant);
+
     entrees
+}
+
+/// Accroche le buffer d'outils accumulé à l'entrée d'index `idx` puis vide
+/// le buffer. Si aucun outil n'a été collecté, l'entrée garde `outils =
+/// None` (la consigne demande explicitement de ne pas créer de `Some(vec
+/// [])`).
+fn attacher_outils(
+    entrees: &mut [EntreeRegistre],
+    idx: Option<usize>,
+    buffer: &mut Vec<String>,
+) {
+    if let Some(i) = idx {
+        if !buffer.is_empty() {
+            let signatures = buffer
+                .iter()
+                .map(|nom| SignatureOutil {
+                    nom: nom.clone(),
+                    enums_tries: Vec::new(),
+                    description_empreinte: String::new(),
+                })
+                .collect();
+            entrees[i].outils = Some(signatures);
+        }
+    }
+    buffer.clear();
+}
+
+/// Repère tous les snippets `` `xxx` `` dans `texte` et conserve ceux qui
+/// ressemblent à un identifiant `snake_case` ASCII (lettres minuscules,
+/// chiffres, underscore, longueur ≥ 2 et au moins une lettre).
+fn collecter_outils_backticks(texte: &str, accumulateur: &mut Vec<String>) {
+    let octets = texte.as_bytes();
+    let mut i = 0;
+    while i < octets.len() {
+        if octets[i] == b'`' {
+            // Ne pas confondre avec une délimitation de bloc ``` … ```.
+            if i + 2 < octets.len() && octets[i + 1] == b'`' && octets[i + 2] == b'`' {
+                i += 3;
+                continue;
+            }
+            let debut = i + 1;
+            let mut fin = debut;
+            while fin < octets.len() && octets[fin] != b'`' {
+                fin += 1;
+            }
+            if fin >= octets.len() {
+                break;
+            }
+            let candidat = &texte[debut..fin];
+            if est_identifiant_outil(candidat)
+                && !accumulateur.iter().any(|n| n == candidat)
+            {
+                accumulateur.push(candidat.to_string());
+            }
+            i = fin + 1;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// `true` si `s` ressemble à un identifiant d'outil snake_case raisonnable.
+fn est_identifiant_outil(s: &str) -> bool {
+    if s.len() < 2 {
+        return false;
+    }
+    let mut contient_lettre = false;
+    for c in s.chars() {
+        match c {
+            'a'..='z' => contient_lettre = true,
+            '0'..='9' | '_' => {}
+            _ => return false,
+        }
+    }
+    contient_lettre
 }
 
 /// Extrait `(nom, description)` d'une portion du type

@@ -59,7 +59,8 @@ export const api = {
     }),
   stopScan: () => call<{ ok: boolean }>(COMMANDS.stopScan),
   scanProgress: () => call<ScanProgress>(COMMANDS.scanProgress),
-  listFindings: () => call<Finding[]>(COMMANDS.listFindings),
+  listFindings: (includeResolved = false) =>
+    call<Finding[]>(COMMANDS.listFindings, { includeResolved }),
   resolveFinding: (findingId: string, note?: string) =>
     call<void>(COMMANDS.resolveFinding, { findingId, note: note ?? null }),
   listAlerts: () => call<Alert[]>(COMMANDS.listAlerts),

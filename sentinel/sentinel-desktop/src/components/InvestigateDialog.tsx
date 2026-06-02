@@ -11,6 +11,7 @@ import { Loader2, Search } from 'lucide-react';
 
 import { api } from '../api/tauri';
 import type { Investigation } from '../api/contract';
+import { useToastStore } from '../hooks/useToast';
 
 // In-process pub/sub so the ServerDetailDrawer's "Investigations" section can
 // re-render the moment a new note is recorded, without having to poll. The
@@ -56,6 +57,7 @@ export default function InvestigateDialog({
   const [operator, setOperator] = useState(defaultOperator);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pushToast = useToastStore((s) => s.push);
 
   // Reset form whenever the target server changes (including on close).
   useEffect(() => {
@@ -99,6 +101,12 @@ export default function InvestigateDialog({
         operator: operatorTrimmed,
       });
       if (onSubmitted) await onSubmitted(entry);
+      pushToast({
+        title: 'Investigation opened',
+        description:
+          'Server tagged "to investigate". The note is saved and will appear in the server drawer and the signed audit bundle.',
+        severity: 'info',
+      });
       onOpenChange(false);
     } catch (err) {
       console.error('[InvestigateDialog] failed to open investigation', err);
@@ -143,8 +151,10 @@ export default function InvestigateDialog({
                 Open an investigation
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-[13px] text-sentinel-text-secondary">
-                Capture why this server needs a closer look. The note will be
-                attached to the signed audit bundle.
+                Tags the server <strong>to investigate</strong> (moves it out of
+                the Approvals queue), saves your note in the audit log, and
+                attaches it to the signed compliance bundle. You can still
+                Approve or Block it later from the server drawer.
               </Dialog.Description>
             </div>
           </div>

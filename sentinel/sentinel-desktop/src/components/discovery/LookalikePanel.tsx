@@ -12,6 +12,7 @@ import { Copy, Loader2, Radar } from 'lucide-react';
 
 import { api } from '@/api/tauri';
 import type { LookalikeMatch } from '@/api/contract';
+import LookalikeDetailDialog from './LookalikeDetailDialog';
 
 const SCAN_TIMEOUT_MS = 15_000;
 
@@ -52,10 +53,72 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/* L14 filter bar */
+type SourceFilter = 'all' | 'registry' | 'intra-inventory';
+type SignalFilter = 'all' | 'enum-overlap' | 'tool-overlap' | 'name-only';
+
+/** Read L11's optional `source` field defensively (parallel branch). */
+function matchSource(m: LookalikeMatch): 'registry' | 'intra-inventory' {
+  const s = (m as unknown as { source?: string }).source;
+  return s === 'intra-inventory' ? 'intra-inventory' : 'registry';
+}
+
+/** Read L11's optional `signals` field defensively (parallel branch). */
+function matchSignals(m: LookalikeMatch): string[] {
+  const sig = (m as unknown as { signals?: string[] }).signals;
+  return Array.isArray(sig) ? sig : [];
+}
+
+function signalCategory(m: LookalikeMatch): SignalFilter {
+  const sig = matchSignals(m);
+  if (sig.includes('enum-overlap')) return 'enum-overlap';
+  if (sig.includes('tool-overlap')) return 'tool-overlap';
+  return 'name-only';
+}
+
+/* L13 — surface L11's provenance + per-component fields */
+
+/** Read L11's optional `score_breakdown` defensively. */
+function matchBreakdown(m: LookalikeMatch): {
+  name: number;
+  description: number;
+  tools: number;
+  enums: number;
+} | null {
+  const raw = (m as unknown as {
+    score_breakdown?: {
+      name?: unknown;
+      description?: unknown;
+      tools?: unknown;
+      enums?: unknown;
+    };
+  }).score_breakdown;
+  if (!raw || typeof raw !== 'object') return null;
+  const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  return {
+    name: num(raw.name),
+    description: num(raw.description),
+    tools: num(raw.tools),
+    enums: num(raw.enums),
+  };
+}
+
+function sourceLabel(s: 'registry' | 'intra-inventory'): string {
+  return s === 'intra-inventory' ? 'Intra-inventory' : 'Registry';
+}
+
+function sourcePillClass(s: 'registry' | 'intra-inventory'): string {
+  return s === 'intra-inventory' ? 'pill pill-violet' : 'pill pill-blue';
+}
+
 export default function LookalikePanel() {
   const [matches, setMatches] = useState<LookalikeMatch[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [signalFilter, setSignalFilter] = useState<SignalFilter>('all');
+  // L15 — detail dialog
+  const [detailRow, setDetailRow] = useState<LookalikeMatch | null>(null);
 
   const handleScan = useCallback(async () => {
     setLoading(true);
@@ -132,33 +195,145 @@ export default function LookalikePanel() {
           No lookalikes detected against your inventory.
         </div>
       ) : (
-        <div className="overflow-x-auto -mx-2">
-          <table className="w-full text-[12px] border-separate border-spacing-y-1.5 px-2">
-            <thead>
-              <tr>
-                <th className="text-left px-2 section-heading">Severity</th>
-                <th className="text-left px-2 section-heading">Declared</th>
-                <th className="text-left px-2 section-heading">Registry</th>
-                <th className="text-left px-2 section-heading">Candidate</th>
-                <th className="text-right px-2 section-heading">Score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matches.map((m, idx) => {
+        (() => {
+          /* L14 filter bar */
+          const sourceCounts = {
+            all: matches.length,
+            registry: matches.filter((m) => matchSource(m) === 'registry').length,
+            'intra-inventory': matches.filter(
+              (m) => matchSource(m) === 'intra-inventory',
+            ).length,
+          } as const;
+          const signalCounts = {
+            all: matches.length,
+            'enum-overlap': matches.filter(
+              (m) => signalCategory(m) === 'enum-overlap',
+            ).length,
+            'tool-overlap': matches.filter(
+              (m) => signalCategory(m) === 'tool-overlap',
+            ).length,
+            'name-only': matches.filter(
+              (m) => signalCategory(m) === 'name-only',
+            ).length,
+          } as const;
+          const filtered = matches.filter((m) => {
+            if (sourceFilter !== 'all' && matchSource(m) !== sourceFilter)
+              return false;
+            if (signalFilter !== 'all' && signalCategory(m) !== signalFilter)
+              return false;
+            return true;
+          });
+          const pillBase = 'pill cursor-pointer select-none';
+          const pillActive = 'pill-blue';
+          const pillIdle =
+            'bg-white/6 border border-white/10 text-sentinel-text-tertiary';
+          const sourceOptions: { key: SourceFilter; label: string }[] = [
+            { key: 'all', label: 'All' },
+            { key: 'registry', label: 'Registry' },
+            { key: 'intra-inventory', label: 'Intra-inventory' },
+          ];
+          const signalOptions: { key: SignalFilter; label: string }[] = [
+            { key: 'all', label: 'All' },
+            { key: 'enum-overlap', label: 'Enum-driven' },
+            { key: 'tool-overlap', label: 'Tool-overlap' },
+            { key: 'name-only', label: 'Name-only' },
+          ];
+          return (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2 rounded-glass bg-white/4 border border-white/8 px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="section-heading text-[11px] mr-1">
+                    Source
+                  </span>
+                  {sourceOptions.map((opt) => {
+                    const active = sourceFilter === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setSourceFilter(opt.key)}
+                        className={clsx(pillBase, active ? pillActive : pillIdle)}
+                        aria-pressed={active}
+                      >
+                        {opt.label}
+                        <span className="ml-1 opacity-70">
+                          {sourceCounts[opt.key]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="section-heading text-[11px] mr-1">
+                    Signal
+                  </span>
+                  {signalOptions.map((opt) => {
+                    const active = signalFilter === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setSignalFilter(opt.key)}
+                        className={clsx(pillBase, active ? pillActive : pillIdle)}
+                        aria-pressed={active}
+                      >
+                        {opt.label}
+                        <span className="ml-1 opacity-70">
+                          {signalCounts[opt.key]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {filtered.length === 0 ? (
+                <div className="text-[12px] text-sentinel-text-tertiary py-6 text-center">
+                  No matches for the selected filters.
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-2">
+                  <table className="w-full text-[12px] border-separate border-spacing-y-1.5 px-2">
+                    <thead>
+                      <tr>
+                        <th className="text-left px-2 section-heading">Severity</th>
+                        <th className="text-left px-2 section-heading">Source</th>
+                        <th className="text-left px-2 section-heading">Declared</th>
+                        <th className="text-left px-2 section-heading">Registry</th>
+                        <th className="text-left px-2 section-heading">Candidate</th>
+                        <th className="text-right px-2 section-heading">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((m, idx) => {
                 const danger = m.severity === 'critical';
                 return (
                   <tr
                     key={`${m.declared_package}::${m.registry}::${m.candidate_name}::${idx}`}
                     className={clsx(
-                      'rounded-glass',
+                      'rounded-glass cursor-pointer hover:bg-white/8 focus:outline-none focus-visible:ring-1 focus-visible:ring-sentinel-blue-glow/60',
                       danger
                         ? 'bg-sentinel-red/10 shadow-glow-red'
                         : 'bg-white/4',
                     )}
+                    onClick={() => setDetailRow(m)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setDetailRow(m);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open match details for ${m.candidate_name}`}
                   >
                     <td className="px-2 py-2 rounded-l-glass">
                       <span className={severityPillClass(m.severity)}>
                         {m.severity}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2">
+                      <span className={sourcePillClass(matchSource(m))}>
+                        {sourceLabel(matchSource(m))}
                       </span>
                     </td>
                     <td
@@ -187,7 +362,7 @@ export default function LookalikePanel() {
                     </td>
                     <td
                       className={clsx(
-                        'px-2 py-2 font-mono text-[11.5px] max-w-[260px] truncate',
+                        'px-2 py-2 max-w-[260px]',
                         danger
                           ? 'text-sentinel-text-primary'
                           : 'text-sentinel-text-secondary',
@@ -198,25 +373,69 @@ export default function LookalikePanel() {
                           : m.candidate_name
                       }
                     >
-                      {m.candidate_name}
+                      <div className="flex flex-col gap-1">
+                        <span className="font-mono text-[11.5px] truncate">
+                          {m.candidate_name}
+                        </span>
+                        {matchSignals(m).length > 0 && (
+                          <span className="flex flex-wrap gap-1">
+                            {matchSignals(m).map((sig) => (
+                              <span
+                                key={sig}
+                                className="pill pill-cyan !px-1.5 !py-0 !text-[9.5px] !tracking-normal normal-case"
+                              >
+                                {sig}
+                              </span>
+                            ))}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td
                       className={clsx(
-                        'px-2 py-2 text-right font-semibold rounded-r-glass',
+                        'px-2 py-2 text-right rounded-r-glass',
                         danger
                           ? 'text-sentinel-red'
                           : 'text-sentinel-text-secondary',
                       )}
                     >
-                      {scoreLabel(m.similarity_score)}
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="font-semibold">
+                          {scoreLabel(m.similarity_score)}
+                        </span>
+                        {(() => {
+                          const b = matchBreakdown(m);
+                          if (!b) return null;
+                          return (
+                            <span className="text-[10px] text-sentinel-text-tertiary font-mono">
+                              name {b.name.toFixed(2)} · desc{' '}
+                              {b.description.toFixed(2)} · tools{' '}
+                              {b.tools.toFixed(2)} · enums{' '}
+                              {b.enums.toFixed(2)}
+                            </span>
+                          );
+                        })()}
+                      </div>
                     </td>
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()
       )}
+
+      {/* L15 — per-row score breakdown dialog */}
+      <LookalikeDetailDialog
+        row={detailRow}
+        onOpenChange={(open) => {
+          if (!open) setDetailRow(null);
+        }}
+      />
     </section>
   );
 }

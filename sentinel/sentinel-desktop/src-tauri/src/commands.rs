@@ -640,9 +640,13 @@ pub async fn scan_progress(state: State<'_, AppState>) -> Result<ScanProgress, S
 }
 
 #[tauri::command]
-pub async fn list_findings(state: State<'_, AppState>) -> Result<Vec<Finding>, String> {
+pub async fn list_findings(
+    state: State<'_, AppState>,
+    include_resolved: Option<bool>,
+) -> Result<Vec<Finding>, String> {
     let store = state.store.clone();
-    let constats = tokio::task::spawn_blocking(move || store.lister_constats_ouverts())
+    let inclure = include_resolved.unwrap_or(false);
+    let constats = tokio::task::spawn_blocking(move || store.lister_constats(inclure))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;

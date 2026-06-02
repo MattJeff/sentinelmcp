@@ -117,6 +117,17 @@
   .btn:active {
     transform: translateY(0.5px) scale(0.99);
   }
+  .btn:disabled,
+  .btn[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: saturate(0.6);
+  }
+  .btn:disabled:hover,
+  .btn[disabled]:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: none;
+  }
   .btn-primary {
     background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
     color: #042f1c;

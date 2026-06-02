@@ -13,11 +13,10 @@ fn entree(registre: &str, nom: &str) -> EntreeRegistre {
     EntreeRegistre {
         registre: registre.to_string(),
         nom: nom.to_string(),
-        description: format!("Description de {}", nom),
-        hash_binaire: None,
-        sbom_url: None,
-        publie_par: None,
-        url_serveur: None,
+        description: Some(format!("Description de {}", nom)),
+        auteur: None,
+        url: None,
+        outils: None,
     }
 }
 
@@ -87,11 +86,10 @@ async fn source_statique_round_trip_champs_complets() {
     let attendue = EntreeRegistre {
         registre: "test-reg".to_string(),
         nom: "mcp-filesystem".to_string(),
-        description: "Accès au système de fichiers local".to_string(),
-        hash_binaire: Some("abc123".to_string()),
-        sbom_url: Some("https://example.com/sbom.json".to_string()),
-        publie_par: Some("anthropic".to_string()),
-        url_serveur: Some("https://github.com/anthropic/mcp-filesystem".to_string()),
+        description: Some("Accès au système de fichiers local".to_string()),
+        auteur: Some("anthropic".to_string()),
+        url: Some("https://github.com/anthropic/mcp-filesystem".to_string()),
+        outils: None,
     };
 
     let source = SourceStatique::nouveau("test-reg", vec![attendue.clone()]);

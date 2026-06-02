@@ -2,7 +2,7 @@
 
 [package]
 name = "sentinel-desktop"
-version = "0.1.0"
+version = "0.2.1"
 description = "Sentinel MCP — Mac desktop app"
 authors = ["Sentinel MCP Team"]
 license = "MIT"

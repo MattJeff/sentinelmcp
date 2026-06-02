@@ -342,3 +342,146 @@ pub fn chemins_a_surveiller() -> Vec<PathBuf> {
     }
     out
 }
+
+// --- L17 registry refresh ---
+//
+// Daily refresh of the four lookalike registries (pulsemcp, smithery, mcpso,
+// mcp_registry). Each tick fetches the entry list from the source, serializes
+// it as JSON bytes and persists it via `CacheRegistres::ecrire`. The cache is
+// stored alongside the main `sentinel.db` so it survives across launches.
+//
+// The task is fire-and-forget: any error (network, serialization, SQLite) is
+// logged at `warn` level and swallowed — the app must never crash because a
+// registry is down. On startup we run one immediate refresh if the entry is
+// stale (`est_frais` returned false), then settle into the 24h cadence.
+
+use sentinel_detect::lookalikes::{
+    SourceMcpRegistry, SourceMcpSo, SourcePulseMCP, SourceRegistre, SourceSmithery,
+};
+use sentinel_store::registry_cache::CacheRegistres;
+use tauri::Manager;
+use tokio::time::interval;
+
+/// TTL for a cache entry, in seconds (24h). An entry older than this is
+/// considered stale and gets refetched on the next tick (or immediately at
+/// startup).
+const REGISTRY_CACHE_TTL_SECS: i64 = 24 * 3600;
+
+/// Public entry point: spawn the daily registry refresh task.
+///
+/// Fire-and-forget — never panics, never crashes the app. The cache DB lives
+/// next to the main store in the platform-specific app-data directory.
+pub fn lancer_refresh_registres(app: AppHandle, _state: AppState) {
+    tauri::async_runtime::spawn(async move {
+        boucle_refresh_registres(app).await;
+    });
+}
+
+/// Periodic refresh loop. Resolves the cache DB path once, runs an initial
+/// refresh for any stale registry, then ticks every 24h.
+async fn boucle_refresh_registres(app: AppHandle) {
+    let cache = match ouvrir_cache_registres(&app) {
+        Some(c) => c,
+        None => return, // already logged
+    };
+
+    // Build the four source connectors. Names used as cache keys mirror the
+    // task spec (pulsemcp, smithery, mcpso, mcp_registry) — they do not have
+    // to match `SourceRegistre::nom()` since the cache is internal.
+    let sources: Vec<(&'static str, Arc<dyn SourceRegistre>)> = vec![
+        ("pulsemcp", SourcePulseMCP::nouveau()),
+        ("smithery", SourceSmithery::nouveau()),
+        ("mcpso", SourceMcpSo::nouveau()),
+        ("mcp_registry", SourceMcpRegistry::nouveau()),
+    ];
+
+    // Startup pass: only refresh registries whose entries are missing or
+    // older than the TTL. Avoids hammering the network on every cold boot.
+    for (cle, source) in &sources {
+        let frais = cache
+            .est_frais(cle, REGISTRY_CACHE_TTL_SECS)
+            .unwrap_or(false);
+        if !frais {
+            refresh_un_registre(&cache, cle, source.as_ref()).await;
+        }
+    }
+
+    // Steady state: every 24h, refresh all four registries unconditionally.
+    // `interval` ticks immediately on its first call — we consume that tick
+    // (the startup pass above already handled the initial fetch) so the
+    // first real network call happens after the full 24h delay.
+    let mut tick = interval(Duration::from_secs(24 * 3600));
+    tick.tick().await; // immediate first tick — discarded
+    loop {
+        tick.tick().await;
+        for (cle, source) in &sources {
+            refresh_un_registre(&cache, cle, source.as_ref()).await;
+        }
+    }
+}
+
+/// Resolve `<app-data>/sentinel.db` and open the `CacheRegistres` against it.
+/// Returns `None` on any failure (logged), so the caller can early-exit
+/// without crashing.
+fn ouvrir_cache_registres(app: &AppHandle) -> Option<CacheRegistres> {
+    let dir = match app.path().app_data_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!(
+                "registry refresh: could not resolve app data dir: {} — skipping",
+                e
+            );
+            return None;
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!(
+            "registry refresh: could not create app data dir {:?}: {} — skipping",
+            dir,
+            e
+        );
+        return None;
+    }
+    let db_path = dir.join("sentinel.db");
+    match CacheRegistres::nouveau(db_path.clone()) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            log::warn!(
+                "registry refresh: could not open cache at {:?}: {} — skipping",
+                db_path,
+                e
+            );
+            None
+        }
+    }
+}
+
+/// Fetch one registry, JSON-encode the result and persist it via
+/// `CacheRegistres::ecrire`. All failure modes are logged at `warn` level
+/// and swallowed.
+async fn refresh_un_registre(cache: &CacheRegistres, cle: &str, source: &dyn SourceRegistre) {
+    let entrees = match source.lister().await {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("registry refresh: {} fetch failed: {}", cle, e);
+            return;
+        }
+    };
+    let payload = match serde_json::to_vec(&entrees) {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("registry refresh: {} serialize failed: {}", cle, e);
+            return;
+        }
+    };
+    if let Err(e) = cache.ecrire(cle, &payload) {
+        log::warn!("registry refresh: {} write failed: {}", cle, e);
+        return;
+    }
+    log::info!(
+        "registry refresh: {} cached ({} entries, {} bytes)",
+        cle,
+        entrees.len(),
+        payload.len()
+    );
+}

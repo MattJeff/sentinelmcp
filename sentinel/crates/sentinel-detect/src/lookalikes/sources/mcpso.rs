@@ -86,16 +86,11 @@ fn extraire_entree(node: &Value) -> Option<EntreeRegistre> {
     let description = node
         .get("description")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+        .unwrap_or("");
 
-    Some(EntreeRegistre {
-        registre: "mcp.so".to_string(),
-        nom: nom.to_string(),
+    Some(EntreeRegistre::depuis_nom_description(
+        "mcp.so",
+        nom,
         description,
-        hash_binaire: None,
-        sbom_url: None,
-        publie_par: None,
-        url_serveur: None,
-    })
+    ))
 }

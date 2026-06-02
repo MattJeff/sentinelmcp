@@ -7,11 +7,10 @@ fn entree(nom: &str, description: &str) -> EntreeRegistre {
     EntreeRegistre {
         registre: "registre-test".to_string(),
         nom: nom.to_string(),
-        description: description.to_string(),
-        hash_binaire: None,
-        sbom_url: None,
-        publie_par: None,
-        url_serveur: None,
+        description: Some(description.to_string()),
+        auteur: None,
+        url: None,
+        outils: None,
     }
 }
 

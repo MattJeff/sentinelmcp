@@ -270,7 +270,7 @@ function Sidebar({
                 Sentinel MCP
               </div>
               <div className="text-[10px] text-sentinel-text-tertiary leading-tight flex items-center gap-1.5">
-                <span>v0.1.0</span>
+                <span>v0.2.1</span>
                 <LiveBadge compact={false} />
               </div>
             </div>
