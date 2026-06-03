@@ -44,99 +44,23 @@ pub struct Investigation {
     pub etat: String,
 }
 
-const SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS serveurs (
-    id TEXT PRIMARY KEY,
-    endpoint TEXT NOT NULL,
-    transport TEXT NOT NULL,
-    portees TEXT NOT NULL,
-    statut TEXT NOT NULL,
-    couleur TEXT NOT NULL,
-    premiere_vue TEXT NOT NULL,
-    derniere_vue TEXT NOT NULL,
-    empreinte_courante TEXT
-);
+/// Migrations SQL embarquées via refinery. Le dossier `src/migrations/`
+/// porte les fichiers `V{n}__{nom}.sql` ; refinery les compile dans le
+/// binaire et tient à jour la table `refinery_schema_history`.
+mod embedded_migrations {
+    refinery::embed_migrations!("src/migrations");
+}
 
-CREATE TABLE IF NOT EXISTS outils (
-    id TEXT PRIMARY KEY,
-    serveur_id TEXT NOT NULL,
-    nom TEXT NOT NULL,
-    description TEXT,
-    input_schema TEXT NOT NULL,
-    empreinte TEXT NOT NULL,
-    UNIQUE(serveur_id, nom),
-    FOREIGN KEY(serveur_id) REFERENCES serveurs(id)
-);
-
-CREATE TABLE IF NOT EXISTS baselines (
-    id TEXT PRIMARY KEY,
-    serveur_id TEXT NOT NULL,
-    empreinte_serveur TEXT NOT NULL,
-    empreintes_outils TEXT NOT NULL,
-    outils TEXT NOT NULL,
-    date_approbation TEXT NOT NULL,
-    approuve_par TEXT NOT NULL,
-    FOREIGN KEY(serveur_id) REFERENCES serveurs(id)
-);
-
-CREATE TABLE IF NOT EXISTS historique_contacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    serveur_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    methode TEXT NOT NULL,
-    horodatage TEXT NOT NULL,
-    FOREIGN KEY(serveur_id) REFERENCES serveurs(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_hist_serveur ON historique_contacts(serveur_id);
-
-CREATE TABLE IF NOT EXISTS constats (
-    id TEXT PRIMARY KEY,
-    serveur_id TEXT NOT NULL,
-    outil_nom TEXT,
-    type_constat TEXT NOT NULL,
-    severite TEXT NOT NULL,
-    titre TEXT NOT NULL,
-    detail TEXT NOT NULL,
-    diff TEXT,
-    references_conformite TEXT NOT NULL,
-    horodatage TEXT NOT NULL,
-    etat TEXT NOT NULL,
-    FOREIGN KEY(serveur_id) REFERENCES serveurs(id)
-);
-
-CREATE TABLE IF NOT EXISTS alertes (
-    id TEXT PRIMARY KEY,
-    constat_id TEXT NOT NULL,
-    canal TEXT NOT NULL,
-    severite TEXT NOT NULL,
-    titre TEXT NOT NULL,
-    message TEXT NOT NULL,
-    diff TEXT,
-    horodatage TEXT NOT NULL,
-    envoyee INTEGER NOT NULL,
-    tentatives INTEGER NOT NULL,
-    FOREIGN KEY(constat_id) REFERENCES constats(id)
-);
-
-CREATE TABLE IF NOT EXISTS inventaire_approuve (
-    serveur_id TEXT PRIMARY KEY,
-    approuve INTEGER NOT NULL,
-    note TEXT,
-    FOREIGN KEY(serveur_id) REFERENCES serveurs(id)
-);
-
-CREATE TABLE IF NOT EXISTS investigations (
-    id TEXT PRIMARY KEY,
-    serveur_id TEXT NOT NULL,
-    note TEXT NOT NULL,
-    cree_par TEXT NOT NULL,
-    cree_a TEXT NOT NULL,
-    etat TEXT NOT NULL DEFAULT '"ouvert"'
-);
-
-CREATE INDEX IF NOT EXISTS idx_investigations_serveur ON investigations(serveur_id);
-"#;
+/// Accès lecture seule aux migrations embarquées — utilisé uniquement
+/// par les tests externes qui ont besoin de connaître la liste des
+/// migrations et leurs checksums (e.g. pour simuler une DB déjà
+/// upgradée jusqu'à une version donnée). À ne PAS utiliser en
+/// production : passer par `Store::open` qui orchestre tout.
+pub fn migrations_pour_tests_seulement() -> Result<Vec<refinery::Migration>> {
+    Ok(embedded_migrations::migrations::runner()
+        .get_migrations()
+        .to_vec())
+}
 
 /// Store SQLite embarqué, partagé par toute l'application via Arc.
 #[derive(Clone)]
@@ -146,36 +70,380 @@ pub struct Store {
 
 impl Store {
     /// Ouvre le store à un chemin donné (ou en mémoire si `:memory:`).
+    ///
+    /// Exécute les migrations refinery embarquées. Rétrocompat : si la
+    /// DB a été créée par l'ancien `execute_batch(SCHEMA_SQL)` (donc sans
+    /// historique refinery mais avec la table `serveurs` déjà en place),
+    /// on insère manuellement la ligne correspondant à V1 dans
+    /// `refinery_schema_history` avant de lancer le runner, sinon
+    /// refinery tenterait de rejouer V1 et planterait sur les
+    /// `CREATE TABLE`. Les migrations suivantes (V2+) sont appliquées
+    /// normalement.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let conn = if path.as_os_str() == ":memory:" {
+        let mut conn = if path.as_os_str() == ":memory:" {
             Connection::open_in_memory()?
         } else {
             Connection::open(path)?
         };
-        conn.execute_batch(SCHEMA_SQL)?;
+        Self::amorcer_historique_refinery(&conn)?;
+        embedded_migrations::migrations::runner().run(&mut conn)?;
+        Self::backfill_v4_identite(&mut conn)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
         })
+    }
+
+    /// Backfill de la colonne `package_id` (introduite par V4) et fusion
+    /// des doublons hérités de la dédup historique sur `endpoint`.
+    ///
+    /// Stratégie :
+    ///   1. Pour chaque ligne dont `package_id` est vide, calculer
+    ///      l'identité canonique via `extraire_package_id(endpoint, transport)`.
+    ///   2. Grouper les serveurs par `(package_id, scope)`. Tout groupe
+    ///      de taille > 1 est un doublon hérité.
+    ///   3. Choisir un **gagnant** par groupe : la ligne qui a le plus
+    ///      d'outils probés (tie-break sur `derniere_vue` la plus
+    ///      récente). C'est la « vraie » entrée, celle qui a effectivement
+    ///      vu un `tools/list` réussir.
+    ///   4. Avant suppression des perdants, transférer au gagnant les
+    ///      bouts d'historique opérateur qui valent la peine d'être
+    ///      conservés : `premiere_vue` la plus ancienne du groupe, tags
+    ///      non vides s'il n'en a pas, baseline approuvée et statut
+    ///      d'approbation s'il n'en a pas.
+    ///   5. Suppression sèche des perdants (et de toutes leurs lignes
+    ///      filles : outils, historique_contacts, constats, alertes,
+    ///      baselines, inventaire_approuve, investigations). C'est le
+    ///      compromis demandé : on perd la trace que la ligne fantôme
+    ///      a existé, en échange d'un inventaire propre.
+    ///   6. Une fois tous les groupes purgés, écrire l'index unique
+    ///      `idx_serveurs_identite (package_id, scope)`. Refusera
+    ///      désormais toute insertion dupliquée — la dédup endpoint
+    ///      historique ne peut plus revenir par accident.
+    ///
+    /// Toute la fonction tourne dans une transaction unique : si quoi
+    /// que ce soit échoue (groupe corrompu, FK orpheline, …) la DB
+    /// reste exactement dans son état pré-backfill.
+    fn backfill_v4_identite(conn: &mut Connection) -> Result<()> {
+        let tx = conn.transaction()?;
+
+        // 1) Calcul du package_id pour toute ligne où il est encore vide.
+        //    On lit (id, endpoint, transport, scope) et on remplit la
+        //    colonne en un coup. Le transport est stocké en JSON sérialisé
+        //    par serde (`"stdio"` ou `"http"`), même valeur que ce que
+        //    voit `lister_serveurs`.
+        struct LigneBrute {
+            id: String,
+            endpoint: String,
+            transport: String,
+        }
+        let lignes: Vec<LigneBrute> = {
+            let mut stmt = tx.prepare(
+                "SELECT id, endpoint, transport FROM serveurs WHERE package_id = ''",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(LigneBrute {
+                    id: r.get(0)?,
+                    endpoint: r.get(1)?,
+                    transport: r.get(2)?,
+                })
+            })?;
+            let mut v = Vec::new();
+            for r in rows {
+                v.push(r?);
+            }
+            v
+        };
+
+        for ligne in &lignes {
+            let transport: Transport =
+                serde_json::from_str(&ligne.transport).unwrap_or(Transport::Stdio);
+            let package_id = extraire_package_id(&ligne.endpoint, transport);
+            tx.execute(
+                "UPDATE serveurs SET package_id = ?1 WHERE id = ?2",
+                params![package_id, ligne.id],
+            )?;
+        }
+
+        // 2) Grouper et résoudre les collisions par (package_id, scope).
+        //    On lit en une passe (id, package_id, scope, derniere_vue,
+        //    premiere_vue, tags) + le nombre d'outils probés sur chaque
+        //    serveur. La requête `LEFT JOIN` est plus lisible mais
+        //    sqlite n'aime pas trop ; on fait deux passes Rust.
+        struct LigneAvecMetadata {
+            id: String,
+            package_id: String,
+            scope: String,
+            derniere_vue: String,
+            premiere_vue: String,
+            tags: String,
+            nb_outils: i64,
+        }
+        let toutes: Vec<LigneAvecMetadata> = {
+            let mut stmt = tx.prepare(
+                "SELECT s.id, s.package_id, s.scope, s.derniere_vue, s.premiere_vue,
+                        s.tags, (SELECT COUNT(*) FROM outils o WHERE o.serveur_id = s.id)
+                 FROM serveurs s",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(LigneAvecMetadata {
+                    id: r.get(0)?,
+                    package_id: r.get(1)?,
+                    scope: r.get(2)?,
+                    derniere_vue: r.get(3)?,
+                    premiere_vue: r.get(4)?,
+                    tags: r.get(5)?,
+                    nb_outils: r.get(6)?,
+                })
+            })?;
+            let mut v = Vec::new();
+            for r in rows {
+                v.push(r?);
+            }
+            v
+        };
+
+        use std::collections::HashMap;
+        let mut groupes: HashMap<(String, String), Vec<LigneAvecMetadata>> = HashMap::new();
+        for ligne in toutes {
+            groupes
+                .entry((ligne.package_id.clone(), ligne.scope.clone()))
+                .or_default()
+                .push(ligne);
+        }
+
+        for ((_pid, _scope), mut membres) in groupes {
+            if membres.len() < 2 {
+                continue;
+            }
+            // 3) Élire le gagnant : max(nb_outils) puis derniere_vue desc.
+            membres.sort_by(|a, b| {
+                b.nb_outils
+                    .cmp(&a.nb_outils)
+                    .then_with(|| b.derniere_vue.cmp(&a.derniere_vue))
+            });
+            let gagnant = membres.remove(0);
+
+            // 4) Préserver les morceaux d'historique opérateur qui valent
+            //    la peine : premiere_vue min, tags non vides, baseline et
+            //    approbation si le gagnant n'en a pas.
+            let mut premiere_vue_min = gagnant.premiere_vue.clone();
+            let mut tags_pour_gagnant: Option<String> = None;
+            let gagnant_tags_vides = gagnant.tags.trim() == "[]" || gagnant.tags.is_empty();
+
+            for perdant in &membres {
+                if perdant.premiere_vue < premiere_vue_min {
+                    premiere_vue_min = perdant.premiere_vue.clone();
+                }
+                if gagnant_tags_vides
+                    && tags_pour_gagnant.is_none()
+                    && perdant.tags.trim() != "[]"
+                    && !perdant.tags.is_empty()
+                {
+                    tags_pour_gagnant = Some(perdant.tags.clone());
+                }
+            }
+
+            // Réassigner baseline / inventaire_approuve si le gagnant n'en
+            // a pas et qu'un perdant en a une. On boucle sur les perdants
+            // dans l'ordre du tri (plus probables avant) et on prend la
+            // première trouvée.
+            let gagnant_a_baseline: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM baselines WHERE serveur_id = ?1)",
+                params![gagnant.id],
+                |r| r.get(0),
+            )?;
+            let gagnant_a_approbation: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM inventaire_approuve WHERE serveur_id = ?1)",
+                params![gagnant.id],
+                |r| r.get(0),
+            )?;
+            for perdant in &membres {
+                if !gagnant_a_baseline {
+                    tx.execute(
+                        "UPDATE baselines SET serveur_id = ?1
+                         WHERE serveur_id = ?2
+                           AND NOT EXISTS (SELECT 1 FROM baselines WHERE serveur_id = ?1)",
+                        params![gagnant.id, perdant.id],
+                    )?;
+                }
+                if !gagnant_a_approbation {
+                    tx.execute(
+                        "UPDATE inventaire_approuve SET serveur_id = ?1
+                         WHERE serveur_id = ?2
+                           AND NOT EXISTS (SELECT 1 FROM inventaire_approuve WHERE serveur_id = ?1)",
+                        params![gagnant.id, perdant.id],
+                    )?;
+                }
+            }
+
+            // Appliquer les mises à jour au gagnant.
+            tx.execute(
+                "UPDATE serveurs SET premiere_vue = ?1 WHERE id = ?2",
+                params![premiere_vue_min, gagnant.id],
+            )?;
+            if let Some(tags) = tags_pour_gagnant {
+                tx.execute(
+                    "UPDATE serveurs SET tags = ?1 WHERE id = ?2",
+                    params![tags, gagnant.id],
+                )?;
+            }
+
+            // 5) Suppression sèche des perdants et de toutes leurs lignes
+            //    filles. Ordre : feuilles d'abord (alertes via constats),
+            //    puis les tables qui pointent directement sur serveurs.
+            for perdant in &membres {
+                tx.execute(
+                    "DELETE FROM alertes
+                     WHERE constat_id IN (SELECT id FROM constats WHERE serveur_id = ?1)",
+                    params![perdant.id],
+                )?;
+                tx.execute(
+                    "DELETE FROM constats WHERE serveur_id = ?1",
+                    params![perdant.id],
+                )?;
+                tx.execute(
+                    "DELETE FROM baselines WHERE serveur_id = ?1",
+                    params![perdant.id],
+                )?;
+                tx.execute(
+                    "DELETE FROM outils WHERE serveur_id = ?1",
+                    params![perdant.id],
+                )?;
+                tx.execute(
+                    "DELETE FROM historique_contacts WHERE serveur_id = ?1",
+                    params![perdant.id],
+                )?;
+                tx.execute(
+                    "DELETE FROM inventaire_approuve WHERE serveur_id = ?1",
+                    params![perdant.id],
+                )?;
+                tx.execute(
+                    "DELETE FROM investigations WHERE serveur_id = ?1",
+                    params![perdant.id],
+                )?;
+                tx.execute(
+                    "DELETE FROM serveurs WHERE id = ?1",
+                    params![perdant.id],
+                )?;
+            }
+        }
+
+        // 6) Index unique. Sûr à créer maintenant que les doublons sont
+        //    purgés. `IF NOT EXISTS` pour rester idempotent au prochain
+        //    démarrage.
+        tx.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_serveurs_identite
+             ON serveurs(package_id, scope);",
+        )?;
+
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn in_memory() -> Result<Self> {
         Self::open(":memory:")
     }
 
+    /// Détecte une DB legacy (créée avant l'introduction de refinery) et
+    /// marque V1 comme appliquée pour éviter le re-jeu. Le hash inscrit
+    /// est calculé par refinery au moment de `run()` — ici on insère une
+    /// ligne pivot que refinery va valider/compléter. La stratégie : si
+    /// la table `serveurs` existe mais `refinery_schema_history` n'existe
+    /// pas, on crée l'historique et on y insère la ligne V1 avec les
+    /// métadonnées attendues. Refinery vérifie ensuite par checksum.
+    fn amorcer_historique_refinery(conn: &Connection) -> Result<()> {
+        let serveurs_existe: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='serveurs'",
+                [],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        let history_existe: bool = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='refinery_schema_history'",
+                [],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+
+        // DB neuve : refinery se charge de tout.
+        if !serveurs_existe {
+            return Ok(());
+        }
+        // DB déjà gérée par refinery : rien à faire.
+        if history_existe {
+            return Ok(());
+        }
+
+        // DB legacy : on crée la table d'historique au format refinery
+        // 0.8 et on marque V1 comme appliquée. Le checksum doit
+        // correspondre à celui calculé par refinery sur le fichier
+        // `V1__init.sql` embarqué — on récupère donc la première
+        // migration via l'API publique du runner pour rester en phase.
+        let runner = embedded_migrations::migrations::runner();
+        let migrations = runner.get_migrations();
+        let v1 = migrations
+            .iter()
+            .find(|m| m.version() == 1)
+            .ok_or_else(|| anyhow::anyhow!("migration V1 introuvable dans le binaire"))?;
+
+        conn.execute_batch(
+            r#"CREATE TABLE refinery_schema_history (
+                version INT4 PRIMARY KEY,
+                name VARCHAR(255),
+                applied_on VARCHAR(255),
+                checksum VARCHAR(255)
+            );"#,
+        )?;
+        conn.execute(
+            "INSERT INTO refinery_schema_history (version, name, applied_on, checksum)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                v1.version() as i64,
+                v1.name(),
+                Utc::now().to_rfc3339(),
+                v1.checksum().to_string(),
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Insère ou met à jour un serveur.
+    ///
+    /// `tags` est sérialisé en JSON array. Sur conflit on conserve les
+    /// tags existants si le payload entrant est vide (préserve les
+    /// étiquettes posées par l'opérateur même si le scanner refait un
+    /// upsert sans connaissance des tags). `scope` est sérialisé via
+    /// `ScopeServeur::vers_sql` (colonne ajoutée par la migration V3) ;
+    /// l'UPDATE écrase systématiquement le scope car la couche de
+    /// découverte est la source de vérité.
     pub fn upsert_serveur(&self, s: &Serveur) -> Result<()> {
         let conn = self.inner.lock().unwrap();
+        let tags_json = serde_json::to_string(&s.tags)?;
+        let scope_sql = s.scope.vers_sql();
+        // L'identité canonique est dérivée à l'écriture, jamais portée
+        // par le `Serveur` côté wire. Garantit que chaque ligne en base
+        // a un `package_id` non vide et que l'index unique
+        // `idx_serveurs_identite` (package_id, scope) reste activable.
+        let package_id = extraire_package_id(&s.endpoint, s.transport);
         conn.execute(
             r#"INSERT INTO serveurs (id, endpoint, transport, portees, statut, couleur,
-                premiere_vue, derniere_vue, empreinte_courante)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                premiere_vue, derniere_vue, empreinte_courante, tags, scope, package_id)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                ON CONFLICT(id) DO UPDATE SET
                  derniere_vue = excluded.derniere_vue,
                  statut = excluded.statut,
                  couleur = excluded.couleur,
                  empreinte_courante = excluded.empreinte_courante,
-                 portees = excluded.portees"#,
+                 portees = excluded.portees,
+                 tags = CASE WHEN excluded.tags = '[]' THEN serveurs.tags
+                             ELSE excluded.tags END,
+                 scope = excluded.scope,
+                 package_id = excluded.package_id"#,
             params![
                 s.id.to_string(),
                 s.endpoint,
@@ -186,6 +454,9 @@ impl Store {
                 s.premiere_vue.to_rfc3339(),
                 s.derniere_vue.to_rfc3339(),
                 s.empreinte_courante,
+                tags_json,
+                scope_sql,
+                package_id,
             ],
         )?;
         Ok(())
@@ -195,7 +466,7 @@ impl Store {
         let conn = self.inner.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, endpoint, transport, portees, statut, couleur,
-                premiere_vue, derniere_vue, empreinte_courante FROM serveurs",
+                premiere_vue, derniere_vue, empreinte_courante, tags, scope FROM serveurs",
         )?;
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
@@ -205,6 +476,13 @@ impl Store {
             let couleur: String = row.get(5)?;
             let premiere_vue: String = row.get(6)?;
             let derniere_vue: String = row.get(7)?;
+            let tags_raw: Option<String> = row.get(9)?;
+            let scope_raw: String = row.get(10)?;
+            let tags = tags_raw
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+                .unwrap_or_default();
             Ok(Serveur {
                 id: uuid::Uuid::parse_str(&id).unwrap_or_else(|_| uuid::Uuid::nil()),
                 endpoint: row.get(1)?,
@@ -219,6 +497,8 @@ impl Store {
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),
                 empreinte_courante: row.get(8)?,
+                tags,
+                scope: ScopeServeur::depuis_sql(&scope_raw),
             })
         })?;
         let mut v = vec![];
@@ -228,9 +508,84 @@ impl Store {
         Ok(v)
     }
 
+    /// Liste les serveurs dont le scope correspond exactement à
+    /// `scope_filtre`. Pratique pour l'UI : "afficher uniquement les
+    /// MCPs déclarés au scope projet `/chemin`".
+    pub fn lister_serveurs_par_scope(
+        &self,
+        scope_filtre: &ScopeServeur,
+    ) -> Result<Vec<Serveur>> {
+        let attendu = scope_filtre.vers_sql();
+        let tous = self.lister_serveurs()?;
+        Ok(tous
+            .into_iter()
+            .filter(|s| s.scope.vers_sql() == attendu)
+            .collect())
+    }
+
+    /// Remplace l'ensemble des tags d'un serveur sans toucher au reste.
+    /// Renvoie une erreur silencieuse si le serveur n'existe pas (0 ligne
+    /// affectée — l'appelant peut le détecter via la valeur retournée).
+    pub fn definir_tags_serveur(&self, serveur_id: &ServeurId, tags: &[String]) -> Result<usize> {
+        let conn = self.inner.lock().unwrap();
+        let payload = serde_json::to_string(tags)?;
+        let n = conn.execute(
+            "UPDATE serveurs SET tags = ?1 WHERE id = ?2",
+            params![payload, serveur_id.to_string()],
+        )?;
+        Ok(n)
+    }
+
+    /// Liste l'union triée et dédupliquée des tags posés sur tous les
+    /// serveurs. Implémentation simple côté Rust : suffisant tant que
+    /// l'inventaire reste de l'ordre de quelques dizaines à centaines
+    /// d'entrées.
+    pub fn lister_tags_distincts(&self) -> Result<Vec<String>> {
+        use std::collections::BTreeSet;
+        let conn = self.inner.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT tags FROM serveurs")?;
+        let rows = stmt.query_map([], |row| {
+            let raw: Option<String> = row.get(0)?;
+            Ok(raw)
+        })?;
+        let mut set: BTreeSet<String> = BTreeSet::new();
+        for r in rows {
+            if let Some(raw) = r? {
+                if let Ok(v) = serde_json::from_str::<Vec<String>>(&raw) {
+                    for tag in v {
+                        let t = tag.trim().to_string();
+                        if !t.is_empty() {
+                            set.insert(t);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(set.into_iter().collect())
+    }
+
     pub fn get_serveur_par_endpoint(&self, endpoint: &str) -> Result<Option<Serveur>> {
         let serveurs = self.lister_serveurs()?;
         Ok(serveurs.into_iter().find(|s| s.endpoint == endpoint))
+    }
+
+    /// Résout un serveur par son identité canonique `(package_id, scope)`.
+    ///
+    /// C'est la voie de dédup officielle depuis V4 : l'index unique
+    /// `idx_serveurs_identite` garantit qu'il y a au plus un résultat.
+    /// Le scope est sérialisé via `ScopeServeur::vers_sql` pour matcher
+    /// exactement la valeur stockée.
+    pub fn get_serveur_par_identite(
+        &self,
+        package_id: &str,
+        scope: &ScopeServeur,
+    ) -> Result<Option<Serveur>> {
+        let scope_sql = scope.vers_sql();
+        let serveurs = self.lister_serveurs()?;
+        Ok(serveurs
+            .into_iter()
+            .find(|s| s.scope.vers_sql() == scope_sql
+                && extraire_package_id(&s.endpoint, s.transport) == package_id))
     }
 
     pub fn upsert_outil(&self, serveur_id: ServeurId, outil: &Outil, empreinte: &Empreinte) -> Result<OutilId> {
@@ -673,6 +1028,8 @@ mod tests {
             premiere_vue: Utc::now(),
             derniere_vue: Utc::now(),
             empreinte_courante: None,
+            tags: vec![],
+            scope: ScopeServeur::default(),
         };
         store.upsert_serveur(&s).unwrap();
         let liste = store.lister_serveurs().unwrap();

@@ -11,7 +11,8 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use sentinel_protocol::{
-    Couleur, Empreinte, Outil, Portee, Serveur, ServeurId, StatutServeur, Transport,
+    extraire_package_id, Couleur, Empreinte, Outil, Portee, ScopeServeur, Serveur, ServeurId,
+    StatutServeur, Transport,
 };
 use uuid::Uuid;
 
@@ -67,8 +68,18 @@ impl ContratScanStore for AdaptateurStore {
         let store = self.store.clone();
         let maintenant = Utc::now();
 
-        // Résolution upsert : préserver `premiere_vue` si le serveur est déjà connu.
-        let serveur = match store.get_serveur_par_endpoint(&e.endpoint)? {
+        // Résolution upsert via l'**identité canonique** `(package_id,
+        // scope)` introduite par V4 du store. Deux endpoints qui
+        // désignent le même paquet officiel avec des args qui varient
+        // d'un caractère (URL Postgres différente, --max-redirects, …)
+        // collidaient en V3 sur la dédup endpoint brute et créaient une
+        // nouvelle ligne à chaque scan ; désormais ils retombent sur la
+        // même ligne canonique. Le scope par défaut est `User` parce que
+        // le pipeline de scan ne voit pas le scope projet — c'est la
+        // couche de discovery qui le réécrit le cas échéant.
+        let scope = ScopeServeur::default();
+        let package_id = extraire_package_id(&e.endpoint, e.transport);
+        let serveur = match store.get_serveur_par_identite(&package_id, &scope)? {
             Some(existant) => Serveur {
                 derniere_vue: maintenant,
                 portees: e.portees.clone(),
@@ -84,6 +95,8 @@ impl ContratScanStore for AdaptateurStore {
                 premiere_vue: maintenant,
                 derniere_vue: maintenant,
                 empreinte_courante: None,
+                tags: vec![],
+                scope,
             },
         };
 
@@ -146,6 +159,8 @@ impl ContratScanStore for MockStore {
                 premiere_vue: maintenant,
                 derniere_vue: maintenant,
                 empreinte_courante: None,
+                tags: vec![],
+                scope: ScopeServeur::default(),
             })
             .collect();
         Ok(serveurs)

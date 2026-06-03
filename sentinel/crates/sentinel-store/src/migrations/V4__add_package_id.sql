@@ -1,0 +1,20 @@
+-- V4 — identité canonique des serveurs MCP.
+--
+-- Jusqu'à V3, la dédup d'inventaire reposait sur la colonne `endpoint`
+-- (la ligne de commande brute, ex. `npx -y @scope/pkg --arg1 …`).
+-- Deux clients qui déclarent le même paquet avec des args qui diffèrent
+-- d'un caractère se voyaient créer chacun leur entrée. Résultat : un
+-- inventaire gonflé (24 lignes pour 10 vrais serveurs) et un détecteur
+-- de sosies qui crie au CRITICAL sur ses propres doublons.
+--
+-- V4 ajoute `package_id` : l'identifiant canonique extrait par
+-- `sentinel_protocol::extraire_package_id` (`@scope/pkg` pour npx/uvx,
+-- `host:port` pour HTTP). Cette colonne devient la clé de dédup avec
+-- `scope`. L'index unique `idx_serveurs_identite` est créé en Rust
+-- **après** le backfill (impossible de l'imposer ici tant que les
+-- doublons hérités n'ont pas été fusionnés/supprimés).
+--
+-- Migration non destructive sur la colonne : valeur par défaut `''`,
+-- backfill et nettoyage des fantômes effectués par `Store::backfill_v4`
+-- juste après l'exécution du runner refinery.
+ALTER TABLE serveurs ADD COLUMN package_id TEXT NOT NULL DEFAULT '';
