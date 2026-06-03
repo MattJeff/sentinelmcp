@@ -10,6 +10,72 @@ pub mod intra_inventory;
 pub mod similarity;
 pub mod sources;
 
+/// Liste statique des scopes / paquets « officiellement reconnus » pour le
+/// détecteur de sosies. Deux serveurs **tous les deux** dans cette
+/// liste ne peuvent pas être un sosie l'un de l'autre — ce sont par
+/// définition deux paquets officiels distincts.
+///
+/// Conservateur volontairement : on commence par les scopes et noms
+/// vraiment publiés par les éditeurs reconnus du protocole MCP. Élargir
+/// est trivial (ajouter un préfixe) ; rétrécir une fois déployé l'est
+/// beaucoup moins. La règle : si l'éditeur peut signer cryptographiquement
+/// la release et la publie sur npm sous un nom stable, c'est officiel.
+const PREFIXES_SCOPES_OFFICIELS: &[&str] =
+    &["@modelcontextprotocol/", "@anthropic-ai/"];
+
+/// Noms exacts (hors scope) ajoutés à la main quand l'éditeur ne pousse
+/// pas sous un scope npm — typiquement les utilitaires single-name
+/// largement adoptés.
+const PAQUETS_OFFICIELS_EXACTS: &[&str] = &["chrome-devtools-mcp"];
+
+/// Renvoie `true` si `package_id` correspond à un paquet officiel
+/// reconnu — utilisé par le détecteur de sosies pour court-circuiter la
+/// comparaison entre deux entrées « officielles » qui partagent forcément
+/// nom et description par construction (même paquet npm, même
+/// `tools/list`).
+///
+/// `package_id` est l'identifiant canonique au sens de
+/// `sentinel_protocol::extraire_package_id` (`@scope/pkg`, `pkg`,
+/// `host:port`). On ne tolère pas de variation orthographique : matcher
+/// `@modelcontextprotocoll/server-fetch` (typo-squat avec un l de trop)
+/// **doit** retomber dans le détecteur, sinon on perdrait le signal qui
+/// fait justement le cœur de la fonction.
+pub fn est_paquet_officiel(package_id: &str) -> bool {
+    if PAQUETS_OFFICIELS_EXACTS.contains(&package_id) {
+        return true;
+    }
+    PREFIXES_SCOPES_OFFICIELS
+        .iter()
+        .any(|prefixe| package_id.starts_with(prefixe))
+}
+
+#[cfg(test)]
+mod tests_allowlist {
+    use super::est_paquet_officiel;
+
+    #[test]
+    fn scopes_officiels_reconnus() {
+        assert!(est_paquet_officiel("@modelcontextprotocol/server-postgres"));
+        assert!(est_paquet_officiel("@modelcontextprotocol/server-fetch"));
+        assert!(est_paquet_officiel("@anthropic-ai/mcp"));
+        assert!(est_paquet_officiel("chrome-devtools-mcp"));
+    }
+
+    #[test]
+    fn typosquats_non_reconnus_comme_officiels() {
+        // C'est précisément le cas que la fonction NE doit PAS valider :
+        // un nom proche d'un officiel mais avec une typo ou un suffixe
+        // hostile doit pouvoir continuer à matcher comme sosie.
+        assert!(!est_paquet_officiel("filesystm-mcp"));
+        assert!(!est_paquet_officiel("mcp-postgres-helper"));
+        assert!(!est_paquet_officiel("mcp-brave-search-pro"));
+        assert!(!est_paquet_officiel(
+            "@modelcontextprotocoll/server-fetch"
+        ));
+        assert!(!est_paquet_officiel("@anthropic-ai-fake/mcp"));
+    }
+}
+
 use std::sync::Arc;
 
 use futures::future::BoxFuture;

@@ -18,6 +18,17 @@ pub struct EntreeInventaire {
     pub id: String,
     /// Nom déclaré par le serveur.
     pub nom: String,
+    /// Identité canonique du paquet derrière ce serveur, telle que
+    /// retournée par `sentinel_protocol::extraire_package_id`. Sert de
+    /// première garde dans `detecter_sosies_intra` pour ne pas
+    /// comparer un paquet à lui-même quand deux clients le déclarent
+    /// avec des args qui diffèrent.
+    pub package_id: String,
+    /// `true` si le paquet figure dans l'allowlist statique des
+    /// éditeurs reconnus (`@modelcontextprotocol/*`, `@anthropic-ai/*`,
+    /// `chrome-devtools-mcp`). Deux entrées « officielles » ne
+    /// peuvent pas être sosies l'une de l'autre.
+    pub est_officiel: bool,
     /// Description déclarée par le serveur, si présente.
     pub description: Option<String>,
     /// Signatures d'outils obtenues par sondage local du serveur.
@@ -60,6 +71,27 @@ pub fn detecter_sosies_intra(inventaire: &[EntreeInventaire]) -> Vec<SosieIntra>
             // imitations à nom différent, pas les enregistrements
             // dupliqués légitimes.
             if a.nom == b.nom {
+                continue;
+            }
+
+            // Garde n°1 — même identité canonique : c'est le **même
+            // paquet** déclaré deux fois (Cursor + Claude Desktop
+            // par ex., ou deux entrées avec des args qui diffèrent).
+            // Le store dédup déjà sur (package_id, scope) depuis V4,
+            // mais le détecteur reste défensif pour les jeux de
+            // données qui contourneraient le store (tests, mock,
+            // inventaire injecté).
+            if !a.package_id.is_empty() && a.package_id == b.package_id {
+                continue;
+            }
+
+            // Garde n°2 — les deux côtés sont des paquets officiels
+            // reconnus : par construction ils ne peuvent pas être
+            // sosies l'un de l'autre. C'est cette règle qui élimine
+            // les FAUX positifs intra-inventaire comme `server-fetch`
+            // vs `server-postgres` (deux paquets `@modelcontextprotocol/*`
+            // distincts mais légitimes).
+            if a.est_officiel && b.est_officiel {
                 continue;
             }
 

@@ -102,12 +102,16 @@ fn detecter_sosies_intra_repere_la_paire_fs_helper_filesystem_buddy() {
         EntreeInventaire {
             id: "srv-001".to_string(),
             nom: "fs-helper".to_string(),
+            package_id: "fs-helper".to_string(),
+            est_officiel: false,
             description: Some("filesystem helper".to_string()),
             outils: outils.clone(),
         },
         EntreeInventaire {
             id: "srv-002".to_string(),
             nom: "filesystem-buddy".to_string(),
+            package_id: "filesystem-buddy".to_string(),
+            est_officiel: false,
             description: Some("filesystem helper".to_string()),
             outils,
         },
