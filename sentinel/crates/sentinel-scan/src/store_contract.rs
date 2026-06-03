@@ -96,7 +96,7 @@ impl ContratScanStore for AdaptateurStore {
                 derniere_vue: maintenant,
                 empreinte_courante: None,
                 tags: vec![],
-                scope,
+                scope: scope.clone(),
             },
         };
 
@@ -107,6 +107,15 @@ impl ContratScanStore for AdaptateurStore {
         let empreinte_placeholder = Empreinte::new("");
         for outil in &e.outils {
             store.upsert_outil(serveur_id, outil, &empreinte_placeholder)?;
+        }
+
+        // GC continu : si on vient d'enregistrer un inventaire non vide,
+        // toute ligne fantôme (même identité, 0 outils) qui aurait
+        // survécu à un chemin d'écriture ad hoc disparaît. En régime
+        // nominal l'index unique V4 rend cette opération sans effet ;
+        // c'est un filet de sécurité, pas une dépendance.
+        if !e.outils.is_empty() {
+            let _ = store.nettoyer_fantomes(&package_id, &scope, serveur_id);
         }
 
         Ok(serveur_id)

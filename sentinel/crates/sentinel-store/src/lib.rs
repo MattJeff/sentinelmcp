@@ -569,6 +569,71 @@ impl Store {
         Ok(serveurs.into_iter().find(|s| s.endpoint == endpoint))
     }
 
+    /// Supprime sèchement les lignes « fantômes » qui partagent la même
+    /// identité canonique `(package_id, scope)` que `id_conserve` mais
+    /// qui n'ont jamais vu un `tools/list` réussir (zéro outil probé).
+    ///
+    /// L'index unique posé par V4 garantit déjà qu'une telle situation
+    /// ne se produit plus dans la voie d'écriture canonique
+    /// (`AdaptateurStore::enregistrer_inventaire`). Ce GC reste appelé
+    /// défensivement à chaque enregistrement d'un inventaire non vide :
+    /// si une régression future ou un chemin d'écriture ad hoc (test,
+    /// mock, migration partielle) ouvrait une porte, la ligne fantôme
+    /// serait nettoyée dès le prochain probe réussi du même paquet.
+    ///
+    /// Retourne le nombre de lignes supprimées (souvent 0 — c'est le
+    /// signe que la voie canonique tient).
+    pub fn nettoyer_fantomes(
+        &self,
+        package_id: &str,
+        scope: &ScopeServeur,
+        id_conserve: ServeurId,
+    ) -> Result<usize> {
+        let scope_sql = scope.vers_sql();
+        let id_str = id_conserve.to_string();
+        let conn = self.inner.lock().unwrap();
+
+        // Cibler : même (package_id, scope), id différent, et 0 outils
+        // probés. Le filtre `0 outils` est l'invariant qui distingue un
+        // fantôme (jamais vu un tools/list) d'une vraie déclaration
+        // dupliquée (qu'on ne voudrait pas supprimer).
+        let mut stmt = conn.prepare(
+            "SELECT id FROM serveurs
+             WHERE package_id = ?1
+               AND scope = ?2
+               AND id <> ?3
+               AND (SELECT COUNT(*) FROM outils o WHERE o.serveur_id = serveurs.id) = 0",
+        )?;
+        let ids: Vec<String> = stmt
+            .query_map(params![package_id, scope_sql, id_str], |r| {
+                r.get::<_, String>(0)
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        drop(stmt);
+
+        for id in &ids {
+            conn.execute(
+                "DELETE FROM alertes
+                 WHERE constat_id IN (SELECT id FROM constats WHERE serveur_id = ?1)",
+                params![id],
+            )?;
+            conn.execute("DELETE FROM constats WHERE serveur_id = ?1", params![id])?;
+            conn.execute("DELETE FROM baselines WHERE serveur_id = ?1", params![id])?;
+            conn.execute("DELETE FROM outils WHERE serveur_id = ?1", params![id])?;
+            conn.execute(
+                "DELETE FROM historique_contacts WHERE serveur_id = ?1",
+                params![id],
+            )?;
+            conn.execute(
+                "DELETE FROM inventaire_approuve WHERE serveur_id = ?1",
+                params![id],
+            )?;
+            conn.execute("DELETE FROM investigations WHERE serveur_id = ?1", params![id])?;
+            conn.execute("DELETE FROM serveurs WHERE id = ?1", params![id])?;
+        }
+        Ok(ids.len())
+    }
+
     /// Résout un serveur par son identité canonique `(package_id, scope)`.
     ///
     /// C'est la voie de dédup officielle depuis V4 : l'index unique

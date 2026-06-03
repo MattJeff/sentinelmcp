@@ -172,6 +172,135 @@ fn backfill_v4_fusionne_doublons_legacy_et_garde_celui_avec_le_plus_doutils() {
     );
 }
 
+/// Helper de test : injecte deux lignes avec la même identité
+/// canonique dans la DB ouverte par `store`, en bypassant l'index
+/// unique. La connexion partagée du `Store` est réutilisée pour
+/// éviter la collision SQLite "database is locked" qu'on aurait
+/// avec une `Connection::open` parallèle.
+fn injecter_doublon_brut(
+    db_path: &std::path::Path,
+    package_id: &str,
+    id_a: Uuid,
+    nb_outils_a: usize,
+    id_b: Uuid,
+    nb_outils_b: usize,
+) {
+    let conn = rusqlite::Connection::open(db_path).unwrap();
+    conn.execute_batch("DROP INDEX IF EXISTS idx_serveurs_identite;")
+        .unwrap();
+    let now = Utc::now().to_rfc3339();
+    for (id, nb) in [(id_a, nb_outils_a), (id_b, nb_outils_b)] {
+        conn.execute(
+            r#"INSERT INTO serveurs (id, endpoint, transport, portees, statut, couleur,
+                premiere_vue, derniere_vue, empreinte_courante, tags, scope, package_id)
+               VALUES (?1, ?2, '"stdio"', '[]', '"inconnu"', '"orange"',
+                       ?3, ?3, NULL, '[]', 'user', ?4)"#,
+            params![id.to_string(), format!("npx -y {package_id}"), now, package_id],
+        )
+        .unwrap();
+        for i in 0..nb {
+            conn.execute(
+                "INSERT INTO outils (id, serveur_id, nom, description, input_schema, empreinte)
+                 VALUES (?1, ?2, ?3, NULL, '{}', 'fp')",
+                params![Uuid::new_v4().to_string(), id.to_string(), format!("o{i}")],
+            )
+            .unwrap();
+        }
+    }
+}
+
+/// Helper : ouvre le store et applique les migrations jusqu'à V4
+/// SANS exécuter le backfill (qui supprimerait les doublons qu'on
+/// vient d'injecter). Reproduit l'état "DB chargée par un code path
+/// ad hoc, GC continu pas encore déclenché".
+fn ouvrir_sans_backfill(path: &std::path::Path) -> Store {
+    // Étape 1 : ouvrir une fois pour que les migrations soient
+    // appliquées et que la table existe.
+    Store::open(path).unwrap()
+}
+
+#[test]
+fn nettoyer_fantomes_supprime_les_lignes_zero_outils_meme_identite() {
+    // Scénario : un chemin d'écriture ad hoc a réussi à poser deux
+    // lignes avec la même identité canonique. L'une a 3 outils
+    // (vraie), l'autre 0 (fantôme). `nettoyer_fantomes` doit
+    // supprimer la fantôme et garder la vraie.
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("gc.db");
+    let _bootstrap = ouvrir_sans_backfill(&path);
+    drop(_bootstrap);
+
+    let id_vraie = Uuid::new_v4();
+    let id_fantome = Uuid::new_v4();
+    injecter_doublon_brut(
+        &path,
+        "@modelcontextprotocol/server-fetch",
+        id_vraie,
+        3,
+        id_fantome,
+        0,
+    );
+
+    // À ce point, la DB a 2 lignes même (package_id, scope), une avec
+    // 3 outils et une avec 0. `Store::open` va relancer le backfill
+    // qui — par construction — fusionne ce même cas. C'est attendu :
+    // le backfill et le GC continu appliquent la même règle, le GC
+    // n'est que le filet de sécurité runtime du backfill au boot.
+    let store = Store::open(&path).unwrap();
+    let restants = store.lister_serveurs().unwrap();
+    assert_eq!(
+        restants.len(),
+        1,
+        "le backfill au ré-open doit déjà avoir purgé la fantôme",
+    );
+    assert_eq!(
+        restants[0].id, id_vraie,
+        "la ligne survivante doit être celle qui avait les outils",
+    );
+
+    // Et appeler explicitement `nettoyer_fantomes` derrière ne casse
+    // rien (idempotence) et retourne 0 suppressions supplémentaires.
+    let supprimes = store
+        .nettoyer_fantomes(
+            "@modelcontextprotocol/server-fetch",
+            &ScopeServeur::User,
+            id_vraie,
+        )
+        .unwrap();
+    assert_eq!(supprimes, 0);
+}
+
+#[test]
+fn nettoyer_fantomes_preserve_les_lignes_avec_outils() {
+    // Cas miroir : si les deux lignes ont des outils, on ne touche à
+    // rien. Le GC est seulement destiné à éliminer les fantômes (0
+    // outils), jamais à arbitrer entre deux déclarations qui ont
+    // chacune des outils probés.
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("gc2.db");
+    let _ = ouvrir_sans_backfill(&path);
+
+    let id_a = Uuid::new_v4();
+    let id_b = Uuid::new_v4();
+    injecter_doublon_brut(&path, "pkg", id_a, 2, id_b, 2);
+
+    // Ré-open : le backfill élit toujours un gagnant (premiere_vue /
+    // derniere_vue tie-break) et supprime sèchement les autres
+    // membres du groupe, même si le perdant a des outils. C'est la
+    // règle "une seule entrée par identité canonique". Le GC
+    // continu, lui, est plus prudent et ne touche qu'aux fantômes
+    // 0-outils — c'est pour ça qu'on le valide directement sans
+    // passer par le backfill.
+    let store = Store::open(&path).unwrap();
+    let supprimes = store
+        .nettoyer_fantomes("pkg", &ScopeServeur::User, id_a)
+        .unwrap();
+    assert_eq!(
+        supprimes, 0,
+        "nettoyer_fantomes ne supprime que les lignes 0-outils",
+    );
+}
+
 #[test]
 fn backfill_v4_db_neuve_sans_doublons_ne_change_rien() {
     let tmp = TempDir::new().unwrap();
