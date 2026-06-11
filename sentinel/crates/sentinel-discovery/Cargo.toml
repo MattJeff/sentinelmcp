@@ -21,7 +21,7 @@ async-trait = { workspace = true }
 futures = { workspace = true }
 dirs = "5"
 walkdir = "2"
-toml = "0.8"
+toml = "1.1"
 serde_yaml = "0.9"
 sysinfo = "0.32"
 once_cell = { workspace = true }
