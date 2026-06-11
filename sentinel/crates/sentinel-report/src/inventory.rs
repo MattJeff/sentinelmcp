@@ -74,6 +74,8 @@ fn libelle_type_constat(tc: &TypeConstat) -> &'static str {
         TypeConstat::Exfiltration => "Exfiltration",
         TypeConstat::SansAuthentification => "Sans authentification",
         TypeConstat::DeriveInterSession => "Dérive inter-session",
+        TypeConstat::AbusSampling => "Abus de sampling",
+        TypeConstat::ElicitationSensible => "Elicitation sensible",
         TypeConstat::Autre => "Autre",
     }
 }

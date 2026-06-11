@@ -252,11 +252,11 @@ fn shadow_mcp_identique_a_nouveau_serveur() {
 fn tableau_complet_coherent() {
     let tableau = MoteurConformite::tableau_complet();
 
-    // Tous les TypeConstat doivent apparaître (9 variantes).
+    // Tous les TypeConstat doivent apparaître (11 variantes).
     assert_eq!(
         tableau.len(),
-        9,
-        "tableau_complet doit couvrir les 9 variantes de TypeConstat"
+        11,
+        "tableau_complet doit couvrir les 11 variantes de TypeConstat"
     );
 
     // Cohérence : les refs de chaque ligne correspondent à references_pour.

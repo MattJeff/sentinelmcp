@@ -44,8 +44,12 @@ pub enum MethodeMcp {
     ToolsList,
     ToolsCall,
     ResourcesList,
+    ResourcesRead,
     PromptsList,
+    PromptsGet,
     ToolsListChanged,
+    SamplingCreateMessage,
+    ElicitationCreate,
     Autre(String),
 }
 
@@ -57,8 +61,12 @@ impl MethodeMcp {
             "tools/list" => Self::ToolsList,
             "tools/call" => Self::ToolsCall,
             "resources/list" => Self::ResourcesList,
+            "resources/read" => Self::ResourcesRead,
             "prompts/list" => Self::PromptsList,
+            "prompts/get" => Self::PromptsGet,
             "notifications/tools/list_changed" => Self::ToolsListChanged,
+            "sampling/createMessage" => Self::SamplingCreateMessage,
+            "elicitation/create" => Self::ElicitationCreate,
             other => Self::Autre(other.to_string()),
         }
     }
@@ -70,8 +78,12 @@ impl MethodeMcp {
             Self::ToolsList => "tools/list",
             Self::ToolsCall => "tools/call",
             Self::ResourcesList => "resources/list",
+            Self::ResourcesRead => "resources/read",
             Self::PromptsList => "prompts/list",
+            Self::PromptsGet => "prompts/get",
             Self::ToolsListChanged => "notifications/tools/list_changed",
+            Self::SamplingCreateMessage => "sampling/createMessage",
+            Self::ElicitationCreate => "elicitation/create",
             Self::Autre(s) => s,
         }
     }
@@ -279,6 +291,8 @@ pub enum TypeConstat {
     Exfiltration,
     SansAuthentification,
     DeriveInterSession,
+    AbusSampling,
+    ElicitationSensible,
     Autre,
 }
 

@@ -9,7 +9,7 @@
 use sentinel_protocol::{Constat, Severite, TypeConstat};
 
 /// Version de la table de mapping. Incrémenter à chaque modification.
-pub const VERSION_TABLE: &str = "2026-beta-1";
+pub const VERSION_TABLE: &str = "2026-beta-2";
 
 /// Référence vers un contrôle d'un référentiel de conformité.
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +61,20 @@ const SAFE_T1201: Reference = Reference {
     identifiant: "SAFE-T1201",
     titre: "Rug Pull — Tool Behavior Change",
     url: Some("https://safemcp.io/techniques/T1201"),
+};
+
+const OWASP_ASI06: Reference = Reference {
+    cadre: "OWASP ASI",
+    identifiant: "ASI06",
+    titre: "Memory & Context Poisoning",
+    url: None,
+};
+
+const MCP_SPEC_ELICITATION: Reference = Reference {
+    cadre: "MCP Spec",
+    identifiant: "Elicitation",
+    titre: "Servers MUST NOT request sensitive information via elicitation",
+    url: Some("https://modelcontextprotocol.io/specification"),
 };
 
 const SOC2_CC6_1: Reference = Reference {
@@ -181,6 +195,17 @@ impl MoteurConformite {
                 SAFE_T1201.clone(),
                 ISO_A12_4_3.clone(),
             ],
+            // Abus de la primitive sampling (drain de quota, injection persistante).
+            TypeConstat::AbusSampling => vec![
+                OWASP_ASI06.clone(),
+                SOC2_CC7_2.clone(),
+                ISO_A12_4_1.clone(),
+            ],
+            // Elicitation demandant des informations sensibles (interdit par la spec MCP).
+            TypeConstat::ElicitationSensible => vec![
+                MCP_SPEC_ELICITATION.clone(),
+                SOC2_CC6_1.clone(),
+            ],
             // Constat non catégorisé — aucune référence applicable.
             TypeConstat::Autre => vec![],
         }
@@ -218,6 +243,8 @@ impl MoteurConformite {
             TypeConstat::Exfiltration,
             TypeConstat::SansAuthentification,
             TypeConstat::DeriveInterSession,
+            TypeConstat::AbusSampling,
+            TypeConstat::ElicitationSensible,
             TypeConstat::Autre,
         ];
         types

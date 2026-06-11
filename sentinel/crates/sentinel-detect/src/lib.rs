@@ -6,6 +6,7 @@ pub mod diff;
 pub mod rugpull;
 pub mod poisoning;
 pub mod exfiltration;
+pub mod sampling;
 pub mod lookalikes;
 pub mod corpus;
 
@@ -15,4 +16,5 @@ pub use diff::{diff_outils, RenduDiff};
 pub use rugpull::DetecteurRugPull;
 pub use poisoning::{InspecteurPoisoning, ConstatPoisoning};
 pub use exfiltration::DetecteurExfiltration;
+pub use sampling::{ConfigSampling, DetecteurSampling, NatureSignalSampling, SignalSampling};
 pub use lookalikes::ConnecteurRegistres;

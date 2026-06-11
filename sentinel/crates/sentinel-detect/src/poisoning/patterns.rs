@@ -1,12 +1,15 @@
 //! Bibliothèque de patterns de poisoning — agent 3.6.
 //! Couvre SAFE-T1001 (Tool Poisoning) / OWASP MCP03.
 //!
-//! Cinq catégories :
+//! Huit catégories :
 //!   1. instructions_imperatives — manipulation directe du modèle (Haute)
 //!   2. chemins_sensibles        — accès fichiers secrets (Critique)
 //!   3. balises_pseudo_systeme   — injection de contexte privilégié (Critique)
 //!   4. texte_invisible_encode   — obfuscation / stéganographie (Moyenne)
 //!   5. lecture_exfiltration     — vol de secrets / envoi réseau (Critique)
+//!   6. injection_commande       — métacaractères shell + binaire réseau/shell (Critique)
+//!   7. persistance_memoire      — persistance mémoire / réponse suivante, OWASP ASI06 (Haute)
+//!   8. demande_secrets          — demande de mot de passe / clé API / paiement / PII (Critique)
 
 use sentinel_protocol::Severite;
 
@@ -164,6 +167,12 @@ pub fn bibliotheque() -> Vec<Pattern> {
             regex: r"(?i)\[ROOT[-_]?(ACCESS|OVERRIDE|COMMAND)\]",
             severite: Severite::Critique,
         },
+        Pattern {
+            nom: "balise_important_wrapper",
+            categorie: "balises_pseudo_systeme",
+            regex: r"(?i)<\s*important\s*>",
+            severite: Severite::Critique,
+        },
 
         // ── 4. TEXTE INVISIBLE / ENCODÉ ───────────────────────────────────────
         Pattern {
@@ -244,6 +253,90 @@ pub fn bibliotheque() -> Vec<Pattern> {
             nom: "post_donnees_sensibles",
             categorie: "lecture_exfiltration",
             regex: r"(?i)\b(post|upload|transmit|leak)\s+(the\s+)?(secret|token|key|password|credentials)\b",
+            severite: Severite::Critique,
+        },
+
+        // ── 6. INJECTION DE COMMANDE (métacaractères shell — règle Datadog) ──
+        Pattern {
+            nom: "point_virgule_binaire_reseau",
+            categorie: "injection_commande",
+            regex: r"(?i);\s*(curl|wget|nc|bash|sh)\b",
+            severite: Severite::Critique,
+        },
+        Pattern {
+            nom: "pipe_vers_shell",
+            categorie: "injection_commande",
+            regex: r"(?i)\|\s*(bash|sh|zsh)\b",
+            severite: Severite::Critique,
+        },
+        Pattern {
+            nom: "chainage_binaire_reseau",
+            categorie: "injection_commande",
+            regex: r"(?i)&&\s*(curl|wget|nc)\b",
+            severite: Severite::Critique,
+        },
+        Pattern {
+            nom: "substitution_commande_reseau",
+            categorie: "injection_commande",
+            regex: r"(?i)\$\(\s*(curl|wget)\b",
+            severite: Severite::Critique,
+        },
+
+        // ── 7. PERSISTANCE MÉMOIRE / CONTEXTE (OWASP ASI06, sampling Unit 42) ─
+        Pattern {
+            nom: "souvenir_permanent",
+            categorie: "persistance_memoire",
+            regex: r"(?i)\bremember\s+(this|these|it)\b.{0,40}\b(future|always|every|all\s+sessions?)\b",
+            severite: Severite::Haute,
+        },
+        Pattern {
+            nom: "ecriture_memoire",
+            categorie: "persistance_memoire",
+            regex: r"(?i)\b(add|store|save|write|persist)\b.{0,30}\b(to|into|in)\s+(your\s+)?(long[\s-]?term\s+)?memory\b",
+            severite: Severite::Haute,
+        },
+        Pattern {
+            nom: "directive_prochaine_reponse",
+            categorie: "persistance_memoire",
+            regex: r"(?i)\b(add|include|append|insert)\b.{0,40}\b(to|in)\s+your\s+next\s+(response|reply|message)\b",
+            severite: Severite::Haute,
+        },
+        Pattern {
+            nom: "desormais_toujours",
+            categorie: "persistance_memoire",
+            regex: r"(?i)\bfrom\s+now\s+on\b.{0,40}\b(always|never|every|each)\b",
+            severite: Severite::Haute,
+        },
+        Pattern {
+            nom: "sessions_futures",
+            categorie: "persistance_memoire",
+            regex: r"(?i)\b(in|for|across)\s+(all\s+)?future\s+(sessions?|conversations?|responses?)\b",
+            severite: Severite::Haute,
+        },
+
+        // ── 8. DEMANDE DE SECRETS (interdit par la spec MCP — elicitation) ───
+        Pattern {
+            nom: "demande_mot_de_passe",
+            categorie: "demande_secrets",
+            regex: r"(?i)\b(enter|provide|type|paste|input|confirm|share)\b.{0,30}\byour\s+(password|passphrase)\b",
+            severite: Severite::Critique,
+        },
+        Pattern {
+            nom: "demande_cle_api",
+            categorie: "demande_secrets",
+            regex: r"(?i)\b(enter|provide|type|paste|input|share)\b.{0,30}\b(api[\s_-]?key|access[\s_-]?token|secret[\s_-]?key|private\s+key)\b",
+            severite: Severite::Critique,
+        },
+        Pattern {
+            nom: "demande_paiement",
+            categorie: "demande_secrets",
+            regex: r"(?i)\b(credit\s+card\s+number|card\s+number|cvv|cvc|iban)\b",
+            severite: Severite::Critique,
+        },
+        Pattern {
+            nom: "demande_pii",
+            categorie: "demande_secrets",
+            regex: r"(?i)\b(social\s+security\s+number|ssn|passport\s+number)\b",
             severite: Severite::Critique,
         },
     ]

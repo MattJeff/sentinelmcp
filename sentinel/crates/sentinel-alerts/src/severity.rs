@@ -30,6 +30,8 @@ impl ConfigSeverite {
                 (Exfiltration, Critique),
                 (SansAuthentification, Haute),
                 (DeriveInterSession, Haute),
+                (AbusSampling, Haute),
+                (ElicitationSensible, Critique),
                 (Autre, Moyenne),
             ],
         }
