@@ -161,16 +161,8 @@ export default function TrustGraphPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 sm:gap-6 animate-fade-up">
-        <div className="min-w-0">
-          <h1 className="text-metric-lg text-sentinel-text-primary">
-            Trust graph
-          </h1>
-          <p className="text-body text-sentinel-text-secondary mt-2 max-w-[640px]">
-            Who can reach what on this Mac — and how badly it bleeds if compromised.
-          </p>
-        </div>
+      {/* Header — titre et sous-titre déjà fournis par DashboardLayout */}
+      <header className="flex justify-end animate-fade-up">
         <button
           type="button"
           className="btn btn-sm gap-2 self-start shrink-0"

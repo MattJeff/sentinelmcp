@@ -20,11 +20,11 @@ export interface ComplianceFrameworkProps {
 
 // Framework accents mapped onto the calm design tokens — severity colors stay
 // reserved for findings; these are identity tints only.
-const BADGE_CLASSES: Record<ComplianceBadgeColor, string> = {
-  purple: 'text-sentinel-violet bg-sentinel-violet/10 border-sentinel-violet/25',
-  blue: 'badge-accent',
-  green: 'badge-ok',
-  orange: 'badge-high',
+const DOT_CLASSES: Record<ComplianceBadgeColor, string> = {
+  purple: 'bg-sentinel-violet',
+  blue: 'bg-sentinel-accent',
+  green: 'bg-sentinel-ok',
+  orange: 'bg-sentinel-high',
 };
 
 // Open an external reference in the system browser. In Tauri this delegates
@@ -69,9 +69,13 @@ export default function ComplianceFramework({
             <h3 className="text-title text-sentinel-text-primary">
               {frameworkLabel}
             </h3>
-            <span className={clsx('badge', BADGE_CLASSES[badgeColor])}>
-              {badgeColor}
-            </span>
+            <span
+              className={clsx(
+                'h-2 w-2 shrink-0 rounded-full',
+                DOT_CLASSES[badgeColor],
+              )}
+              aria-hidden
+            />
           </div>
           <p className="text-caption text-sentinel-text-secondary mt-2">
             {description}
