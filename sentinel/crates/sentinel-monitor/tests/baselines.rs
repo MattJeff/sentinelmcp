@@ -23,6 +23,8 @@ fn inserer_serveur(store: &Store, id: ServeurId) {
         premiere_vue: chrono::Utc::now(),
         derniere_vue: chrono::Utc::now(),
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     };
     store.upsert_serveur(&s).expect("upsert serveur");
 }

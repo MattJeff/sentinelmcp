@@ -178,6 +178,8 @@ impl MoteurAlertes {
             premiere_vue: Utc::now(),
             derniere_vue: Utc::now(),
             empreinte_courante: None,
+            tags: vec![],
+            scope: sentinel_protocol::ScopeServeur::default(),
         };
         if let Err(e) = self.store.upsert_serveur(&serveur_fantome) {
             warn!(erreur = %e, "upsert serveur fantôme échoué");

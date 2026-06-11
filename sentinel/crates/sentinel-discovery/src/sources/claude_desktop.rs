@@ -6,6 +6,7 @@
 //! version from `/Applications/Claude.app/Contents/Info.plist` so the UI
 //! can show "Claude Desktop X.Y.Z" alongside its declared MCP servers.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
@@ -117,82 +118,153 @@ pub fn detecter_aux(
     vec![client]
 }
 
-/// Reads `mcpServers` from a parsed JSON config and pushes one
-/// `ServeurMcpDeclare` per entry into `client.serveurs`.
+/// Extrait les serveurs MCP d'un fichier de configuration Claude.
+///
+/// Lit deux emplacements et applique la **dédup user/project** : si
+/// un même nom apparaît au top-level (`mcpServers`) et dans un projet
+/// (`projects.<chemin>.mcpServers`), seule la version projet est
+/// conservée car plus spécifique.
+///
+/// 1. `json.mcpServers`            → scope = `User`
+/// 2. `json.projects.<path>.mcpServers` → scope = `Project { path }`
 fn extraire_serveurs(json: &Value, client: &mut ClientDecouvert) {
-    let bloc = match json.get("mcpServers") {
-        Some(Value::Object(map)) => map,
-        Some(_) => {
-            client
-                .notes
-                .push("mcpServers field is not an object".to_string());
-            return;
-        }
-        None => {
-            client.notes.push("no MCP block".to_string());
-            return;
-        }
-    };
+    // ── 1. Top-level (scope User) ──────────────────────────────────────────
+    let bloc_user = json.get("mcpServers");
+    let user_present = matches!(bloc_user, Some(Value::Object(_)));
 
-    if bloc.is_empty() {
-        client.notes.push("no MCP block".to_string());
-        return;
+    let mut compteur_user = 0usize;
+    if let Some(Value::Object(map)) = bloc_user {
+        for (nom, entry) in map {
+            if let Some(s) = extraire_un_serveur(nom, entry, ScopeServeur::User) {
+                ajouter_avec_dedup(client, s);
+                compteur_user += 1;
+            }
+        }
+    } else if let Some(_other) = bloc_user {
+        client
+            .notes
+            .push("mcpServers field is not an object".to_string());
     }
 
-    for (nom, entry) in bloc {
-        let commande = entry
-            .get("command")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let args = entry
-            .get("args")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|a| a.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        let mut env_keys: Vec<String> = entry
-            .get("env")
-            .and_then(|v| v.as_object())
-            .map(|m| m.keys().cloned().collect())
-            .unwrap_or_default();
-        env_keys.sort();
-
-        let url = entry
-            .get("url")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let transport = entry
-            .get("transport")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                if url.is_some() && commande.is_none() {
-                    "http".to_string()
-                } else {
-                    "stdio".to_string()
+    // ── 2. Per-project (scope Project { path }) ────────────────────────────
+    let mut compteur_project = 0usize;
+    if let Some(Value::Object(projects)) = json.get("projects") {
+        for (chemin, project_obj) in projects {
+            if let Some(Value::Object(servers)) = project_obj.get("mcpServers") {
+                for (nom, entry) in servers {
+                    let scope = ScopeServeur::Project {
+                        path: chemin.clone(),
+                    };
+                    if let Some(s) = extraire_un_serveur(nom, entry, scope) {
+                        ajouter_avec_dedup(client, s);
+                        compteur_project += 1;
+                    }
                 }
-            });
+            }
+        }
+    }
 
-        let disabled = entry
-            .get("disabled")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+    // ── 3. Notes de couverture ─────────────────────────────────────────────
+    // Rétrocompat : on émet "no MCP block" si aucun serveur n'a été
+    // extrait, peu importe que l'absence vienne du top-level ou des
+    // projects. Présence d'au moins un serveur (user OU project) :
+    // pas de note.
+    let _ = user_present;
+    if compteur_user == 0 && compteur_project == 0 {
+        client.notes.push("no MCP block".to_string());
+    }
+}
 
-        client.serveurs.push(ServeurMcpDeclare {
-            nom: nom.clone(),
-            transport,
-            commande,
-            args,
-            env_keys,
-            url,
-            disabled,
+/// Convertit une entrée JSON unique `mcpServers[<name>]` en
+/// `ServeurMcpDeclare`. Factorisé pour éviter de dupliquer la logique
+/// entre la passe top-level et la passe per-project.
+fn extraire_un_serveur(nom: &str, entry: &Value, scope: ScopeServeur) -> Option<ServeurMcpDeclare> {
+    let commande = entry
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let args = entry
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| a.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let mut env_keys: Vec<String> = entry
+        .get("env")
+        .and_then(|v| v.as_object())
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default();
+    env_keys.sort();
+
+    let url = entry
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let transport = entry
+        .get("transport")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            if url.is_some() && commande.is_none() {
+                "http".to_string()
+            } else {
+                "stdio".to_string()
+            }
         });
+
+    let disabled = entry
+        .get("disabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    Some(ServeurMcpDeclare {
+        nom: nom.to_string(),
+        transport,
+        commande,
+        args,
+        env_keys,
+        url,
+        disabled,
+        scope,
+    })
+}
+
+/// Ajoute un serveur en respectant la règle de dédup user/project :
+/// si un serveur du même nom existe déjà avec scope `User` et qu'on
+/// tente d'ajouter le même nom avec un scope `Project`, on remplace
+/// l'entrée user (la déclaration projet est plus spécifique). Dans
+/// l'autre sens (project déjà présent, user en entrée), on ignore
+/// l'entrée user.
+fn ajouter_avec_dedup(client: &mut ClientDecouvert, s: ServeurMcpDeclare) {
+    if let Some(pos) = client.serveurs.iter().position(|x| x.nom == s.nom) {
+        let existant_scope = &client.serveurs[pos].scope;
+        match (existant_scope, &s.scope) {
+            // Existant User, entrant Project → on remplace.
+            (ScopeServeur::User, ScopeServeur::Project { .. }) => {
+                client.serveurs[pos] = s;
+            }
+            // Existant Project, entrant User → on ignore (project gagne).
+            (ScopeServeur::Project { .. }, ScopeServeur::User) => {}
+            // Sinon (même scope, ou deux projects différents) : pousser
+            // pour permettre la coexistence des projets entre eux.
+            _ => {
+                if existant_scope == &s.scope {
+                    // Doublon strict (même scope, même nom) : on remplace
+                    // pour garantir l'idempotence des passes successives.
+                    client.serveurs[pos] = s;
+                } else {
+                    client.serveurs.push(s);
+                }
+            }
+        }
+    } else {
+        client.serveurs.push(s);
     }
 }
 

@@ -4,6 +4,7 @@
 //! network dependency and is deterministic. A separate `#[ignore]`-d test
 //! exercises the real public npm registry for manual smoke-checks.
 
+use sentinel_protocol::ScopeServeur;
 use std::time::Duration;
 
 use sentinel_discovery::model::ServeurMcpDeclare;
@@ -23,6 +24,7 @@ fn serveur_npx(args: &[&str]) -> ServeurMcpDeclare {
         env_keys: vec![],
         url: None,
         disabled: false,
+        scope: ScopeServeur::default(),
     }
 }
 
@@ -65,6 +67,7 @@ async fn commande_uvx_donne_non_npm() {
         env_keys: vec![],
         url: None,
         disabled: false,
+        scope: ScopeServeur::default(),
     };
     let att: AttestationSupplyChain = verifier
         .attester_avec_endpoints(&serveur, "http://localhost:1", "http://localhost:1")
@@ -89,6 +92,7 @@ async fn commande_binaire_local_donne_non_npm() {
         env_keys: vec![],
         url: None,
         disabled: false,
+        scope: ScopeServeur::default(),
     };
     let att = verifier
         .attester_avec_endpoints(&serveur, "http://localhost:1", "http://localhost:1")

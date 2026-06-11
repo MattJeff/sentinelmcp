@@ -5,6 +5,7 @@
 //! on this Mac in parallel) and maps the result into the stable DTO shape
 //! defined in `src/api/contract.ts`.
 
+use sentinel_protocol::ScopeServeur;
 use std::time::Duration;
 
 use sentinel_discovery::{
@@ -15,7 +16,10 @@ use sentinel_discovery::{
 };
 use sentinel_protocol::Severite;
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, State};
 use tokio::time::timeout;
+
+use crate::state::AppState;
 
 /// One MCP server declared by a client config, normalised for the UI.
 #[derive(Serialize)]
@@ -231,13 +235,55 @@ fn severite_to_string(s: &Severite) -> &'static str {
     }
 }
 
+/// Decide whether a `probe_server` call should fire an automatic lookalike
+/// rescan based on the transition between the previous and current probe
+/// outcomes.
+///
+/// We rescan when (and only when) the current probe is `Reussi` AND either:
+///   * there was no previous outcome recorded (first successful contact —
+///     we still want to know whether this newcomer is a doppelganger), or
+///   * the previous outcome was any of the three failure states
+///     (`EchecLancement`, `EchecHandshake`, `EchecParseur`) — the typical
+///     "fixed the binary path, server now responds" transition.
+///
+/// We deliberately do NOT rescan on a `Reussi → Reussi` transition: a
+/// steady-state success means nothing has changed about the server's
+/// identity and re-querying the four registries on every refresh would
+/// waste outbound budget for no signal.
+///
+/// Failure outcomes never trigger a rescan — they imply the server never
+/// produced a tool list we could fingerprint against the registries.
+pub(crate) fn devrait_rescan(prev: Option<&EtatProbe>, current: &EtatProbe) -> bool {
+    if *current != EtatProbe::Reussi {
+        return false;
+    }
+    match prev {
+        None => true,
+        Some(EtatProbe::Reussi) => false,
+        Some(EtatProbe::EchecLancement)
+        | Some(EtatProbe::EchecHandshake)
+        | Some(EtatProbe::EchecParseur) => true,
+    }
+}
+
 /// Probe one MCP server live: spawn it, run the MCP handshake, list its tools,
 /// fingerprint them, and run poisoning detection on the response.
 ///
 /// Wraps [`ProbeurActif::probe_serveur`]; the probe itself enforces an 8 s
 /// budget per server, so we don't add an outer timeout here.
+///
+/// As a side-effect, when this probe transitions a server from "no record"
+/// or any failure state to `Reussi`, we spawn a background lookalike
+/// rescan for that one server (see [`devrait_rescan`]). The spawn is
+/// fire-and-forget — the probe result returns to the UI immediately, and
+/// the rescan signals completion via the `sentinel://lookalike-rescan-done`
+/// Tauri event.
 #[tauri::command]
-pub async fn probe_server(server: DeclaredServerInput) -> Result<ProbeResult, String> {
+pub async fn probe_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server: DeclaredServerInput,
+) -> Result<ProbeResult, String> {
     let serveur = ServeurMcpDeclare {
         nom: server.name.clone(),
         transport: server.transport,
@@ -246,10 +292,30 @@ pub async fn probe_server(server: DeclaredServerInput) -> Result<ProbeResult, St
         env_keys: vec![],
         url: None,
         disabled: false,
+        scope: ScopeServeur::default(),
+    };
+
+    // Snapshot the previous probe outcome for this server (if any) before
+    // running the probe, so we can decide whether to auto-rescan once the
+    // probe returns. Cloning here keeps the read-lock guard short.
+    let server_key = server.name.clone();
+    let prev_state: Option<EtatProbe> = {
+        let guard = state.last_probe_states.read().await;
+        guard.get(&server_key).cloned()
     };
 
     let probeur = ProbeurActif::par_defaut();
     let rapport = probeur.probe_serveur(&serveur).await;
+
+    // Update the in-memory state map *before* deciding on the rescan, so
+    // any concurrent caller observing this server sees the freshest
+    // outcome and avoids a duplicate rescan.
+    {
+        let mut guard = state.last_probe_states.write().await;
+        guard.insert(server_key.clone(), rapport.etat.clone());
+    }
+
+    let should_rescan = devrait_rescan(prev_state.as_ref(), &rapport.etat);
 
     let tools: Vec<ToolBrief> = rapport
         .outils
@@ -271,6 +337,23 @@ pub async fn probe_server(server: DeclaredServerInput) -> Result<ProbeResult, St
             severity: severite_to_string(&c.severite).to_string(),
         })
         .collect();
+
+    // Fire-and-forget rescan: don't block the UI on a 15 s registry call.
+    // The function itself respects the outbound toggle and emits a Tauri
+    // event when it finishes, so the React side learns the result async.
+    if should_rescan {
+        let app_clone = app.clone();
+        let state_clone = (*state.inner()).clone();
+        let sid = server_key.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                crate::commands_lookalikes::scan_lookalikes_pour_serveur(app_clone, state_clone, sid)
+                    .await
+            {
+                log::warn!("auto lookalike rescan failed: {}", e);
+            }
+        });
+    }
 
     Ok(ProbeResult {
         server_name: rapport.serveur_nom,
@@ -484,4 +567,117 @@ pub async fn list_threats() -> Result<Vec<ThreatEntry>, String> {
     });
 
     Ok(entries)
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+//
+// `probe_server` itself requires a Tauri runtime + a child process to probe,
+// so we can't unit-test it end-to-end here. We pull the rescan decision
+// logic out into a pure function ([`devrait_rescan`]) and test that
+// exhaustively — every (prev, current) transition has a documented
+// expectation. The full async path is exercised by the integration tests
+// in `tests/`.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper to make the intent of each test crystal clear without
+    // repeating `EtatProbe::X` everywhere.
+    fn assert_rescan(prev: Option<EtatProbe>, current: EtatProbe, expected: bool) {
+        assert_eq!(
+            devrait_rescan(prev.as_ref(), &current),
+            expected,
+            "prev={:?} current={:?} should yield {}",
+            prev,
+            current,
+            expected
+        );
+    }
+
+    // ── Test 3 (transition fail → success) ────────────────────────────────
+    #[test]
+    fn rescan_on_launch_failure_to_success() {
+        assert_rescan(Some(EtatProbe::EchecLancement), EtatProbe::Reussi, true);
+    }
+
+    #[test]
+    fn rescan_on_handshake_failure_to_success() {
+        assert_rescan(Some(EtatProbe::EchecHandshake), EtatProbe::Reussi, true);
+    }
+
+    #[test]
+    fn rescan_on_parser_failure_to_success() {
+        assert_rescan(Some(EtatProbe::EchecParseur), EtatProbe::Reussi, true);
+    }
+
+    // ── Test 4 (no prior state, first contact succeeds) ────────────────────
+    #[test]
+    fn rescan_on_first_successful_contact_with_no_prior_state() {
+        assert_rescan(None, EtatProbe::Reussi, true);
+    }
+
+    // ── Test 5 (steady-state success → success) ────────────────────────────
+    #[test]
+    fn no_rescan_when_previous_was_already_success() {
+        assert_rescan(Some(EtatProbe::Reussi), EtatProbe::Reussi, false);
+    }
+
+    // ── Failure outcomes never trigger a rescan ────────────────────────────
+    #[test]
+    fn no_rescan_when_current_is_launch_failure() {
+        assert_rescan(None, EtatProbe::EchecLancement, false);
+        assert_rescan(Some(EtatProbe::Reussi), EtatProbe::EchecLancement, false);
+        assert_rescan(
+            Some(EtatProbe::EchecHandshake),
+            EtatProbe::EchecLancement,
+            false,
+        );
+    }
+
+    #[test]
+    fn no_rescan_when_current_is_handshake_failure() {
+        assert_rescan(None, EtatProbe::EchecHandshake, false);
+        assert_rescan(Some(EtatProbe::Reussi), EtatProbe::EchecHandshake, false);
+    }
+
+    #[test]
+    fn no_rescan_when_current_is_parser_failure() {
+        assert_rescan(None, EtatProbe::EchecParseur, false);
+        assert_rescan(Some(EtatProbe::Reussi), EtatProbe::EchecParseur, false);
+    }
+
+    // ── Two-call simulation: 1st = launch_failed, 2nd = success ───────────
+    // Walks the same state machine `probe_server` does and counts how many
+    // times the rescan branch fires. Doubles as Test 3 in the brief.
+    #[test]
+    fn two_probe_calls_first_fail_then_success_triggers_exactly_one_rescan() {
+        let mut rescan_count = 0u32;
+        let mut last: Option<EtatProbe> = None;
+
+        // 1st probe: launch failure → no rescan.
+        let first = EtatProbe::EchecLancement;
+        if devrait_rescan(last.as_ref(), &first) {
+            rescan_count += 1;
+        }
+        last = Some(first);
+
+        // 2nd probe: success after a failure → rescan fires.
+        let second = EtatProbe::Reussi;
+        if devrait_rescan(last.as_ref(), &second) {
+            rescan_count += 1;
+        }
+        last = Some(second);
+
+        // 3rd probe (sanity): success → success, no further rescan.
+        let third = EtatProbe::Reussi;
+        if devrait_rescan(last.as_ref(), &third) {
+            rescan_count += 1;
+        }
+
+        assert_eq!(
+            rescan_count, 1,
+            "exactly one rescan must fire across the failure → success → success sequence"
+        );
+    }
 }

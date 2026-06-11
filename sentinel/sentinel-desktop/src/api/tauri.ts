@@ -37,6 +37,7 @@ import {
   type TestWebhookInput,
   type TestWebhookResult,
   type ThreatEntry,
+  type ThreatFeedStatus,
   type TrustGraphComputed,
 } from './contract';
 
@@ -202,6 +203,37 @@ export const api = {
    * object (empty `kind`, null fields) when no config has been saved.
    */
   siemGetConfig: () => call<SiemConfig>(COMMANDS.siemGetConfig),
+  /**
+   * Open a native file picker so the operator can pick a custom CA PEM
+   * bundle for the Syslog/TLS transport. Resolves to `null` when the
+   * dialog is dismissed.
+   */
+  siemPickCaPem: () => call<string | null>(COMMANDS.siemPickCaPem),
+  /**
+   * Persist the operator-curated tag set on a server row. Wholesale
+   * replacement: the supplied list becomes the new ground truth.
+   */
+  serverSetTags: (serverId: string, tags: string[]) =>
+    call<void>(COMMANDS.serverSetTags, { serverId, tags }),
+  /**
+   * Return every distinct tag currently attached to any server. Used to
+   * power the inventory filter dropdown and the editor's autocomplete.
+   */
+  serverListTags: () => call<string[]>(COMMANDS.serverListTags),
+  /**
+   * Force a remote refresh of the threat-intel feed. Gated by the
+   * global "Outbound calls" toggle on the Rust side — when OFF, the
+   * call rejects with the canonical `OUTBOUND_DISABLED_MESSAGE` so the
+   * UI can surface the same tooltip wording as every other
+   * outbound-bound command.
+   */
+  threatFeedRefresh: () => call<ThreatFeedStatus>(COMMANDS.threatFeedRefresh),
+  /**
+   * Read the active threat-feed state (source, age, entries, version)
+   * without triggering any network call. Safe to call on the
+   * lock-screen and from `useSWR` keys.
+   */
+  threatFeedStatus: () => call<ThreatFeedStatus>(COMMANDS.threatFeedStatus),
 };
 
 // ─── STIX / TAXII (V0.3) ──────────────────────────────────────────────────
@@ -288,8 +320,99 @@ export async function onLiveTick(cb: (t: LiveTick) => void): Promise<UnlistenFn>
   return listen<LiveTick>(EVENTS.liveTick, (evt) => cb(evt.payload));
 }
 
+/**
+ * Subscribe to `sentinel://threat-feed-refreshed`, emitted by the
+ * background loop whenever the threat-intel cache is successfully
+ * refreshed from the remote URL. Pages can call this to re-hydrate the
+ * Settings → Threat Intel Feed card without polling.
+ */
+export async function onThreatFeedRefreshed(
+  cb: (s: ThreatFeedStatus) => void,
+): Promise<UnlistenFn> {
+  if (!hasTauri) return () => {};
+  return listen<ThreatFeedStatus>(EVENTS.threatFeedRefreshed, (evt) =>
+    cb(evt.payload),
+  );
+}
+
+/**
+ * Payload emitted by the Rust `scan_lookalikes_pour_serveur` background
+ * task when a `probe_server` call transitions a server from failure (or
+ * "no record") to success and we auto-rescan that one server against the
+ * public registries. `matches_count` is the number of registry candidates
+ * with similarity ≥ 0.85 — 0 means the server has no doppelganger.
+ */
+export interface LookalikeRescanDone {
+  server_id: string;
+  matches_count: number;
+}
+
+/**
+ * Subscribe to `sentinel://lookalike-rescan-done` — fired once per
+ * auto-rescan triggered by a `probe_server` success-after-failure
+ * transition. The event name is kept in sync with the constant
+ * `EVENT_LOOKALIKE_RESCAN_DONE` in `commands_lookalikes.rs`.
+ */
+export async function onLookalikeRescanDone(
+  cb: (p: LookalikeRescanDone) => void,
+): Promise<UnlistenFn> {
+  if (!hasTauri) return () => {};
+  return listen<LookalikeRescanDone>('sentinel://lookalike-rescan-done', (evt) =>
+    cb(evt.payload),
+  );
+}
+
+// ─── Tray events (V0.4) ───────────────────────────────────────────────────
+//
+// The menu-bar tray emits two custom events back to the frontend:
+//   • `sentinel://tray-scan-requested`  — fired when the "Run scan now" menu
+//     item is clicked. Carries no payload; the listener decides what scan to
+//     start (App.tsx wires this to `api.startScan()`).
+//   • `sentinel://alerts-count-changed` — fired every time the open-findings
+//     count changes. Payload is `{ count: number }`. The window UI can use
+//     this to mirror the badge that already lives next to the tray title.
+
+/** Listen for "Run scan now" clicks on the menu-bar menu. */
+export async function onTrayScanRequested(cb: () => void): Promise<UnlistenFn> {
+  if (!hasTauri) return () => {};
+  return listen<unknown>('sentinel://tray-scan-requested', () => cb());
+}
+
+/** Listen for open-findings count changes pushed by the tray loop. */
+export async function onAlertsCountChanged(
+  cb: (count: number) => void,
+): Promise<UnlistenFn> {
+  if (!hasTauri) return () => {};
+  return listen<{ count: number }>(
+    'sentinel://alerts-count-changed',
+    (evt) => cb(evt.payload?.count ?? 0),
+  );
+}
+
 // ─── Browser mock (Vite dev only) ──────────────────────────────────────────
+// Module-scoped tag pool — mutated by mock serverSetTags / serverListTags so
+// the dev UI feels live without a Rust backend.
+const __mockTagsByServer: Record<string, string[]> = {};
+
 function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise<T> {
+  if (name === COMMANDS.serverSetTags) {
+    const args = (_args ?? {}) as { serverId?: string; tags?: string[] };
+    if (args.serverId) {
+      __mockTagsByServer[args.serverId] = [...(args.tags ?? [])];
+    }
+    return Promise.resolve(undefined as unknown as T);
+  }
+  if (name === COMMANDS.serverListTags) {
+    const all = new Set<string>();
+    for (const tags of Object.values(__mockTagsByServer)) {
+      for (const t of tags) all.add(t);
+    }
+    // Seed with a couple of demo tags so the dropdown isn't empty on first run.
+    if (all.size === 0) {
+      ['prod', 'staging', 'internal'].forEach((t) => all.add(t));
+    }
+    return Promise.resolve(Array.from(all).sort() as unknown as T);
+  }
   // Synthesise a successful dry-run email write so the Settings page is
   // interactive in dev mode.
   if (name === COMMANDS.testEmailChannel) {
@@ -316,8 +439,15 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
       user: null,
       pass: null,
       addr: null,
+      transport: null,
+      tls_ca_pem_path: null,
     };
     return Promise.resolve(result as unknown as T);
+  }
+  if (name === COMMANDS.siemPickCaPem) {
+    // Browser dev mode: pretend the operator dismissed the picker so the
+    // UI exercises the empty-path branch.
+    return Promise.resolve(null as unknown as T);
   }
   if (name === COMMANDS.testWebhookChannel) {
     const result: TestWebhookResult = {
@@ -395,6 +525,22 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
       path: '/tmp/sentinel-mcp/sentinel-bundle.stix.json',
     } as unknown as T);
   }
+  // Threat-feed mocks: surface a `bundled` status with synthetic counts
+  // so the Settings → Threat Intel Feed card renders in browser dev
+  // mode without a Rust backend.
+  if (name === COMMANDS.threatFeedStatus || name === COMMANDS.threatFeedRefresh) {
+    const result: ThreatFeedStatus = {
+      source: name === COMMANDS.threatFeedRefresh ? 'remote' : 'bundled',
+      last_refresh:
+        name === COMMANDS.threatFeedRefresh ? new Date().toISOString() : null,
+      age_seconds: name === COMMANDS.threatFeedRefresh ? 0 : null,
+      entries_count: 18,
+      version: '2026-06-01-001',
+      url: 'https://raw.githubusercontent.com/sentinel-mcp/threat-intel-feed/main/threat_feed.yaml',
+      auto_refresh_enabled: true,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
   // Synthesise a successful probe so the Discovery page is interactive in dev.
   if (name === COMMANDS.probeServer) {
     const input = (_args?.server ?? {}) as { name?: string };
@@ -427,6 +573,7 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
         first_seen: now,
         last_seen: now,
         current_fingerprint: 'a88b26ad…',
+        scope: { kind: 'user' },
       },
       {
         id: '22222222-2222-2222-2222-222222222222',
@@ -439,6 +586,10 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
         first_seen: now,
         last_seen: now,
         current_fingerprint: 'deadbeef…',
+        scope: {
+          kind: 'project',
+          path: '/Users/mathis/Desktop/shadowmcpserveur',
+        },
       },
     ] as ServerCard[],
     [COMMANDS.listFindings]: [] as Finding[],
@@ -699,6 +850,12 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
       retention: { contacts_days: 60, findings_days: 180, alerts_days: 90 },
       privacy: { in_flight_only: true, outbound_lookups: false },
       enforcement: { enabled: false },
+      general: { keep_running_in_background: true },
+      threat_feed: {
+        url: 'https://raw.githubusercontent.com/sentinel-mcp/threat-intel-feed/main/threat_feed.yaml',
+        auto_refresh_enabled: true,
+        last_refresh_at: null,
+      },
     } as Settings,
     [COMMANDS.saveSettings]: undefined,
     [COMMANDS.resolveFinding]: undefined,

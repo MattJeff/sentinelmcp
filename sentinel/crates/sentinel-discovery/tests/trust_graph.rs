@@ -2,6 +2,7 @@
 //!
 //! Run with: `cargo test -p sentinel-discovery --test trust_graph`.
 
+use sentinel_protocol::ScopeServeur;
 use sentinel_discovery::model::{ClientDecouvert, ClientKind, ServeurMcpDeclare};
 use sentinel_discovery::trust_graph::{ConstructeurGraphe, GrapheConfiance};
 
@@ -18,6 +19,7 @@ fn serveur_stdio(nom: &str, commande: &str, args: &[&str]) -> ServeurMcpDeclare 
         env_keys: vec![],
         url: None,
         disabled: false,
+        scope: ScopeServeur::default(),
     }
 }
 

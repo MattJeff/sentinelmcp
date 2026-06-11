@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 
 import { api } from '../../api/tauri';
-import type { SiemConfig, SiemKind } from '../../api/contract';
+import type { SiemConfig, SiemKind, SyslogTransport } from '../../api/contract';
 import { useToast } from '../../hooks/useToast';
 import SettingRow from '../SettingRow';
 
@@ -34,6 +34,8 @@ interface ElasticForm {
 
 interface SyslogForm {
   addr: string;
+  transport: SyslogTransport;
+  tlsCaPemPath: string;
 }
 
 interface SiemFormState {
@@ -45,8 +47,22 @@ interface SiemFormState {
 const EMPTY: SiemFormState = {
   splunk: { url: '', token: '' },
   elastic: { url: '', index: '', user: '', pass: '' },
-  syslog: { addr: '' },
+  syslog: { addr: '', transport: 'udp', tlsCaPemPath: '' },
 };
+
+const SYSLOG_TRANSPORT_OPTIONS: { value: SyslogTransport; label: string }[] = [
+  { value: 'udp', label: 'UDP (default)' },
+  { value: 'tcp', label: 'TCP' },
+  { value: 'tls', label: 'TLS' },
+];
+
+/** Map the wire-level `transport` string to the strict `SyslogTransport` union. */
+function normalizeTransport(raw: string | null | undefined): SyslogTransport {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'tcp') return 'tcp';
+  if (v === 'tls') return 'tls';
+  return 'udp';
+}
 
 function toConfig(kind: SiemKind, state: SiemFormState): SiemConfig {
   switch (kind) {
@@ -70,7 +86,8 @@ function toConfig(kind: SiemKind, state: SiemFormState): SiemConfig {
         pass: state.elastic.pass || null,
         addr: null,
       };
-    case 'syslog':
+    case 'syslog': {
+      const transport = state.syslog.transport;
       return {
         kind: 'syslog',
         url: null,
@@ -79,7 +96,16 @@ function toConfig(kind: SiemKind, state: SiemFormState): SiemConfig {
         user: null,
         pass: null,
         addr: state.syslog.addr || null,
+        transport,
+        // Only forward the CA PEM path on the TLS branch — keeping it
+        // attached when the operator flips back to UDP/TCP would be
+        // confusing on next load.
+        tls_ca_pem_path:
+          transport === 'tls' && state.syslog.tlsCaPemPath
+            ? state.syslog.tlsCaPemPath
+            : null,
       };
+    }
   }
 }
 
@@ -104,7 +130,13 @@ function fromConfig(cfg: SiemConfig | null | undefined): {
       };
     } else if (cfg.kind === 'syslog') {
       active = 'syslog';
-      form.syslog = { addr: cfg.addr ?? '' };
+      form.syslog = {
+        addr: cfg.addr ?? '',
+        transport: normalizeTransport(
+          typeof cfg.transport === 'string' ? cfg.transport : null,
+        ),
+        tlsCaPemPath: cfg.tls_ca_pem_path ?? '',
+      };
     } else {
       active = 'splunk';
       form.splunk = { url: cfg.url ?? '', token: cfg.token ?? '' };
@@ -119,7 +151,16 @@ const TABS: { value: SiemKind; label: string }[] = [
   { value: 'syslog', label: 'Syslog' },
 ];
 
-export default function SiemSettings() {
+export interface SiemSettingsProps {
+  /**
+   * Mirror of `settings.privacy.outboundLookups`. When `false`, the
+   * "Send test alert" button is disabled — the operator has explicitly
+   * turned off outbound traffic so we refuse to dispatch to a SIEM sink.
+   */
+  outboundEnabled: boolean;
+}
+
+export default function SiemSettings({ outboundEnabled }: SiemSettingsProps) {
   const [active, setActive] = useState<SiemKind>('splunk');
   const [form, setForm] = useState<SiemFormState>(EMPTY);
   const [testing, setTesting] = useState(false);
@@ -146,7 +187,7 @@ export default function SiemSettings() {
   }, []);
 
   const handleTest = async () => {
-    if (testing) return;
+    if (testing || !outboundEnabled) return;
     setTesting(true);
     try {
       await api.siemTestSend(toConfig(active, form));
@@ -241,7 +282,12 @@ export default function SiemSettings() {
               'animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-sentinel-blue/30 via-sentinel-purple/30 to-sentinel-blue/30',
           )}
           onClick={handleTest}
-          disabled={testing || saving}
+          disabled={testing || saving || !outboundEnabled}
+          title={
+            !outboundEnabled
+              ? 'Disabled — Outbound calls are turned off.'
+              : 'Dispatch a synthetic alert through the selected SIEM sink'
+          }
         >
           {testing ? 'Sending…' : 'Send test alert'}
         </button>
@@ -378,20 +424,96 @@ interface SyslogTabProps {
 }
 
 function SyslogTab({ value, onChange }: SyslogTabProps) {
+  // Standard collector ports: 514/udp for legacy syslog, 6514/tcp+tls for
+  // RFC 5425 (TLS) / RFC 6587 (TCP framing). We mirror that convention in
+  // the placeholder so the operator gets a sane hint per transport.
+  const addrPlaceholder =
+    value.transport === 'udp' ? '127.0.0.1:514' : '127.0.0.1:6514';
+
+  const handlePickCaPem = async () => {
+    try {
+      const picked = await api.siemPickCaPem();
+      if (picked) {
+        onChange({ ...value, tlsCaPemPath: picked });
+      }
+    } catch {
+      // Picker errors are non-fatal — leave the current value in place.
+    }
+  };
+
+  const isTls = value.transport === 'tls';
+
   return (
-    <SettingRow
-      label="Destination"
-      description="Syslog collector host:port over UDP (RFC 5424)."
-      htmlForId="siem-syslog-addr"
-      last
-    >
-      <input
-        id="siem-syslog-addr"
-        className="input w-64"
-        placeholder="127.0.0.1:514"
-        value={value.addr}
-        onChange={(e) => onChange({ ...value, addr: e.target.value })}
-      />
-    </SettingRow>
+    <>
+      <SettingRow
+        label="Destination"
+        description={
+          value.transport === 'udp'
+            ? 'Syslog collector host:port over UDP (RFC 5424).'
+            : value.transport === 'tcp'
+              ? 'Syslog collector host:port over TCP (RFC 6587 octet-counting).'
+              : 'Syslog collector host:port over TLS (RFC 5425).'
+        }
+        htmlForId="siem-syslog-addr"
+      >
+        <input
+          id="siem-syslog-addr"
+          className="input w-64"
+          placeholder={addrPlaceholder}
+          value={value.addr}
+          onChange={(e) => onChange({ ...value, addr: e.target.value })}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Transport"
+        description="Wire transport used to reach the syslog collector."
+        htmlForId="siem-syslog-transport"
+        last={!isTls}
+      >
+        <select
+          id="siem-syslog-transport"
+          className="input w-40"
+          value={value.transport}
+          onChange={(e) =>
+            onChange({
+              ...value,
+              transport: e.target.value as SyslogTransport,
+            })
+          }
+        >
+          {SYSLOG_TRANSPORT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </SettingRow>
+      {isTls && (
+        <SettingRow
+          label="Custom CA (PEM)"
+          description="Optional. If empty, system trust store is used."
+          htmlForId="siem-syslog-ca-pem"
+          last
+        >
+          <input
+            id="siem-syslog-ca-pem"
+            className="input w-64"
+            placeholder="/etc/sentinel/ca.pem"
+            value={value.tlsCaPemPath}
+            onChange={(e) =>
+              onChange({ ...value, tlsCaPemPath: e.target.value })
+            }
+          />
+          <button
+            type="button"
+            className="btn"
+            onClick={handlePickCaPem}
+            title="Browse for a custom CA bundle (PEM / CRT / CER)"
+          >
+            Browse…
+          </button>
+        </SettingRow>
+      )}
+    </>
   );
 }

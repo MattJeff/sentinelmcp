@@ -23,6 +23,8 @@ fn serveur(statut: StatutServeur) -> Serveur {
         premiere_vue: Utc::now(),
         derniere_vue: Utc::now(),
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     }
 }
 

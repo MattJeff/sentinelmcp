@@ -162,6 +162,8 @@ fn bundle_validates_against_minimal_stix21_schema() {
         premiere_vue: now,
         derniere_vue: now,
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     };
     let sw = mapping::server_to_software(&s);
     let infra = mapping::server_to_infrastructure(&s);

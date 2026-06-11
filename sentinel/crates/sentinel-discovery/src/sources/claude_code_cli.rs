@@ -11,6 +11,7 @@
 //! binary (via `which`, plus the standard install paths) and capture its
 //! `--version` output.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
@@ -148,7 +149,13 @@ async fn localiser_binaire() -> Option<(PathBuf, Option<String>)> {
 }
 
 /// Parse a global Claude config (`~/.claude.json` or `~/.config/claude/mcp.json`)
-/// looking for a top-level `mcpServers` map.
+/// looking for **two** MCP locations :
+///   1. `mcpServers` au top-level   → `ScopeServeur::User`
+///   2. `projects.<chemin>.mcpServers` → `ScopeServeur::Project { path }`
+///
+/// La dédup user/project est appliquée à l'insertion : si un même nom
+/// apparaît dans les deux passes, seule la version projet (plus
+/// spécifique) survit.
 fn parser_config_globale(path: &Path, client: &mut ClientDecouvert) {
     if !path.is_file() {
         return;
@@ -178,10 +185,27 @@ fn parser_config_globale(path: &Path, client: &mut ClientDecouvert) {
         vu_a: Utc::now(),
     });
 
+    // ── 1. mcpServers top-level (scope = User) ─────────────────────────────
     if let Some(map) = value.get("mcpServers").and_then(|v| v.as_object()) {
         for (nom, entry) in map {
-            if let Some(s) = serveur_depuis_entree(nom, entry) {
-                client.serveurs.push(s);
+            if let Some(s) = serveur_depuis_entree(nom, entry, ScopeServeur::User) {
+                ajouter_avec_dedup(client, s);
+            }
+        }
+    }
+
+    // ── 2. projects.<chemin>.mcpServers (scope = Project { path }) ─────────
+    if let Some(projects) = value.get("projects").and_then(|v| v.as_object()) {
+        for (chemin, project_obj) in projects {
+            if let Some(servers) = project_obj.get("mcpServers").and_then(|v| v.as_object()) {
+                for (nom, entry) in servers {
+                    let scope = ScopeServeur::Project {
+                        path: chemin.clone(),
+                    };
+                    if let Some(s) = serveur_depuis_entree(nom, entry, scope) {
+                        ajouter_avec_dedup(client, s);
+                    }
+                }
             }
         }
     }
@@ -189,6 +213,10 @@ fn parser_config_globale(path: &Path, client: &mut ClientDecouvert) {
 
 /// Parse a per-project `.mcp.json` file. These have the shape:
 /// `{ "mcpServers": { … } }` (top-level wrapper) OR just `{ <name>: {…} }`.
+///
+/// Le scope appliqué est `Project { path = <dossier parent du fichier> }`
+/// car ce fichier est intrinsèquement lié à un dépôt particulier (Claude
+/// Code le merge à l'ouverture du répertoire correspondant).
 fn parser_project_mcp(path: &Path, client: &mut ClientDecouvert) {
     if !path.is_file() {
         return;
@@ -208,6 +236,12 @@ fn parser_project_mcp(path: &Path, client: &mut ClientDecouvert) {
         vu_a: Utc::now(),
     });
 
+    let project_dir = path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let scope = ScopeServeur::Project { path: project_dir };
+
     // Prefer wrapped form.
     let map_opt = value
         .get("mcpServers")
@@ -220,10 +254,49 @@ fn parser_project_mcp(path: &Path, client: &mut ClientDecouvert) {
             if !entry.is_object() {
                 continue;
             }
-            if let Some(s) = serveur_depuis_entree(nom, entry) {
+            if let Some(s) = serveur_depuis_entree(nom, entry, scope.clone()) {
+                ajouter_avec_dedup(client, s);
+            }
+        }
+    }
+}
+
+/// Ajoute un serveur en respectant la règle de dédup user/project :
+/// si un même nom existe déjà avec scope `User` et qu'on insère
+/// le même avec scope `Project`, on **remplace** ; dans l'autre
+/// sens (project déjà là, entrée user) on ignore. Sinon (mêmes
+/// scopes ou deux projets différents), on remplace pour rester
+/// idempotent, sauf si les deux scopes Project diffèrent par leur
+/// path (auquel cas on autorise la coexistence).
+fn ajouter_avec_dedup(client: &mut ClientDecouvert, s: ServeurMcpDeclare) {
+    if let Some(pos) = client
+        .serveurs
+        .iter()
+        .position(|x| x.nom == s.nom && x.scope == s.scope)
+    {
+        // Doublon strict (même nom + même scope) : remplacement idempotent.
+        client.serveurs[pos] = s;
+        return;
+    }
+    // Sinon, chercher un autre scope sur le même nom.
+    if let Some(pos) = client.serveurs.iter().position(|x| x.nom == s.nom) {
+        let existant = &client.serveurs[pos].scope;
+        match (existant, &s.scope) {
+            (ScopeServeur::User, ScopeServeur::Project { .. }) => {
+                // Project gagne, remplace l'entrée user.
+                client.serveurs[pos] = s;
+            }
+            (ScopeServeur::Project { .. }, ScopeServeur::User) => {
+                // L'existant project est plus spécifique, ignore le user.
+            }
+            _ => {
+                // Deux projets différents : on autorise la coexistence
+                // (un même nom peut être déclaré dans plusieurs repos).
                 client.serveurs.push(s);
             }
         }
+    } else {
+        client.serveurs.push(s);
     }
 }
 
@@ -233,7 +306,11 @@ fn parser_project_mcp(path: &Path, client: &mut ClientDecouvert) {
 ///   * stdio: `{ "command": "npx", "args": [...], "env": {...} }`
 ///   * sse:   `{ "type": "sse",  "url": "https://…" }`
 ///   * http:  `{ "type": "http", "url": "https://…" }`
-fn serveur_depuis_entree(nom: &str, entry: &Value) -> Option<ServeurMcpDeclare> {
+fn serveur_depuis_entree(
+    nom: &str,
+    entry: &Value,
+    scope: ScopeServeur,
+) -> Option<ServeurMcpDeclare> {
     let obj = entry.as_object()?;
 
     let type_field = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -260,6 +337,7 @@ fn serveur_depuis_entree(nom: &str, entry: &Value) -> Option<ServeurMcpDeclare> 
             env_keys,
             url,
             disabled,
+            scope,
         });
     }
 
@@ -285,5 +363,6 @@ fn serveur_depuis_entree(nom: &str, entry: &Value) -> Option<ServeurMcpDeclare> 
         env_keys,
         url,
         disabled,
+        scope,
     })
 }

@@ -6,6 +6,7 @@
 //! `/Applications/Windsurf.app`. We also keep an eye on the optional
 //! `~/.codeium/windsurf-cli/` directory.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{
     ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare,
 };
@@ -236,6 +237,7 @@ impl SourceClient for SourceWindsurf {
                                         env_keys,
                                         url: entry.url.clone(),
                                         disabled: entry.disabled,
+                                        scope: ScopeServeur::default(),
                                     });
                                 }
                             }

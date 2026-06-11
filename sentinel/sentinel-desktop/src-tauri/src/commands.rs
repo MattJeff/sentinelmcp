@@ -522,6 +522,41 @@ async fn run_scan_loop(
                         )),
                     },
                 );
+
+                // Persist the unreachable server so it still appears in Inventory
+                // (red, status=Inconnu) and the operator can diagnose it.
+                let endpoint_inj = if rapport_probe.serveur_commande.is_empty() {
+                    serv.nom.clone()
+                } else {
+                    rapport_probe.serveur_commande.clone()
+                };
+                let now = chrono::Utc::now();
+                let serveur_inj = sentinel_protocol::Serveur {
+                    id: ServeurId::new_v4(),
+                    endpoint: endpoint_inj.clone(),
+                    transport: Transport::Stdio,
+                    portees: vec![],
+                    statut: StatutServeur::Inconnu,
+                    couleur: Couleur::Rouge,
+                    premiere_vue: now,
+                    derniere_vue: now,
+                    empreinte_courante: None,
+                    tags: vec![],
+                    scope: serv.scope.clone(),
+                };
+                let store_for_upsert = state.store.clone();
+                let serveur_for_upsert = serveur_inj.clone();
+                if let Ok(Err(e)) = tokio::task::spawn_blocking(move || {
+                    store_for_upsert.upsert_serveur(&serveur_for_upsert)
+                })
+                .await
+                {
+                    log::warn!(
+                        "could not persist unreachable server {}: {}",
+                        serveur_inj.endpoint,
+                        e
+                    );
+                }
                 continue;
             }
 
@@ -953,7 +988,12 @@ pub struct TestEmailResult {
 }
 
 #[tauri::command]
-pub async fn test_email_channel(cfg: TestEmailInput) -> Result<TestEmailResult, String> {
+pub async fn test_email_channel(
+    app: AppHandle,
+    cfg: TestEmailInput,
+) -> Result<TestEmailResult, String> {
+    crate::outbound::ensure_outbound_enabled(&app)?;
+
     use sentinel_alerts::channels::email::{CanalEmail, ConfigEmail};
     use sentinel_alerts::channels::CanalEmetteur;
     use sentinel_protocol::{Alerte, CanalAlerte, Severite};
@@ -1016,7 +1056,12 @@ pub struct TestWebhookResult {
 }
 
 #[tauri::command]
-pub async fn test_webhook_channel(cfg: TestWebhookInput) -> Result<TestWebhookResult, String> {
+pub async fn test_webhook_channel(
+    app: AppHandle,
+    cfg: TestWebhookInput,
+) -> Result<TestWebhookResult, String> {
+    crate::outbound::ensure_outbound_enabled(&app)?;
+
     use sentinel_alerts::channels::webhook::{CanalWebhook, TypeWebhook};
     use sentinel_alerts::channels::CanalEmetteur;
     use sentinel_protocol::{Alerte, CanalAlerte, Severite};
@@ -1228,4 +1273,39 @@ pub async fn list_observed_events(
             direction: "client_to_server".to_string(),
         })
         .collect())
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+//
+// `test_email_channel` and `test_webhook_channel` themselves take an
+// `AppHandle` and cannot run without a Tauri runtime. We exercise the same
+// gate they apply (via `crate::outbound::ensure_outbound_enabled`) on a
+// synthetic settings.toml — guaranteeing both channels surface
+// `OUTBOUND_DISABLED_MESSAGE` verbatim when the global outbound toggle is
+// OFF, exactly like the TAXII and SIEM channels.
+
+#[cfg(test)]
+mod tests {
+    use crate::outbound::test_support::{
+        ensure_outbound_enabled_in_dir, tempdir_unique, write_settings_outbound_off,
+    };
+    use crate::outbound::OUTBOUND_DISABLED_MESSAGE;
+
+    #[test]
+    fn test_email_channel_gate_blocks_when_outbound_off() {
+        let tmp = tempdir_unique("email-gate-off");
+        write_settings_outbound_off(&tmp);
+        let res = ensure_outbound_enabled_in_dir(&tmp);
+        assert_eq!(res, Err(OUTBOUND_DISABLED_MESSAGE.to_string()));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_webhook_channel_gate_blocks_when_outbound_off() {
+        let tmp = tempdir_unique("webhook-gate-off");
+        write_settings_outbound_off(&tmp);
+        let res = ensure_outbound_enabled_in_dir(&tmp);
+        assert_eq!(res, Err(OUTBOUND_DISABLED_MESSAGE.to_string()));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
 }

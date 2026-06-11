@@ -20,6 +20,8 @@ fn journal_avec_serveur(serveur_id: ServeurId) -> JournalActivite {
         premiere_vue: maintenant,
         derniere_vue: maintenant,
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     };
     store.upsert_serveur(&serveur).expect("upsert serveur");
     JournalActivite::nouveau(store)
@@ -157,6 +159,8 @@ fn tous_les_serveurs_liste_correcte() {
             premiere_vue: maintenant,
             derniere_vue: maintenant,
             empreinte_courante: None,
+            tags: vec![],
+            scope: sentinel_protocol::ScopeServeur::default(),
         };
         store.upsert_serveur(&serveur).expect("upsert");
     }

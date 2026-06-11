@@ -120,6 +120,8 @@ impl MoteurSurveillance {
                 premiere_vue: maintenant,
                 derniere_vue: maintenant,
                 empreinte_courante: None,
+                tags: vec![],
+                scope: sentinel_protocol::ScopeServeur::default(),
             };
             store.upsert_serveur(&s)?;
             Ok(id)

@@ -29,18 +29,9 @@ use tauri::{AppHandle, Manager};
 
 use sentinel_taxii::{TaxiiAuth, TaxiiClient, TaxiiConfig, TaxiiError};
 
-use crate::commands_settings::Settings;
+use crate::outbound::ensure_outbound_enabled;
 
 const TAXII_FILENAME: &str = "taxii.json";
-const SETTINGS_FILENAME: &str = "settings.toml";
-
-/// Error message returned to the UI when an outbound TAXII operation is
-/// attempted while the global "Outbound calls" toggle is OFF in Settings.
-///
-/// Kept as a module-level constant so the matching test in `sentinel-taxii`
-/// (and future channels) can assert on the exact same wording.
-pub const OUTBOUND_DISABLED_MESSAGE: &str =
-    "Outbound calls disabled in Settings — TAXII push blocked.";
 
 // ─── UI-facing config (mirrors `tauri.ts`) ───────────────────────────────────
 
@@ -136,52 +127,6 @@ fn taxii_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("could not create app data dir {:?}: {}", dir, e))?;
     Ok(dir.join(TAXII_FILENAME))
-}
-
-fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("could not resolve app data dir: {}", e))?;
-    Ok(dir.join(SETTINGS_FILENAME))
-}
-
-// ─── Outbound toggle ─────────────────────────────────────────────────────────
-
-/// Read the persisted `Settings` from disk and return
-/// `settings.privacy.outbound_lookups`. Defaults to `false` (privacy-first)
-/// when no settings file has been written yet — i.e. an unconfigured
-/// installation cannot accidentally push to a third-party TAXII server.
-///
-/// Errors loading/parsing the file are treated as "outbound disabled" so we
-/// never leak data through a missing-config corner case.
-pub fn is_outbound_enabled(app: &AppHandle) -> bool {
-    let path = match settings_path(app) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    if !path.exists() {
-        return false;
-    }
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    match toml::from_str::<Settings>(&raw) {
-        Ok(s) => s.privacy.outbound_lookups,
-        Err(_) => false,
-    }
-}
-
-/// Inline gate used by every TAXII push command. Returns `Ok(())` when the
-/// global "Outbound calls" toggle is ON, [`OUTBOUND_DISABLED_MESSAGE`]
-/// otherwise.
-fn ensure_outbound_enabled(app: &AppHandle) -> Result<(), String> {
-    if is_outbound_enabled(app) {
-        Ok(())
-    } else {
-        Err(OUTBOUND_DISABLED_MESSAGE.to_string())
-    }
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
@@ -283,91 +228,19 @@ pub async fn taxii_test_send(app: AppHandle) -> Result<TaxiiTestResult, String> 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 //
 // Tauri commands take an `AppHandle` and are not directly unit-testable
-// without a Tauri runtime. We therefore unit-test the *pure* helpers
-// (`is_outbound_enabled`, `ensure_outbound_enabled`-style logic) by reading
-// the same settings.toml shape from a temporary directory, exactly like the
-// production helper does. This guarantees the gate fails closed (returns
-// `false`/`Err`) when the toggle is OFF or the file is missing — which is the
-// invariant the matching test in `crates/sentinel-taxii/tests/outbound_gate.rs`
-// also documents.
+// without a Tauri runtime. The pure helpers (`is_outbound_enabled`,
+// `ensure_outbound_enabled`) have moved to `crate::outbound` and are unit
+// tested there. The tests here pin the TAXII-side invariants that depend on
+// the shared constant — i.e. that we still use the exact wording the UI and
+// the crate-level test in `crates/sentinel-taxii/tests/outbound_gate.rs`
+// expect.
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    /// Re-implementation of [`is_outbound_enabled`] that accepts a base
-    /// directory directly, so we can exercise the same TOML parsing without
-    /// a live Tauri runtime.
-    fn outbound_enabled_in_dir(dir: &std::path::Path) -> bool {
-        let path = dir.join(SETTINGS_FILENAME);
-        if !path.exists() {
-            return false;
-        }
-        let raw = match std::fs::read_to_string(&path) {
-            Ok(r) => r,
-            Err(_) => return false,
-        };
-        match toml::from_str::<Settings>(&raw) {
-            Ok(s) => s.privacy.outbound_lookups,
-            Err(_) => false,
-        }
-    }
-
-    #[test]
-    fn outbound_disabled_when_no_settings_file() {
-        let tmp = tempdir_unique("taxii-no-settings");
-        assert!(
-            !outbound_enabled_in_dir(&tmp),
-            "missing settings.toml must fail closed"
-        );
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn outbound_disabled_when_toggle_off() {
-        let tmp = tempdir_unique("taxii-toggle-off");
-        let path = tmp.join(SETTINGS_FILENAME);
-        std::fs::write(
-            &path,
-            r#"
-[privacy]
-in_flight_only = true
-outbound_lookups = false
-"#,
-        )
-        .unwrap();
-        assert!(!outbound_enabled_in_dir(&tmp));
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn outbound_enabled_when_toggle_on() {
-        let tmp = tempdir_unique("taxii-toggle-on");
-        let path = tmp.join(SETTINGS_FILENAME);
-        std::fs::write(
-            &path,
-            r#"
-[privacy]
-in_flight_only = true
-outbound_lookups = true
-"#,
-        )
-        .unwrap();
-        assert!(outbound_enabled_in_dir(&tmp));
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[test]
-    fn outbound_disabled_on_corrupt_settings() {
-        let tmp = tempdir_unique("taxii-corrupt");
-        let path = tmp.join(SETTINGS_FILENAME);
-        std::fs::write(&path, "not = valid = toml ===").unwrap();
-        assert!(
-            !outbound_enabled_in_dir(&tmp),
-            "corrupt settings.toml must fail closed"
-        );
-        std::fs::remove_dir_all(&tmp).ok();
-    }
+    use crate::outbound::test_support::{
+        ensure_outbound_enabled_in_dir, tempdir_unique, write_settings_outbound_off,
+    };
+    use crate::outbound::OUTBOUND_DISABLED_MESSAGE;
 
     #[test]
     fn outbound_disabled_message_is_exact() {
@@ -379,13 +252,15 @@ outbound_lookups = true
         );
     }
 
-    fn tempdir_unique(tag: &str) -> std::path::PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let p = std::env::temp_dir().join(format!("sentinel-{}-{}", tag, nanos));
-        std::fs::create_dir_all(&p).unwrap();
-        p
+    #[test]
+    fn taxii_gate_blocks_when_toggle_off() {
+        // Exercises the same gate every TAXII outbound command relies on:
+        // a settings.toml with `outbound_lookups = false` must surface the
+        // shared `OUTBOUND_DISABLED_MESSAGE` verbatim.
+        let tmp = tempdir_unique("taxii-gate-off");
+        write_settings_outbound_off(&tmp);
+        let res = ensure_outbound_enabled_in_dir(&tmp);
+        assert_eq!(res, Err(OUTBOUND_DISABLED_MESSAGE.to_string()));
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }

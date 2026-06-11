@@ -13,6 +13,7 @@
 //! The app can be shipped as `Zed.app`, `Zed Preview.app`, or
 //! `Zed Nightly.app`. Version is read from the bundle's `Info.plist`.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{
     ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare,
 };
@@ -335,6 +336,7 @@ impl SourceClient for SourceZed {
                                         env_keys,
                                         url: entry.url.clone(),
                                         disabled: entry.is_disabled(),
+                                        scope: ScopeServeur::default(),
                                     };
                                     if matches!(
                                         entry.source.as_deref(),
@@ -365,6 +367,7 @@ impl SourceClient for SourceZed {
                                         env_keys: vec![],
                                         url: None,
                                         disabled: false,
+                                        scope: ScopeServeur::default(),
                                     });
                                     client.notes.push(format!(
                                         "zed: extension '{ext_name}' is extension-declared"

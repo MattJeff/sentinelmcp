@@ -2,13 +2,19 @@
 
 Sentinel MCP est un outil de découverte, fingerprinting, surveillance et audit
 des serveurs MCP (Model Context Protocol) qu'un Mac de développeur expose à
-ses agents IA. Cette page liste **toutes** les fonctionnalités livrées dans
-la version 0.2.0 — à quoi elles servent, dans quel cas elles se déclenchent,
-et quelles questions de sécurité ou de conformité elles résolvent.
+ses agents IA. Cette page liste **toutes** les fonctionnalités livrées
+jusqu'à la version 0.3 — à quoi elles servent, dans quel cas elles se
+déclenchent, et quelles questions de sécurité ou de conformité elles
+résolvent.
 
 > Note v0.3 : ajoute l'export **STIX 2.1 / push TAXII 2.1** (canal
-> d'intégration SOC/GRC) et la **signature Developer ID + notarisation
-> Apple** du bundle desktop (installation sans avertissement Gatekeeper).
+> d'intégration SOC/GRC), la **signature Developer ID + notarisation
+> Apple** du bundle desktop (installation sans avertissement Gatekeeper),
+> le **rafraîchissement à distance du flux threat-intel** (URL opérateur
+> + cache disque), les **tags opérateur** persistés par serveur, la
+> **portée user vs project** détectée sur les configs MCP, le sink
+> **Syslog TCP / TCP+TLS (RFC 5425)** et un **command palette** clavier
+> (`⌘K`) + une **icône menubar** avec compteur d'alertes ouvertes.
 
 Le document n'est pas un manuel d'API ni un guide d'installation. C'est la
 référence à donner à un auditeur, un acheteur ou un nouveau membre de
@@ -32,12 +38,14 @@ code.
 11. [Page Compliance](#11-page-compliance)
 12. [Page Report](#12-page-report)
 13. [Page Settings](#13-page-settings)
-14. [Différenciateurs](#14-différenciateurs-le-vrai-coeur-du-produit)
-15. [Moteurs de détection](#15-moteurs-de-détection)
-16. [Référentiels de conformité](#16-référentiels-de-conformité)
-17. [Surveillance temps réel](#17-surveillance-temps-réel)
-18. [Posture de sécurité et confidentialité](#18-posture-de-sécurité-et-confidentialité)
-19. [Limites connues](#19-limites-connues)
+14. [Shell desktop, command palette et menubar](#14-shell-desktop-command-palette-et-menubar)
+15. [Différenciateurs](#15-différenciateurs-le-vrai-coeur-du-produit)
+16. [Moteurs de détection](#16-moteurs-de-détection)
+17. [Référentiels de conformité](#17-référentiels-de-conformité)
+18. [Surveillance temps réel](#18-surveillance-temps-réel)
+19. [Posture de sécurité et confidentialité](#19-posture-de-sécurité-et-confidentialité)
+20. [Limites connues](#20-limites-connues)
+21. [Annexe — Cartographie des commandes Tauri](#annexe--cartographie-des-commandes-tauri)
 
 ---
 
@@ -46,10 +54,11 @@ code.
 ### À quel problème répond l'outil
 
 Les agents IA modernes (Claude Desktop, Claude Code, Cursor, Windsurf,
-Continue, VS Code, Zed, Aider, Goose, Codex, Antigravity, LM Studio…) se
-connectent à des **serveurs MCP** qui exposent des outils (fichiers, base
-de données, API externes, secrets, navigateur, etc.). Ces serveurs sont
-souvent installés à coup de `npx -y @org/...`, sans audit. Ils peuvent :
+Continue, VS Code, Zed, Aider, Goose, Codex, Antigravity, LM Studio,
+Open WebUI, Sketch…) se connectent à des **serveurs MCP** qui exposent
+des outils (fichiers, base de données, API externes, secrets,
+navigateur, etc.). Ces serveurs sont souvent installés à coup de
+`npx -y @org/...`, sans audit. Ils peuvent :
 
 - **Mentir** sur leur identité (typo-squat d'un paquet officiel)
 - **Changer** silencieusement leurs outils entre deux sessions (« rug-pull »)
@@ -72,13 +81,17 @@ Sentinel.
   signées** sur la surface MCP d'une organisation
 - Un acheteur final qui doit décider **avant d'approuver** un nouveau
   serveur MCP
+- Un SOC / GRC qui doit ingérer les indicateurs MCP via STIX 2.1 /
+  TAXII 2.1 sans retraitement
 
 ### Garanties par défaut
 
 - **Read-only par défaut** : Sentinel n'altère rien. Les actions de
   blocage (enforcement) sont opt-in, signées, sauvegardées.
-- **Rien ne quitte la machine sauf si l'opérateur l'autorise** (canaux
-  e-mail, webhook, SIEM, lookups registres).
+- **Privacy-first** : la porte `Outbound calls` est OFF par défaut.
+  Tant qu'elle n'est pas activée, aucun canal sortant (TAXII, SIEM,
+  e-mail, webhook, registres, refresh threat feed) ne part de la
+  machine.
 - **Tout l'historique persistant est dans `~/Library/Application Support/com.sentinel-mcp.desktop/`**
   (SQLite + JSON). Pas de cloud Sentinel.
 
@@ -86,24 +99,34 @@ Sentinel.
 
 ## 2. Architecture fonctionnelle
 
-L'application est composée de neuf crates Rust regroupées dans un
+L'application est composée de onze crates Rust regroupées dans un
 workspace et d'une UI Tauri 2 + React 19.
 
 | Crate                | Rôle                                                         |
 |----------------------|--------------------------------------------------------------|
-| sentinel-protocol    | Types MCP (JSON-RPC, méthodes, transports), enums Portée     |
-| sentinel-store       | Persistance SQLite (serveurs, outils, baselines, constats…)  |
-| sentinel-scan        | Capture stdio + HTTP, parseur tools/list, mode proxy B       |
+| sentinel-protocol    | Types MCP (JSON-RPC, méthodes, transports), enums Portée, `ScopeServeur` |
+| sentinel-store       | Persistance SQLite (serveurs, outils, baselines, constats, tags, scopes) — migrations V1/V2/V3 |
+| sentinel-scan        | Capture stdio + HTTP, parseur `tools/list`, mode proxy B     |
 | sentinel-monitor     | Boucle de surveillance continue, baselines, dérive           |
 | sentinel-detect      | Détecteurs (empreinte, rug-pull, poisoning, sosies)          |
-| sentinel-alerts      | Moteur d'alertes (sévérité, canaux, déduplication)           |
+| sentinel-alerts      | Moteur d'alertes (sévérité, canaux, déduplication), sinks Splunk / Elastic / Syslog UDP/TCP/TLS |
 | sentinel-report      | Génération PDF + JSON, signature Ed25519, mapping conformité |
-| sentinel-discovery   | Lecture des configs des 12 clients IA, threat intel feed     |
+| sentinel-discovery   | Lecture des configs des 14 clients IA, threat intel feed (bundled + remote refresh + cache) |
+| sentinel-stix        | Sérialisation des constats au format STIX 2.1                |
+| sentinel-taxii       | Client TAXII 2.1 (push d'un bundle STIX vers une collection) |
 | sentinel-cli         | Interface ligne de commande (scan, report, list…)            |
 
-L'interface Tauri appelle ces crates via 42 commandes exposées par
-l'application desktop. Chaque action de l'UI (bouton, toggle, dialog)
-est câblée à une commande Tauri et persiste son effet.
+L'interface Tauri appelle ces crates via les commandes exposées par
+l'application desktop (voir [annexe](#annexe--cartographie-des-commandes-tauri)).
+Chaque action de l'UI (bouton, toggle, dialog) est câblée à une
+commande Tauri et persiste son effet.
+
+Côté Rust, un module `outbound.rs` centralise la **porte « Outbound
+calls »** : chaque commande qui sortirait sur le réseau (TAXII, SIEM,
+e-mail, webhook, registres, refresh threat feed) la consulte en début
+d'exécution et échoue de façon homogène avec le message
+`Outbound calls disabled in Settings — TAXII push blocked.` quand le
+toggle est OFF.
 
 ---
 
@@ -152,7 +175,7 @@ Pour chaque client IA, Sentinel sait :
 - combien de serveurs MCP il déclare,
 - s'il a un « block MCP » dans sa config (champ `mcpServers`).
 
-Clients couverts en v0.2.0 :
+Clients couverts :
 
 - Claude Code CLI (`~/.claude.json`)
 - Claude Desktop (`~/Library/Application Support/Claude/...`)
@@ -166,9 +189,26 @@ Clients couverts en v0.2.0 :
 - Codex (`~/.codex/config.toml`)
 - Antigravity
 - LM Studio
+- Open WebUI
+- Sketch
 
 Chaque carte client affiche aussi les éventuels diagnostics (« app
 bundle not found in /Applications », « mcp_config.json is empty »).
+
+### Portée user vs portée projet
+
+Les configs qui supportent les deux modèles (`mcpServers` racine vs
+`projects.<chemin>.mcpServers`, typiquement Claude Code CLI) sont
+parsées en distinguant la **portée** de chaque serveur :
+
+- `scope = user` : déclaration globale pour le compte macOS.
+- `scope = project:<chemin>` : déclaration spécifique à un dossier de
+  travail.
+
+Le scope est persisté en base (colonne dédiée, migration V3) et
+visible dans toute l'UI (badge sur les cartes serveur, filtre dédié
+dans la page Inventory, ligne « Scope » dans le drawer de détail avec
+le chemin complet en tooltip).
 
 ### Bouton Scan now
 
@@ -190,9 +230,8 @@ pour fonctionner depuis launchd, et applique un timeout de sécurité.
 
 ### Threat intelligence feed
 
-Liste curatée de 17 paquets MCP problématiques connus (typo-squats,
-descriptions empoisonnées, rug-pulls, exfiltration). Chaque entrée
-porte :
+Liste curatée de paquets MCP problématiques (typo-squats, descriptions
+empoisonnées, rug-pulls, exfiltration). Chaque entrée porte :
 
 - ID interne (MCP-2026-XXX)
 - Nom de paquet
@@ -205,6 +244,23 @@ porte :
   correspondent à cette signature.
 
 Le feed est filtrable par paquet ou par ID.
+
+**Cascade de chargement** (déterministe, jamais aveugle) :
+
+1. Si `auto_refresh_enabled = ON` et `outbound_lookups = ON` et que le
+   cache disque est absent ou plus vieux que 24 h → GET HTTP sur l'URL
+   configurée, validation YAML, écriture du cache
+   (`threat_feed_cache.yaml` + métadonnées `threat_feed_cache.meta.json`
+   contenant `sha256`, `fetched_at`, `source`).
+2. Sinon, si le cache disque existe → on l'utilise.
+3. Sinon → fallback final sur le YAML **bundled** dans le binaire
+   (`data/threat_feed.yaml`), toujours disponible hors ligne.
+
+La carte Settings « Threat Intel Feed » expose l'URL, le toggle d'auto-
+refresh, l'âge de la dernière entrée, le compteur d'entrées et un
+bouton « Refresh now » (désactivé avec tooltip si `Outbound calls` est
+OFF). Un task tokio détaché tente un refresh d'arrière-plan respectant
+les deux toggles, sans bloquer l'UI.
 
 ### Panneau Lookalike scan
 
@@ -243,6 +299,13 @@ unique.
 - **Transport** : All / Stdio / HTTP.
 - **Status** : All / Approved / Unknown / Suspect / Blocked — reflète
   les décisions de la page Approvals.
+- **Scope** : All / User / Project — distingue les serveurs déclarés
+  globalement pour le compte macOS et les serveurs déclarés sous un
+  dossier de travail (Claude Code `projects.<chemin>`). Quand un
+  dossier est sélectionné, un sous-filtre liste les projets connus.
+- **Tags** : multisélection sur l'univers des tags opérateur déjà
+  posés (autocomplete sur la frappe, sélection cumulative, clear en
+  un clic).
 - **Recherche libre** par endpoint, transport, scope.
 
 ### Carte serveur
@@ -250,9 +313,13 @@ unique.
 Chaque carte affiche :
 - L'identifiant lisible (commande + args, ex. `npx -y @modelcontextprotocol/server-filesystem`)
 - Le badge de transport
+- Le badge de scope (`user` ou `project: <basename>` avec chemin
+  complet en tooltip)
 - Le statut d'approbation (libellé court)
 - Les portées inférées (filesystem, database, network, external_api,
   secrets, browser, read, write, unknown)
+- Les **chips de tags** opérateur (les N premiers, avec compteur
+  d'overflow et tooltip complet)
 - Le nombre d'outils
 - Last seen (date du dernier contact)
 
@@ -261,7 +328,12 @@ Chaque carte affiche :
 Clic sur une carte ouvre un panneau latéral persistant qui contient :
 
 - **At a glance** : compteur d'outils, empreinte canonique SHA-256,
-  first seen, last seen, scopes.
+  first seen, last seen, scopes, scope user/project (avec chemin de
+  projet copiable), `package_id` quand reconnu.
+- **Tags** : éditeur dédié (chips supprimables, autocomplete sur
+  l'univers de tags déjà connus de la base, normalisation
+  trim + lowercase + max 32 caractères, limite 32 tags par serveur,
+  bouton « Save tags »).
 - **Tools** : la liste complète des outils du serveur avec leur
   description (telle que renvoyée par `tools/list`) et leur input
   schema (JSON Schema déplié).
@@ -271,6 +343,21 @@ Clic sur une carte ouvre un panneau latéral persistant qui contient :
   résolus.
 - **Boutons en bas** : Approve, Investigate, Block (mêmes effets que
   sur la page Approvals).
+
+### Tags opérateur
+
+- Côté Rust : commandes `server_set_tags` (écriture validée :
+  trim + lowercase + dédup + plafonds) et `server_list_tags` (union
+  triée de tous les tags posés sur l'inventaire).
+- Côté SQLite : colonne `tags TEXT NOT NULL DEFAULT '[]'` ajoutée par
+  la migration V2 (JSON array, pas de table dédiée tant que le volume
+  reste faible).
+- Côté UI : composant `TagsEditor` réutilisé dans le drawer et un
+  popover de filtre dans la `FilterBar`.
+
+Cas d'usage : étiqueter prod/staging, ownership, sensibilité, niveau
+de risque, équipe propriétaire — sans toucher au modèle de scope ni
+au statut d'approbation.
 
 ---
 
@@ -288,8 +375,8 @@ HTTP, pour observer son trafic JSON-RPC et remplir l'inventaire.
   Streamable HTTP avec le serveur (`POST /mcp` + GET SSE), envoie
   `initialize` puis `tools/list`, capture la réponse, ferme la session.
 
-Le mode Fixture (rejeu de traces capturées) a été retiré en v0.2.0 —
-seuls Stdio et HTTP restent disponibles.
+Le mode Fixture (rejeu de traces capturées) a été retiré — seuls Stdio
+et HTTP restent disponibles.
 
 ### Sortie
 
@@ -545,12 +632,27 @@ Bloc dépliable qui affiche les chemins absolus du PDF, du JSON et du
 fichier de signature. Pratique pour les uploader vers une plateforme
 GRC.
 
+### Export STIX 2.1 et push TAXII 2.1
+
+Une fois le bundle généré, Sentinel peut :
+- exporter les constats au format **STIX 2.1** (`stix_export_bundle`,
+  JSON bundle conforme schéma 2.1) ;
+- pousser ce bundle sur une **collection TAXII 2.1** externe
+  (`taxii_test_send` / `taxii_save_config` / `taxii_get_config`).
+
+L'envoi TAXII passe par la porte `Outbound calls` : tant qu'elle est
+OFF, la commande échoue immédiatement avec le message canonique. La
+configuration TAXII (URL, collection ID, API root, credentials) est
+persistée à côté de `siem.json` dans le dossier de support
+applicatif.
+
 ---
 
 ## 13. Page Settings
 
 Configuration de l'application. Tous les paramètres sont persistés
-dans `settings.toml` (ou `siem.json` pour le canal SIEM).
+dans `settings.toml` (ou `siem.json` pour le canal SIEM,
+`taxii.json` pour TAXII).
 
 ### Section Live monitoring
 
@@ -596,19 +698,52 @@ en temps réel — sans modifier les payloads transmis.
 - Format : Generic, Slack, Teams.
 - Bouton **Send test webhook**.
 
-### Section SIEM (canal v0.2)
+### Section SIEM
 
 Trois sous-onglets :
 
 - **Splunk HEC** : URL du collector HTTP Event Collector, token HEC,
   sourcetype optionnel.
 - **Elastic** : URL de base, index cible, auth Basic optionnelle.
-- **Syslog** : adresse `host:port` UDP, format RFC 5424.
+- **Syslog** : adresse `host:port`, sélecteur de transport
+  **UDP (default) / TCP / TLS** :
+  - UDP : RFC 5424 historique (un datagramme par alerte).
+  - TCP : framing **octet-counted** (`<LEN> <MSG>`), connexion
+    persistante avec timeout et retry.
+  - TLS : **RFC 5425** (TCP + TLS), avec champ « TLS CA PEM » et
+    bouton **Pick** (sélecteur de fichier `siem_pick_ca_pem`) pour
+    référencer un certificat racine personnalisé.
 
 Boutons **Save** (persiste la config dans `siem.json`) et **Send test
 alert** (envoie un message d'événement de test via le sink choisi).
 La config persiste les secrets dans le fichier de support
 applicatif — jamais loggés.
+
+### Section TAXII
+
+- URL de discovery, API root, ID de collection, méthode d'auth (basic
+  / bearer / aucune), secret.
+- Bouton **Save** (persiste dans `taxii.json`), bouton **Send test**
+  qui pousse un STIX bundle minimal et reflète le code de retour HTTP.
+- Toute action TAXII passe par la porte `Outbound calls`.
+
+### Section Threat Intel Feed (v0.3)
+
+- **URL** : URL du fichier `threat_feed.yaml` à récupérer (par défaut
+  le dépôt public GitHub `sentinel-mcp/threat-intel-feed`).
+- **Auto-refresh** : toggle ON/OFF. Quand ON, un task tokio
+  d'arrière-plan tente une mise à jour périodique (avec un cooldown
+  de 24 h, et silencieusement sans réseau si `Outbound calls` est
+  OFF).
+- **Status** : pill « source » (`remote-cache` / `bundled` / `cold`),
+  timestamp `last_refresh`, âge humanisé, compteur `entries`,
+  `version` du flux.
+- **Refresh now** : force un GET HTTP immédiat. Désactivé avec
+  tooltip si `Outbound calls` est OFF.
+
+Le YAML bundled reste toujours présent comme filet de sécurité — la
+cascade `remote → cache → bundled` garantit qu'aucun écran n'est
+jamais vide.
 
 ### Section Retention
 
@@ -623,9 +758,13 @@ démarrage.
 
 - **Inspection-in-flight only** : Sentinel n'enregistre jamais le
   corps complet des messages MCP. Activé par défaut, verrou affiché.
-- **Outbound calls (registries lookup)** : autorise Sentinel à
-  interroger PulseMCP / Smithery / mcp.so / le registre officiel.
-  Activé par défaut, désactivable en un clic.
+- **Outbound calls** : **OFF par défaut**. Quand OFF, aucune commande
+  Tauri ne sort sur le réseau (registres lookalikes, refresh threat
+  feed, TAXII, SIEM, e-mail, webhook). Chaque commande renvoie le
+  message canonique
+  `Outbound calls disabled in Settings — TAXII push blocked.`
+  et l'UI affiche la même tooltip sur les boutons concernés. Le
+  centralisme côté Rust est porté par le module `outbound.rs`.
 
 ### Section Enforcement (experimental)
 
@@ -646,7 +785,70 @@ Le toggle est volontairement caché dans Settings : Sentinel reste
 
 ---
 
-## 14. Différenciateurs — le vrai cœur du produit
+## 14. Shell desktop, command palette et menubar
+
+L'application n'est pas qu'une succession de pages : le shell desktop
+ajoute trois éléments qui rendent Sentinel utilisable comme un outil
+de fond.
+
+### Command palette (`⌘K`)
+
+Composant overlay déclenché par le raccourci `⌘K` (macOS) ou
+`Ctrl+K`. Il accepte trois familles de commandes :
+
+- **Pages** : sauter directement à `overview`, `discovery`,
+  `inventory`, `scan`, `alerts`, `approvals`, `trust-graph`,
+  `timeline`, `compliance`, `report`, `settings`.
+- **Serveurs** : recherche floue sur les serveurs de l'inventaire.
+  Sélectionner un serveur dépose son identifiant en session et ouvre
+  l'Inventory en faisant pop le drawer correspondant.
+- **Actions** : raccourcis vers les opérations courantes (lancer un
+  scan, ouvrir le dernier rapport…).
+
+Le palette est piloté par `useCommandPalette` (hook clavier) et
+monté au niveau racine pour rester accessible quelle que soit la
+page active.
+
+### Onboarding (Welcome screen)
+
+Au premier lancement, une page de bienvenue explique en quelques
+écrans ce que Sentinel observe, ce qu'il ne fait pas, et où sont
+stockées les données. Le passage est tracé dans `useOnboarding`, ce
+qui évite de la réafficher ensuite.
+
+### Tray icon menubar + compteur d'alertes
+
+Sentinel installe une **icône menubar** macOS avec :
+
+- **Open Sentinel** : ramène la fenêtre principale au premier plan.
+- **Run scan now** : émet un événement
+  `sentinel://tray-scan-requested` que le frontend reçoit, route vers
+  la page Live Scan, et déclenche `start_scan` avec les défauts
+  configurés.
+- **Quit Sentinel** : quitte proprement (arrête les tasks
+  d'arrière-plan).
+
+À côté de l'icône, un compteur d'alertes ouvertes est rafraîchi
+toutes les 30 secondes (`tokio::time::interval`) et propagé via un
+événement `sentinel://alerts-count-changed` que les badges UI
+écoutent aussi.
+
+### Fermeture vers la barre
+
+Cliquer sur le bouton rouge ferme la fenêtre mais laisse l'app
+tourner derrière l'icône menubar — la surveillance temps réel
+continue.
+
+### Toaster et drag strip
+
+- Toaster commun pour toutes les notifications (succès, erreur,
+  warning) avec dédup courte fenêtre.
+- Drag strip transparent sur tout le haut de la fenêtre, pour bouger
+  l'app où qu'on clique (`data-tauri-drag-region`).
+
+---
+
+## 15. Différenciateurs — le vrai cœur du produit
 
 Ce que les outils MCP existants ne font pas, et que Sentinel implémente
 de façon native.
@@ -672,11 +874,13 @@ description modifiée, paramètre par défaut changé, enum élargi).
 
 ### Threat intel et lookalikes (différenciateur n°3)
 
-Sentinel maintient un feed curatif de 17+ paquets MCP problématiques,
-matche en continu l'inventaire contre ce feed, et lance des
-**lookalike scans** contre quatre registres publics avec une
-similarité Jaro-Winkler combinée nom + description. Repère les
-typo-squats avant l'exécution.
+Sentinel maintient un feed curatif de paquets MCP problématiques
+**bundled** dans le binaire, matche en continu l'inventaire contre ce
+feed, et lance des **lookalike scans** contre quatre registres
+publics avec une similarité Jaro-Winkler combinée nom + description.
+Le feed peut être rafraîchi à la demande ou en arrière-plan depuis
+une URL configurable (cascade `remote → cache disque → bundled`),
+sans jamais devenir aveugle même hors ligne.
 
 ### Trust graph et blast radius (différenciateur n°4)
 
@@ -705,9 +909,37 @@ sur les fichiers de config. Tout changement de `mcpServers` est
 détecté en moins de 500 ms, propagé à la base, et la sidebar « Live ·
 30s » se met à jour. L'opérateur n'a pas besoin de relancer un scan.
 
+### Scope user/project explicite (différenciateur n°8)
+
+Sentinel distingue les serveurs MCP **globaux à l'utilisateur** et
+ceux **déclarés sous un projet** (typiquement
+`projects.<chemin>.mcpServers` dans Claude Code CLI). Persisté en
+base (migration V3), filtrable dans Inventory, affiché en badge sur
+chaque carte avec chemin complet en tooltip. Permet de répondre
+clairement à « ce serveur est-il actif partout ou seulement dans ce
+dossier ? ».
+
+### Tags opérateur (différenciateur n°9)
+
+Système de tags libres (32 max par serveur, 32 caractères max chacun)
+posés par l'opérateur depuis le drawer. Persistés en base (migration
+V2), exposés en chips sur la carte serveur, en filtre multiselect sur
+l'inventory, et en autocomplete partagé entre opérateurs (`server_list_tags`
+expose l'union triée déjà connue). Cas d'usage : prod/staging,
+ownership, sensibilité, équipe propriétaire.
+
+### Privacy gate centralisée (différenciateur n°10)
+
+Une **seule case Outbound calls** dans Settings contrôle tous les
+canaux sortants (TAXII, SIEM, e-mail, webhook, registres, refresh
+threat feed). Le code Rust applique la porte de manière homogène via
+le module `outbound.rs`, avec un message d'erreur canonique. L'OFF
+par défaut garantit qu'une installation neuve ne peut pas
+accidentellement appeler un tiers.
+
 ---
 
-## 15. Moteurs de détection
+## 16. Moteurs de détection
 
 Les détections fournies par `sentinel-detect` et déclenchées par la
 surveillance continue.
@@ -760,7 +992,7 @@ continu contre ce corpus pour mesurer la précision de détection.
 
 ---
 
-## 16. Référentiels de conformité
+## 17. Référentiels de conformité
 
 Le mapping est natif et défini dans `sentinel-report` (mod
 `mapping_conformite`).
@@ -802,7 +1034,7 @@ contribue. Le rapport signé compile la couverture par contrôle.
 
 ---
 
-## 17. Surveillance temps réel
+## 18. Surveillance temps réel
 
 ### Boucle tokio + file watcher
 
@@ -815,8 +1047,28 @@ Au démarrage, Sentinel lance un task tokio détaché qui :
   revalide automatiquement).
 
 En parallèle, un file watcher `notify` surveille les chemins des
-fichiers de config des 12 clients IA. Toute modification → discovery
+fichiers de config des clients IA. Toute modification → discovery
 ciblée + propagation immédiate.
+
+### Boucle de refresh du threat feed
+
+Un second task tokio (`lancer_refresh_threat_feed`) gère
+l'actualisation du flux threat-intel à distance, dans le respect des
+toggles :
+
+- ne se déclenche que si `auto_refresh_enabled = ON` et
+  `outbound_lookups = ON`,
+- cooldown de 24 h entre deux tentatives,
+- écriture atomique du cache et de ses métadonnées (`sha256`,
+  `fetched_at`, `source`),
+- émission de l'événement `sentinel://threat-feed-refreshed` à l'UI
+  pour rafraîchir le compteur et le timestamp.
+
+### Boucle de compteur d'alertes
+
+Un troisième task tokio met à jour le compteur d'alertes ouvertes
+exposé dans le titre de la tray icon menubar et propage la valeur via
+`sentinel://alerts-count-changed`.
 
 ### Effet pour l'utilisateur
 
@@ -825,6 +1077,7 @@ ciblée + propagation immédiate.
   l'application.
 - Modifier `~/.claude.json` à la main → idem.
 - Désactiver un serveur → il bascule en disabled dans Inventory.
+- Le badge d'alertes (sidebar + tray) se met à jour seul.
 
 ### Coût
 
@@ -834,7 +1087,7 @@ ciblée + propagation immédiate.
 
 ---
 
-## 18. Posture de sécurité et confidentialité
+## 19. Posture de sécurité et confidentialité
 
 ### Read-only par défaut
 
@@ -842,26 +1095,36 @@ Sentinel n'altère **jamais** une config sans le toggle Enforcement
 activé explicitement. L'opérateur a une porte d'entrée claire pour
 permettre les modifications.
 
+### Outbound calls — OFF par défaut
+
+Le toggle global `privacy.outbound_lookups` (Settings → Privacy) est
+**désactivé** sur une installation neuve. Tant qu'il l'est, le module
+`outbound.rs` bloque, avec un message d'erreur canonique, **toutes**
+les commandes Tauri qui sortiraient sur le réseau :
+
+- lookups registres lookalikes (PulseMCP, Smithery, mcp.so, GitHub
+  MCP),
+- refresh du threat feed (`threat_feed_refresh`),
+- canal e-mail (`test_email_channel`),
+- canal webhook (`test_webhook_channel`),
+- canal SIEM (`siem_test_send`),
+- push TAXII (`taxii_test_send`).
+
+L'utilisateur active la porte volontairement, ce qui clarifie l'audit
+trail : ce qui sort, sort parce qu'il l'a permis.
+
 ### Stockage local exclusif
 
 - Base SQLite : `~/Library/Application Support/com.sentinel-mcp.desktop/sentinel.db`
 - Settings : `settings.toml` à côté.
 - SIEM config : `siem.json` à côté (secrets non chiffrés — accès
   protégé par les ACL macOS sur le dossier).
+- TAXII config : `taxii.json` à côté (mêmes conditions).
+- Cache threat feed : `threat_feed_cache.yaml`
+  + `threat_feed_cache.meta.json` à côté.
 - Bundles signés : sous-dossier `reports/`.
 
 Aucun téléversement vers un serveur Sentinel. Aucune télémétrie.
-
-### Outbound calls explicites
-
-Les seuls appels réseau sortants sont :
-- Lookups registres (PulseMCP, Smithery, mcp.so, GitHub MCP registry) —
-  désactivables.
-- Canal e-mail (SMTP utilisateur).
-- Canal webhook (URL utilisateur).
-- Canal SIEM (Splunk HEC, Elastic, Syslog UDP — endpoints utilisateur).
-
-Chaque appel est tracé dans `Time travel` si activé.
 
 ### Signature Ed25519
 
@@ -882,52 +1145,63 @@ macOS, sans manipulation `xattr` ni clic-droit « Ouvrir ».
 - CSP désactivée seulement pour permettre les SVG inline du Trust
   graph, sinon stricte.
 - Aucun accès filesystem global : les commandes Rust qui lisent /
-  écrivent sont enumérées et auditables (42 commandes en tout).
-- Aucun shell exec arbitraire : seul `nouveau` (le wrapper stdio)
-  spawne des processus, et seulement après résolution absolue du
-  binaire.
+  écrivent sont enumérées et auditables (voir l'annexe).
+- Aucun shell exec arbitraire : seul le wrapper stdio spawne des
+  processus, et seulement après résolution absolue du binaire.
+
+### Syslog TLS pour les déploiements stricts
+
+Le sink Syslog peut s'opérer en **TCP + TLS (RFC 5425)** avec une CA
+PEM choisie via dialog filesystem. Convient aux environnements où
+UDP n'est pas autorisé et où le trafic vers le SIEM doit transiter
+chiffré.
 
 ---
 
-## 19. Limites connues
+## 20. Limites connues
 
-- Couverture macOS uniquement en v0.2.0 (Apple Silicon — Tauri 2).
+- Couverture macOS uniquement en v0.3 (Apple Silicon — Tauri 2).
 - Pas de plugin Cursor / Continue / Aider pour interception en flux —
   passage par le proxy mode B nécessaire si on veut capter le trafic
   HTTP runtime.
 - Pas de mode multi-machine : un Sentinel par poste de travail
   développeur.
-- Le canal Syslog est UDP uniquement (RFC 5424). TCP/TLS prévu en v0.3.
 - Lookalike scan n'agrège pas encore les similarités sur les enums
-  d'outils — uniquement nom + description.
+  d'outils — uniquement nom + description, plus l'overlap d'outils.
+- L'auto-refresh du threat feed se déclenche au plus une fois par
+  24 h ; pour vérifier immédiatement il faut le bouton « Refresh now ».
+- Les secrets SMTP / SIEM / TAXII sont stockés en clair dans le
+  dossier de support — la protection repose sur les ACL macOS.
 
 ---
 
 ## Annexe — Cartographie des commandes Tauri
 
-L'application expose 42 commandes Tauri, regroupées par module :
+L'application expose ses commandes regroupées par module :
 
 - **Scan / discovery** : `start_scan`, `stop_scan`, `scan_progress`,
-  `discover_clients`, `probe_live`.
+  `discover_system`, `probe_server`, `compute_trust_graph`,
+  `list_threats`.
 - **Inventory / findings** : `list_servers`, `get_server_detail`,
-  `list_findings`, `resolve_finding`, `list_threats`.
-- **Approbations** : `apply_approval`, `list_approvals_queue`,
+  `list_findings`, `resolve_finding`, `list_baselines`,
+  `list_observed_events`.
+- **Approbations / investigations** : `apply_approval`,
   `create_investigation`, `list_investigations`.
 - **Enforcement** : `enforcement_remove_server`, `enforcement_restore`.
 - **Proxy** : `start_proxy`, `stop_proxy`, `proxy_status`.
 - **Lookalikes** : `scan_lookalikes`.
-- **SIEM** : `siem_test_send`, `siem_save_config`, `siem_get_config`.
+- **Tags** : `server_set_tags`, `server_list_tags`.
+- **Threat feed** : `threat_feed_refresh`, `threat_feed_status`.
+- **SIEM** : `siem_test_send`, `siem_save_config`, `siem_get_config`,
+  `siem_pick_ca_pem`.
 - **STIX / TAXII** : `stix_export_bundle`, `taxii_save_config`,
   `taxii_get_config`, `taxii_test_send`.
 - **Alerts** : `list_alerts`, `test_email_channel`, `test_webhook_channel`.
-- **Settings** : `load_settings`, `save_settings`, `set_live_interval`,
+- **Settings** : `get_settings`, `save_settings`, `set_live_interval`,
   `get_live_status`.
-- **Reports** : `generate_report`, `open_report_pdf`, `open_report_json`,
-  `list_report_bundles`.
-- **Trust graph** : `build_trust_graph`.
-- **Compliance** : `list_compliance_mapping`.
-- **Time travel** : `list_events`, `get_event_payload`.
+- **Reports** : `generate_report`, `open_report_file`,
+  `executive_summary`, `compliance_references`.
 - **App** : `app_version`.
 
 Chaque commande est testée unitairement et intégrée via la suite
-`cargo test --workspace` (487 tests, 0 échec).
+`cargo test --workspace`.

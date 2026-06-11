@@ -1,7 +1,9 @@
 //! Shared application state for Tauri commands.
 
 use chrono::{DateTime, Utc};
+use sentinel_discovery::EtatProbe;
 use sentinel_store::Store;
+use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tauri::async_runtime::JoinHandle;
@@ -32,6 +34,12 @@ pub struct AppState {
     pub proxy_upstream: Arc<RwLock<Option<String>>>,
     /// Number of MCP events seen by the proxy since it started.
     pub proxy_events_seen: Arc<AtomicU64>,
+    /// Last observed probe outcome per server (keyed by `DeclaredServer.name`).
+    /// Used by `probe_server` to detect a "failed → succeeded" transition and
+    /// trigger an automatic lookalike rescan on first successful contact.
+    /// In-memory only — purposely not persisted, since the goal is to react to
+    /// a per-session transition, not to remember failures across app reboots.
+    pub last_probe_states: Arc<RwLock<HashMap<String, EtatProbe>>>,
 }
 
 impl AppState {
@@ -48,6 +56,7 @@ impl AppState {
             proxy_port: Arc::new(RwLock::new(None)),
             proxy_upstream: Arc::new(RwLock::new(None)),
             proxy_events_seen: Arc::new(AtomicU64::new(0)),
+            last_probe_states: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -104,6 +113,7 @@ impl AppState {
             proxy_port: Arc::new(RwLock::new(None)),
             proxy_upstream: Arc::new(RwLock::new(None)),
             proxy_events_seen: Arc::new(AtomicU64::new(0)),
+            last_probe_states: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }

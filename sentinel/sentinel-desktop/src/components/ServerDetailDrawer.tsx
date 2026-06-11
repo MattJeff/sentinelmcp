@@ -36,6 +36,7 @@ import InvestigateDialog, {
   subscribeInvestigations,
 } from './InvestigateDialog';
 import EnforcementConfirmDialog from './EnforcementConfirmDialog';
+import TagsEditor from './TagsEditor';
 import { useToastStore } from '../hooks/useToast';
 
 interface DeclaringClient {
@@ -166,6 +167,12 @@ export default function ServerDetailDrawer({
   );
   const [restoring, setRestoring] = useState(false);
 
+  // Tag editor state — local draft kept in sync with the server payload so
+  // the operator can edit then explicitly Save.
+  const [tagsDraft, setTagsDraft] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [savingTags, setSavingTags] = useState(false);
+
   const pushToast = useToastStore((s) => s.push);
 
   // Reset transient state whenever the drawer switches servers.
@@ -176,7 +183,34 @@ export default function ServerDetailDrawer({
     setInvestigateOpen(false);
     setEnforceOpen(false);
     setLastBackup(null);
+    setSavingTags(false);
   }, [serverId]);
+
+  // Hydrate the tag draft from the latest server payload. Re-running on
+  // every detail refresh keeps the editor in sync after Save, without
+  // clobbering an in-flight edit on the same server (we only reset when
+  // the underlying server id flips).
+  useEffect(() => {
+    setTagsDraft(data?.server.tags ?? []);
+  }, [serverId, data?.server.tags]);
+
+  // Load the autocomplete pool once per open. Refresh after Save so newly
+  // minted tags surface on the next edit.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    api
+      .serverListTags()
+      .then((all) => {
+        if (!cancelled) setTagSuggestions(all);
+      })
+      .catch((err) => {
+        console.error('[ServerDetailDrawer] serverListTags failed', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, serverId]);
 
   // Load past investigation notes whenever the drawer opens on a new server,
   // and refresh on every store update (e.g. after the dialog records one).
@@ -282,6 +316,36 @@ export default function ServerDetailDrawer({
       setProbeError(err instanceof Error ? err.message : String(err));
     } finally {
       setProbing(false);
+    }
+  };
+
+  const handleSaveTags = async () => {
+    if (!serverId || savingTags) return;
+    setSavingTags(true);
+    try {
+      await api.serverSetTags(serverId, tagsDraft);
+      pushToast({
+        title: 'Tags saved',
+        description: `${tagsDraft.length} tag${tagsDraft.length === 1 ? '' : 's'} on this server`,
+        severity: 'info',
+      });
+      // Refresh the autocomplete pool and the detail / inventory caches so
+      // the new chips show up everywhere without reloading the app.
+      const [refreshed] = await Promise.all([
+        api.serverListTags().catch(() => tagSuggestions),
+        mutate(),
+        globalMutate(COMMANDS.listServers),
+      ]);
+      setTagSuggestions(refreshed);
+    } catch (err) {
+      console.error('[ServerDetailDrawer] serverSetTags failed', err);
+      pushToast({
+        title: 'Failed to save tags',
+        description: err instanceof Error ? err.message : String(err),
+        severity: 'high',
+      });
+    } finally {
+      setSavingTags(false);
     }
   };
 
@@ -541,6 +605,28 @@ export default function ServerDetailDrawer({
                       {server ? formatAppleDate(server.last_seen) : '—'}
                     </div>
                   </div>
+                  <div className="col-span-2">
+                    <div className="text-sentinel-text-tertiary mb-1">
+                      Scope
+                    </div>
+                    <div className="text-sentinel-text-secondary">
+                      {!server || !server.scope ? (
+                        '—'
+                      ) : server.scope.kind === 'user' ? (
+                        'User'
+                      ) : (
+                        <>
+                          <span>Project — </span>
+                          <span
+                            className="font-mono text-[11px] text-sentinel-text-primary break-all"
+                            title={server.scope.path}
+                          >
+                            {server.scope.path}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {server && server.scopes.length > 0 && (
@@ -597,6 +683,35 @@ export default function ServerDetailDrawer({
                     <ArrowUpRight size={13} />
                   </a>
                 </div>
+              </section>
+
+              {/* Tags — operator-curated labels persisted on the server row */}
+              <section className="card animate-fade-up">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="section-heading">Tags</div>
+                  <button
+                    type="button"
+                    onClick={handleSaveTags}
+                    disabled={savingTags || !serverId}
+                    className="text-[12px] text-sentinel-blue-glow hover:underline no-drag disabled:opacity-60 disabled:no-underline"
+                    title="Persist these tags on the server row"
+                  >
+                    {savingTags ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Loader2 size={12} className="animate-spin" aria-hidden />
+                        Saving…
+                      </span>
+                    ) : (
+                      'Save tags'
+                    )}
+                  </button>
+                </div>
+                <TagsEditor
+                  value={tagsDraft}
+                  onChange={setTagsDraft}
+                  suggestions={tagSuggestions}
+                  disabled={savingTags}
+                />
               </section>
 
               {/* Investigations — past notes attached to this server */}

@@ -5,6 +5,7 @@
 //! [`FluxMenaces::correspondances`] matcher against synthetic
 //! [`ServeurMcpDeclare`] entries.
 
+use sentinel_protocol::ScopeServeur;
 use sentinel_discovery::model::ServeurMcpDeclare;
 use sentinel_discovery::threat_intel::FluxMenaces;
 
@@ -17,6 +18,7 @@ fn serveur(nom: &str, args: &[&str]) -> ServeurMcpDeclare {
         env_keys: vec![],
         url: None,
         disabled: false,
+        scope: ScopeServeur::default(),
     }
 }
 

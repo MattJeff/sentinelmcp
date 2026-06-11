@@ -33,6 +33,7 @@
 //! `~/.local/bin/aider`, and `~/.aider/bin/aider`. We also try to read
 //! `aider --version` to populate the version field.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
@@ -385,6 +386,7 @@ fn parser_entree_objet(nom: &str, value: &YamlValue) -> Option<ServeurMcpDeclare
             env_keys: vec![],
             url: Some(url.to_string()),
             disabled,
+            scope: ScopeServeur::default(),
         });
     }
 
@@ -422,5 +424,6 @@ fn parser_entree_objet(nom: &str, value: &YamlValue) -> Option<ServeurMcpDeclare
         env_keys,
         url: None,
         disabled,
+        scope: ScopeServeur::default(),
     })
 }

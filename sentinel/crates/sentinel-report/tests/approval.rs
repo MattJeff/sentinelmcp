@@ -27,6 +27,8 @@ fn creer_store_avec_serveur() -> (Store, ServeurId) {
         premiere_vue: Utc::now(),
         derniere_vue: Utc::now(),
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     };
     store.upsert_serveur(&serveur).expect("upsert serveur");
     (store, id)

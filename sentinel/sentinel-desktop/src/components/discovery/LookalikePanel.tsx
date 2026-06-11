@@ -7,11 +7,12 @@
 // combined similarity score is ≥ 0.85 are likely typo-squats.
 
 import { useCallback, useState } from 'react';
+import useSWR from 'swr';
 import clsx from 'clsx';
 import { Copy, Loader2, Radar } from 'lucide-react';
 
 import { api } from '@/api/tauri';
-import type { LookalikeMatch } from '@/api/contract';
+import { COMMANDS, type LookalikeMatch, type Settings } from '@/api/contract';
 import LookalikeDetailDialog from './LookalikeDetailDialog';
 
 const SCAN_TIMEOUT_MS = 15_000;
@@ -120,7 +121,19 @@ export default function LookalikePanel() {
   // L15 — detail dialog
   const [detailRow, setDetailRow] = useState<LookalikeMatch | null>(null);
 
+  // Mirror the global "Outbound calls" toggle so the Scan button matches the
+  // gating already in place on TAXII/SIEM/email/webhook test buttons. Fall
+  // back to enabled on hydration failure so a transient load error doesn't
+  // strand the operator.
+  const { data: settings } = useSWR<Settings>(
+    COMMANDS.getSettings,
+    () => api.getSettings(),
+    { revalidateOnFocus: false },
+  );
+  const outboundEnabled = settings?.privacy?.outbound_lookups ?? false;
+
   const handleScan = useCallback(async () => {
+    if (!outboundEnabled) return;
     setLoading(true);
     setError(null);
     try {
@@ -132,7 +145,7 @@ export default function LookalikePanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [outboundEnabled]);
 
   return (
     <section className="card flex flex-col gap-4">
@@ -169,7 +182,12 @@ export default function LookalikePanel() {
           type="button"
           className="btn btn-primary min-h-[44px] w-full sm:w-auto justify-center"
           onClick={() => void handleScan()}
-          disabled={loading}
+          disabled={loading || !outboundEnabled}
+          title={
+            !outboundEnabled
+              ? 'Disabled — Outbound calls are turned off.'
+              : 'Cross-reference declared MCP servers against public registries'
+          }
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

@@ -22,6 +22,8 @@ fn serveur(endpoint: &str, transport: Transport) -> Serveur {
         premiere_vue: Utc::now(),
         derniere_vue: Utc::now(),
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     }
 }
 
@@ -36,6 +38,8 @@ fn serveur_avec_id(endpoint: &str, id: ServeurId) -> Serveur {
         premiere_vue: Utc::now(),
         derniere_vue: Utc::now(),
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     }
 }
 

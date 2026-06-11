@@ -27,8 +27,10 @@ sysinfo = "0.32"
 once_cell = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true }
 wiremock = "0.6"
+filetime = "0.2"

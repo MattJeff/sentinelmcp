@@ -22,6 +22,11 @@ lettre = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
+tokio-rustls = "0.26"
+rustls = "0.23"
+rustls-pemfile = "2"
+rustls-platform-verifier = "0.5"
 
 [dev-dependencies]
 wiremock = "0.6"
+rcgen = "0.13"

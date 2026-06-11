@@ -485,3 +485,126 @@ async fn refresh_un_registre(cache: &CacheRegistres, cle: &str, source: &dyn Sou
         payload.len()
     );
 }
+
+// --- V0.3 threat-intel feed refresh ---
+//
+// Periodic refresh of the threat intel feed cache from a remote URL,
+// gated by:
+//   * `settings.threat_feed.auto_refresh_enabled` — operator opt-in;
+//   * `settings.privacy.outbound_lookups` — global outbound toggle
+//     enforced by every network-bound command in this crate.
+//
+// The loop ticks every 4 hours so a flaky network has multiple chances
+// to recover before the cache hits the 24h TTL the cascade considers
+// "stale". Each successful refresh emits `sentinel://threat-feed-refreshed`
+// so the Settings page can re-read the status without polling.
+
+use sentinel_discovery::threat_intel::refresh as threat_feed_refresh;
+
+use crate::commands_settings::Settings as DesktopSettings;
+use crate::commands_threat_feed::ThreatFeedStatusDto;
+use crate::outbound::is_outbound_enabled;
+
+/// Tick cadence of the threat-feed refresh loop. The cache TTL itself is
+/// 24h (see `threat_feed_refresh::CACHE_TTL_SECS`); we tick more
+/// frequently so a transient network outage at the 24h boundary does not
+/// leave the cache stale for another full day.
+const THREAT_FEED_TICK_SECS: u64 = 4 * 3600;
+
+/// Public entry point: spawn the threat-feed refresh task. Fire-and-forget
+/// like the other background loops.
+pub fn lancer_refresh_threat_feed(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        boucle_refresh_threat_feed(app).await;
+    });
+}
+
+/// Periodic loop: every [`THREAT_FEED_TICK_SECS`], re-read the operator's
+/// settings, decide whether to fetch, and either refresh + emit, or skip.
+async fn boucle_refresh_threat_feed(app: AppHandle) {
+    let mut tick = interval(Duration::from_secs(THREAT_FEED_TICK_SECS));
+    // Consume the immediate tick — we want the first network call to
+    // happen after the first full window, not on startup. Cold-boot
+    // loads always come from the cache/bundled fallback via the
+    // `threat_feed_status` command.
+    tick.tick().await;
+    loop {
+        tick.tick().await;
+        if let Err(e) = tick_refresh_threat_feed(&app).await {
+            log::warn!("threat feed refresh: tick failed: {}", e);
+        }
+    }
+}
+
+/// One iteration of the loop: respect the two toggles, then either
+/// refresh + emit, or fall through. Returns an error string so the
+/// caller can decide whether to log; never propagates a panic.
+async fn tick_refresh_threat_feed(app: &AppHandle) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("could not resolve app data dir: {}", e))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create app data dir {:?}: {}", dir, e))?;
+    let settings_path = dir.join("settings.toml");
+    let settings: DesktopSettings = if settings_path.exists() {
+        let raw = std::fs::read_to_string(&settings_path)
+            .map_err(|e| format!("could not read settings: {}", e))?;
+        toml::from_str::<DesktopSettings>(&raw).unwrap_or_default()
+    } else {
+        DesktopSettings::default()
+    };
+
+    if !settings.threat_feed.auto_refresh_enabled {
+        log::debug!("threat feed refresh: auto-refresh disabled, skipping");
+        return Ok(());
+    }
+    if !is_outbound_enabled(app) {
+        log::debug!("threat feed refresh: outbound disabled, skipping");
+        return Ok(());
+    }
+
+    let cache_dir = threat_feed_refresh::cache_dir_for(&dir);
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("could not create cache dir: {}", e))?;
+
+    // Only fetch when the cache is stale; otherwise we would hit the
+    // remote every tick even though the data has not changed.
+    let cache_yaml = cache_dir.join(threat_feed_refresh::CACHE_FILENAME);
+    if !threat_feed_refresh::est_cache_perime(&cache_yaml) {
+        log::debug!("threat feed refresh: cache fresh, skipping");
+        return Ok(());
+    }
+
+    let flux = threat_feed_refresh::rafraichir_feed(&settings.threat_feed.url, &cache_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now();
+    // Update `last_refresh_at` in settings.toml so the UI surfaces a
+    // fresh timestamp without an extra round-trip.
+    let mut new_settings = settings.clone();
+    new_settings.threat_feed.last_refresh_at = Some(now.to_rfc3339());
+    if let Ok(serialized) = toml::to_string_pretty(&new_settings) {
+        let _ = std::fs::write(&settings_path, serialized);
+    }
+
+    let status = threat_feed_refresh::construire_statut(&flux, "remote", Some(now));
+    let dto = ThreatFeedStatusDto {
+        source: status.source,
+        last_refresh: status.last_refresh,
+        age_seconds: status.age_seconds,
+        entries_count: status.entries_count,
+        version: status.version,
+        url: settings.threat_feed.url.clone(),
+        auto_refresh_enabled: settings.threat_feed.auto_refresh_enabled,
+    };
+    if let Err(e) = app.emit("sentinel://threat-feed-refreshed", dto) {
+        log::debug!("threat feed refresh: emit failed: {}", e);
+    }
+    log::info!(
+        "threat feed refresh: ok ({} entries cached)",
+        flux.entrees.len()
+    );
+    Ok(())
+}

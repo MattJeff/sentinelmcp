@@ -34,6 +34,7 @@
 //! `~/.local/bin/goose` (or on `$PATH`). We probe both and try to read
 //! `goose --version`.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
@@ -291,6 +292,7 @@ fn parser_extension(nom: &str, value: &YamlValue) -> Option<ServeurMcpDeclare> {
             env_keys: vec![],
             url,
             disabled,
+            scope: ScopeServeur::default(),
         });
     }
 
@@ -328,6 +330,7 @@ fn parser_extension(nom: &str, value: &YamlValue) -> Option<ServeurMcpDeclare> {
         env_keys,
         url: None,
         disabled,
+        scope: ScopeServeur::default(),
     })
 }
 

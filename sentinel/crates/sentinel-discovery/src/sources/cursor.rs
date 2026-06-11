@@ -12,6 +12,7 @@
 //! For v1 we only scan the global config — per-workspace `<project>/.cursor/mcp.json`
 //! is intentionally out of scope.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
@@ -156,6 +157,7 @@ fn parser_entree(nom: &str, entree: &Value) -> Option<ServeurMcpDeclare> {
             env_keys: vec![],
             url: Some(url.to_string()),
             disabled,
+            scope: ScopeServeur::default(),
         });
     }
 
@@ -184,6 +186,7 @@ fn parser_entree(nom: &str, entree: &Value) -> Option<ServeurMcpDeclare> {
         env_keys,
         url: None,
         disabled,
+        scope: ScopeServeur::default(),
     })
 }
 

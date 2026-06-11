@@ -4,6 +4,7 @@
 //! serialised straight into the Tauri commands consumed by the UI.
 
 use chrono::{DateTime, Utc};
+use sentinel_protocol::ScopeServeur;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -80,6 +81,13 @@ pub struct ServeurMcpDeclare {
     pub url: Option<String>,
     /// `true` if the entry is explicitly disabled by the client config.
     pub disabled: bool,
+    /// Scope de déclaration — `User` (top-level `mcpServers`) ou
+    /// `Project { path }` (`projects.<path>.mcpServers` dans
+    /// `.claude.json`, ou `.mcp.json` per-projet pour Claude Code).
+    /// `#[serde(default)]` pour la rétrocompat des payloads UI / JSON
+    /// existants qui n'ont pas encore ce champ.
+    #[serde(default)]
+    pub scope: ScopeServeur,
 }
 
 /// Aggregated view of one AI client found on this Mac.

@@ -24,6 +24,17 @@ export type Scope =
   | 'write'
   | 'unknown';
 
+/**
+ * Visibility scope of a declared MCP server: either tied to the current
+ * macOS user (the default) or scoped to a specific project on disk. The
+ * tagged-union shape matches the Rust wire DTO emitted by `commands.rs`
+ * and is treated as optional on the TypeScript side so older payloads
+ * (where the field is absent) still deserialise cleanly.
+ */
+export type ScopeServeur =
+  | { kind: 'user' }
+  | { kind: 'project'; path: string };
+
 export interface ServerCard {
   id: string;
   endpoint: string;
@@ -35,6 +46,19 @@ export interface ServerCard {
   first_seen: string; // ISO-8601
   last_seen: string;
   current_fingerprint: string | null;
+  /**
+   * Operator-curated free-form tags persisted on the server row (e.g.
+   * `prod`, `internal`, `customer-x`). Optional because older backends may
+   * not yet expose the field; treat `undefined` as an empty array.
+   */
+  tags?: string[];
+  /**
+   * Visibility scope: either `{ kind: 'user' }` (declared globally for the
+   * macOS user) or `{ kind: 'project', path }` (declared inside a specific
+   * project tree). Optional — treat `undefined` as `{ kind: 'user' }` for
+   * back-compat with older Rust builds that don't emit the field yet.
+   */
+  scope?: ScopeServeur;
 }
 
 export interface Tool {
@@ -408,12 +432,54 @@ export interface SettingsEnforcement {
   enabled: boolean;
 }
 
+/**
+ * General/UX-level preferences (V0.4). Currently houses the tray-mode
+ * toggle: when `keep_running_in_background` is true (default), closing the
+ * main window hides Sentinel to the macOS menu bar rather than quitting.
+ */
+export interface SettingsGeneral {
+  keep_running_in_background: boolean;
+}
+
+/**
+ * Threat-intel feed refresh preferences (V0.3). Mirrors the
+ * `ThreatFeedSettings` block on the Rust side. Defaults to enabled with
+ * the public GitHub URL; the cascade in
+ * `sentinel_discovery::threat_intel::refresh::charger_feed` transparently
+ * falls back to the disk cache or the bundled YAML if the remote URL is
+ * unreachable.
+ */
+export interface SettingsThreatFeed {
+  url: string;
+  auto_refresh_enabled: boolean;
+  /** ISO-8601 timestamp of the last successful refresh, stamped by `threat_feed_refresh`. */
+  last_refresh_at: string | null;
+}
+
 export interface Settings {
   capture: SettingsCapture;
   alerts: SettingsAlerts;
   retention: SettingsRetention;
   privacy: SettingsPrivacy;
   enforcement: SettingsEnforcement;
+  general: SettingsGeneral;
+  threat_feed: SettingsThreatFeed;
+}
+
+/**
+ * UI-facing status returned by `threat_feed_status` /
+ * `threat_feed_refresh`. The `source` field documents which leg of the
+ * cascade produced the active feed (`remote`, `cache`, `bundled`); the
+ * `age_seconds` field is the number of seconds since `last_refresh`.
+ */
+export interface ThreatFeedStatus {
+  source: 'remote' | 'cache' | 'bundled' | string;
+  last_refresh: string | null;
+  age_seconds: number | null;
+  entries_count: number;
+  version: string | null;
+  url: string;
+  auto_refresh_enabled: boolean;
 }
 
 // ─── Enforcement DTOs (mirrors src-tauri/src/commands_enforcement.rs) ──────
@@ -517,16 +583,23 @@ export interface Investigation {
 }
 
 // ─── SIEM sink configuration (siem_test_send / siem_save_config /
-//     siem_get_config) — mirrors src-tauri/src/commands_siem.rs.
+//     siem_get_config / siem_pick_ca_pem) — mirrors
+//     src-tauri/src/commands_siem.rs.
 //
 // Three backends are supported. `kind` selects which fields are required:
 //   * `"splunk"`  — `url` (HEC URL) + `token`.
 //   * `"elastic"` — `url` (cluster base URL) + `index`; optional Basic
 //     auth via `user` + `pass`.
-//   * `"syslog"`  — `addr` (`host:port`, UDP).
-// Unused fields may be `null` or omitted.
+//   * `"syslog"`  — `addr` (`host:port`). The wire transport is selected
+//     by `transport` (`"udp"` default | `"tcp"` | `"tls"`); when `"tls"`
+//     is selected, `tls_ca_pem_path` may point at a local PEM bundle for
+//     custom trust (system store used when empty).
+// Unused fields may be `null` or omitted. Configs persisted before the
+// transport selector landed parse cleanly and default to UDP.
 
 export type SiemKind = 'splunk' | 'elastic' | 'syslog';
+
+export type SyslogTransport = 'udp' | 'tcp' | 'tls';
 
 export interface SiemConfig {
   kind: SiemKind | string;
@@ -536,6 +609,10 @@ export interface SiemConfig {
   user?: string | null;
   pass?: string | null;
   addr?: string | null;
+  /** `"udp"` (default) | `"tcp"` | `"tls"`. Absent / null => UDP. */
+  transport?: SyslogTransport | string | null;
+  /** Absolute path to a custom CA PEM bundle (TLS transport only). */
+  tls_ca_pem_path?: string | null;
 }
 
 // ─── Active MCP proxy (start_proxy / stop_proxy / proxy_status) ───────────
@@ -589,6 +666,11 @@ export const COMMANDS = {
   siemTestSend: 'siem_test_send',
   siemSaveConfig: 'siem_save_config',
   siemGetConfig: 'siem_get_config',
+  siemPickCaPem: 'siem_pick_ca_pem',
+  serverSetTags: 'server_set_tags',
+  serverListTags: 'server_list_tags',
+  threatFeedRefresh: 'threat_feed_refresh',
+  threatFeedStatus: 'threat_feed_status',
 } as const;
 
 // Tauri events broadcast from backend to frontend.
@@ -597,4 +679,5 @@ export const EVENTS = {
   newAlert: 'sentinel://alert',
   newServer: 'sentinel://server-discovered',
   liveTick: 'sentinel://live-tick',
+  threatFeedRefreshed: 'sentinel://threat-feed-refreshed',
 } as const;

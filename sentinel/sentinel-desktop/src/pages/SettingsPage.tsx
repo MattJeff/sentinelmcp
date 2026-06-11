@@ -20,6 +20,7 @@ import {
 import SettingRow from '../components/SettingRow';
 import SiemSettings from '../components/settings/SiemSettings';
 import TaxiiSettings from '../components/settings/TaxiiSettings';
+import ThreatFeedSettings from '../components/settings/ThreatFeedSettings';
 
 // ─── Settings model + store ────────────────────────────────────────────────
 
@@ -57,6 +58,15 @@ interface Settings {
   enforcement: {
     enabled: boolean;
   };
+  general: {
+    keepRunningInBackground: boolean;
+  };
+  threatFeed: {
+    url: string;
+    autoRefreshEnabled: boolean;
+    /** Stamped by the backend; never edited from the UI directly. */
+    lastRefreshAt: string | null;
+  };
 }
 
 const INITIAL: Settings = {
@@ -88,6 +98,19 @@ const INITIAL: Settings = {
   // flips this toggle in Settings → Enforcement.
   enforcement: {
     enabled: false,
+  },
+  // Tray-mode default: closing the main window keeps the app alive in the
+  // macOS menu bar. Operators can opt out from Settings → General.
+  general: {
+    keepRunningInBackground: true,
+  },
+  // Threat-intel auto-refresh defaults: enabled with the public GitHub
+  // URL. The cascade falls back to the on-disk cache (then to the
+  // bundled YAML) when the remote endpoint is unreachable.
+  threatFeed: {
+    url: 'https://raw.githubusercontent.com/sentinel-mcp/threat-intel-feed/main/threat_feed.yaml',
+    autoRefreshEnabled: true,
+    lastRefreshAt: null,
   },
 };
 
@@ -139,6 +162,20 @@ function fromPersisted(p: PersistedSettings): Settings {
       // Default to OFF when older TOML files don't carry the block yet.
       enabled: p.enforcement?.enabled ?? false,
     },
+    general: {
+      // Default to ON for backwards compat with older settings.toml files
+      // that pre-date V0.4 (no `[general]` block).
+      keepRunningInBackground: p.general?.keep_running_in_background ?? true,
+    },
+    threatFeed: {
+      // Default to the bundled URL when older settings.toml files
+      // pre-date the V0.3 threat-feed refresh block.
+      url:
+        p.threat_feed?.url ??
+        'https://raw.githubusercontent.com/sentinel-mcp/threat-intel-feed/main/threat_feed.yaml',
+      autoRefreshEnabled: p.threat_feed?.auto_refresh_enabled ?? true,
+      lastRefreshAt: p.threat_feed?.last_refresh_at ?? null,
+    },
   };
 }
 
@@ -163,6 +200,14 @@ function toPersisted(s: Settings): PersistedSettings {
     },
     enforcement: {
       enabled: s.enforcement.enabled,
+    },
+    general: {
+      keep_running_in_background: s.general.keepRunningInBackground,
+    },
+    threat_feed: {
+      url: s.threatFeed.url,
+      auto_refresh_enabled: s.threatFeed.autoRefreshEnabled,
+      last_refresh_at: s.threatFeed.lastRefreshAt,
     },
   };
 }
@@ -210,7 +255,12 @@ export default function SettingsPage() {
   const webhookResultTimer = useRef<number | null>(null);
 
   const handleTestWebhook = async () => {
-    if (!draft.alerts.webhook.url.trim() || webhookTesting) return;
+    if (
+      !draft.alerts.webhook.url.trim() ||
+      webhookTesting ||
+      !draft.privacy.outboundLookups
+    )
+      return;
     if (webhookResultTimer.current) window.clearTimeout(webhookResultTimer.current);
     setWebhookResult(null);
     setWebhookTesting(true);
@@ -322,6 +372,29 @@ export default function SettingsPage() {
       </header>
 
       <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-6">
+        {/* ── General ── */}
+        <section
+          className="card min-w-0 min-[1100px]:col-span-2"
+          aria-labelledby="settings-general"
+        >
+          <SectionHeading id="settings-general" title="General" />
+          <SettingRow
+            label="Keep running in background"
+            description="When enabled, closing the window keeps Sentinel running in the menu bar. Disable to quit on close."
+            last
+          >
+            <Toggle
+              checked={draft.general.keepRunningInBackground}
+              onChange={(v) =>
+                set((s) => {
+                  s.general.keepRunningInBackground = v;
+                })
+              }
+              ariaLabel="Keep Sentinel running in the menu bar"
+            />
+          </SettingRow>
+        </section>
+
         {/* ── Live monitoring ── */}
         <section
           className="card min-w-0 min-[1100px]:col-span-2"
@@ -395,7 +468,10 @@ export default function SettingsPage() {
             description="Send critical findings to a mailbox over SMTP."
           >
             <div className="flex items-center gap-3">
-              <TestEmailButton email={draft.alerts.email} />
+              <TestEmailButton
+                email={draft.alerts.email}
+                outboundEnabled={draft.privacy.outboundLookups}
+              />
               <Toggle
                 checked={draft.alerts.email.enabled}
                 onChange={(v) =>
@@ -505,13 +581,17 @@ export default function SettingsPage() {
                   )}
                   onClick={handleTestWebhook}
                   disabled={
-                    !draft.alerts.webhook.url.trim() || webhookTesting
+                    !draft.alerts.webhook.url.trim() ||
+                    webhookTesting ||
+                    !draft.privacy.outboundLookups
                   }
                   aria-label="Send test webhook"
                   title={
-                    !draft.alerts.webhook.url.trim()
-                      ? 'Enter a webhook URL first'
-                      : 'POST a synthetic test alert to the configured URL'
+                    !draft.privacy.outboundLookups
+                      ? 'Disabled — Outbound calls are turned off.'
+                      : !draft.alerts.webhook.url.trim()
+                        ? 'Enter a webhook URL first'
+                        : 'POST a synthetic test alert to the configured URL'
                   }
                 >
                   {webhookTesting ? 'Sending…' : 'Send test webhook'}
@@ -557,7 +637,7 @@ export default function SettingsPage() {
           aria-labelledby="settings-siem"
         >
           <SectionHeading id="settings-siem" title="SIEM" />
-          <SiemSettings />
+          <SiemSettings outboundEnabled={draft.privacy.outboundLookups} />
         </section>
 
         {/* ── STIX / TAXII ── */}
@@ -571,6 +651,37 @@ export default function SettingsPage() {
             (SOC/GRC integration).
           </p>
           <TaxiiSettings outboundEnabled={draft.privacy.outboundLookups} />
+        </section>
+
+        {/* ── Threat Intel Feed (V0.3) ── */}
+        <section
+          className="card min-w-0 min-[1100px]:col-span-2"
+          aria-labelledby="settings-threat-feed"
+        >
+          <SectionHeading
+            id="settings-threat-feed"
+            title="Threat Intel Feed"
+          />
+          <p className="mb-2 text-[12px] text-sentinel-text-tertiary">
+            Auto-refresh the known-bad MCP package list from a remote URL.
+            Falls back to the on-disk cache, then to the bundled feed,
+            whenever the remote is unreachable.
+          </p>
+          <ThreatFeedSettings
+            url={draft.threatFeed.url}
+            autoRefreshEnabled={draft.threatFeed.autoRefreshEnabled}
+            outboundEnabled={draft.privacy.outboundLookups}
+            onUrlChange={(next) =>
+              set((s) => {
+                s.threatFeed.url = next;
+              })
+            }
+            onAutoRefreshChange={(next) =>
+              set((s) => {
+                s.threatFeed.autoRefreshEnabled = next;
+              })
+            }
+          />
         </section>
 
         {/* ── Retention ── */}
@@ -1257,7 +1368,13 @@ interface TestEmailFeedback {
   error: string | null;
 }
 
-function TestEmailButton({ email }: { email: EmailDraft }) {
+function TestEmailButton({
+  email,
+  outboundEnabled,
+}: {
+  email: EmailDraft;
+  outboundEnabled: boolean;
+}) {
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<TestEmailFeedback | null>(null);
   const timer = useRef<number | null>(null);
@@ -1276,7 +1393,7 @@ function TestEmailButton({ email }: { email: EmailDraft }) {
     email.to.trim().length > 0;
 
   const handleClick = async () => {
-    if (pending) return;
+    if (pending || !outboundEnabled) return;
     setPending(true);
     setFeedback(null);
     try {
@@ -1320,11 +1437,13 @@ function TestEmailButton({ email }: { email: EmailDraft }) {
         type="button"
         className="btn"
         onClick={handleClick}
-        disabled={!configured || pending}
+        disabled={!configured || pending || !outboundEnabled}
         title={
-          configured
-            ? 'Write a synthetic .eml to /tmp/sentinel-emails/ (dry-run)'
-            : 'Configure SMTP host, port, sender and recipient first'
+          !outboundEnabled
+            ? 'Disabled — Outbound calls are turned off.'
+            : configured
+              ? 'Write a synthetic .eml to /tmp/sentinel-emails/ (dry-run)'
+              : 'Configure SMTP host, port, sender and recipient first'
         }
       >
         {pending ? 'Sending…' : 'Send test email'}

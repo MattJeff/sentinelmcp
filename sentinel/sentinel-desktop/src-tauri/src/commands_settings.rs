@@ -108,6 +108,57 @@ impl Default for PrivacySettings {
     }
 }
 
+/// General/UX-level toggles. Currently houses the tray "keep running in
+/// background" preference. Defaults to `true` so closing the main window
+/// hides the app to the menu bar — the operator can opt out from
+/// Settings → General.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct GeneralSettings {
+    pub keep_running_in_background: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            keep_running_in_background: true,
+        }
+    }
+}
+
+/// Threat-intel feed refresh settings (V0.3).
+///
+/// Mirrors [`sentinel_discovery::threat_intel::refresh::ThreatFeedConfig`]
+/// but uses a serialisable `String` for `last_refresh_at` so the TOML on
+/// disk stays human-readable. Defaults to enabled with the public GitHub
+/// URL; the cascade in
+/// [`sentinel_discovery::threat_intel::refresh::charger_feed`] transparently
+/// falls back to the disk cache or the bundled YAML when the remote
+/// endpoint is unreachable.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct ThreatFeedSettings {
+    /// Remote URL Sentinel pulls the feed from. Empty string is treated
+    /// as "use the bundled fallback only" by the cascade.
+    pub url: String,
+    /// When `true`, the background loop refreshes the cache every 24h
+    /// (subject to the outbound-calls toggle).
+    pub auto_refresh_enabled: bool,
+    /// ISO-8601 timestamp of the last successful refresh. Maintained by
+    /// `threat_feed_refresh`; never edited by the user directly.
+    pub last_refresh_at: Option<String>,
+}
+
+impl Default for ThreatFeedSettings {
+    fn default() -> Self {
+        Self {
+            url: sentinel_discovery::threat_intel::refresh::DEFAULT_FEED_URL.to_string(),
+            auto_refresh_enabled: true,
+            last_refresh_at: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Settings {
@@ -115,6 +166,8 @@ pub struct Settings {
     pub alerts: AlertsSettings,
     pub retention: RetentionSettings,
     pub privacy: PrivacySettings,
+    pub general: GeneralSettings,
+    pub threat_feed: ThreatFeedSettings,
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -153,4 +206,80 @@ pub async fn save_settings(settings: Settings, app: AppHandle) -> Result<(), Str
         .map_err(|e| format!("could not write {:?}: {}", path, e))?;
     log::info!("Sentinel settings saved at {:?}", path);
     Ok(())
+}
+
+/// Read the persisted `general.keep_running_in_background` flag from
+/// `settings.toml`. Returns `Some(true)` when the file is absent, malformed,
+/// or any other read error occurs — i.e. fail-closed to the safe default so
+/// the tray-mode behaviour stays predictable. Returns `None` only when the
+/// app-data dir itself cannot be resolved.
+pub fn lire_keep_running(app: &AppHandle) -> Option<bool> {
+    let path = match settings_path(app) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+    if !path.exists() {
+        return Some(true);
+    }
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(r) => r,
+        Err(_) => return Some(true),
+    };
+    let parsed: Settings = match toml::from_str(&raw) {
+        Ok(s) => s,
+        Err(_) => return Some(true),
+    };
+    Some(parsed.general.keep_running_in_background)
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_keep_running_true() {
+        let s = Settings::default();
+        assert!(s.general.keep_running_in_background);
+    }
+
+    #[test]
+    fn parse_empty_toml_yields_defaults() {
+        // Backwards-compat: a brand-new install (or an older settings.toml
+        // that pre-dates the `general` block) must still parse cleanly and
+        // default to "keep running in background = true".
+        let parsed: Settings = toml::from_str("").expect("empty TOML must parse");
+        assert!(parsed.general.keep_running_in_background);
+    }
+
+    #[test]
+    fn parse_legacy_toml_without_general_block() {
+        // Simulates a settings.toml written by Sentinel v0.2 (no `[general]`
+        // section). The struct must hydrate, the missing block must default,
+        // and the existing fields must survive round-tripping.
+        let legacy = r#"
+            [capture]
+            default_mode = "stdio"
+            http_port = 8080
+
+            [privacy]
+            in_flight_only = true
+            outbound_lookups = true
+        "#;
+        let parsed: Settings = toml::from_str(legacy).expect("legacy TOML must parse");
+        assert_eq!(parsed.capture.default_mode, "stdio");
+        assert_eq!(parsed.capture.http_port, 8080);
+        assert!(parsed.privacy.outbound_lookups);
+        assert!(parsed.general.keep_running_in_background);
+    }
+
+    #[test]
+    fn explicit_false_round_trips() {
+        let mut s = Settings::default();
+        s.general.keep_running_in_background = false;
+        let serialized = toml::to_string_pretty(&s).expect("serialize");
+        let parsed: Settings = toml::from_str(&serialized).expect("parse round-trip");
+        assert!(!parsed.general.keep_running_in_background);
+    }
 }

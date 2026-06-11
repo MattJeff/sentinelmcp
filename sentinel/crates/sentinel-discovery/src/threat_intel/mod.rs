@@ -23,12 +23,31 @@
 //!
 //! The feed format is intentionally simple YAML so non-Rust contributors
 //! (security researchers) can edit it directly via a pull request.
+//!
+//! ## Refresh from a remote URL (V0.3)
+//!
+//! The bundled YAML remains the source of truth for the cold-boot,
+//! offline-first fallback. On top of that, [`refresh`] provides an
+//! optional cascade:
+//!
+//!   1. HTTP GET an operator-configured URL, validate the YAML, and write
+//!      it to `<app-data>/threat_feed_cache.yaml` with a sibling
+//!      `threat_feed_cache.meta.json` metadata file.
+//!   2. If the network fetch fails, fall back to the on-disk cache when
+//!      it is present.
+//!   3. If the cache is missing or corrupt, fall back to the bundled
+//!      [`FluxMenaces::par_defaut`].
+//!
+//! See [`refresh::charger_feed`] and [`refresh::rafraichir_feed`] for the
+//! full contract.
 
 use crate::model::ServeurMcpDeclare;
 use serde::{Deserialize, Serialize};
 
+pub mod refresh;
+
 /// Bundled YAML feed. Updated by editing `data/threat_feed.yaml`.
-const FEED_YAML: &str = include_str!("../data/threat_feed.yaml");
+const FEED_YAML: &str = include_str!("../../data/threat_feed.yaml");
 
 /// One entry in the threat intelligence feed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -48,12 +67,13 @@ pub struct EntreeMenace {
     pub publie_a: chrono::NaiveDate,
 }
 
-/// Internal on-disk representation of the YAML file.
+/// Internal on-disk representation of the YAML file. `pub(crate)` so the
+/// [`refresh`] submodule can reuse it when validating remote payloads.
 #[derive(Debug, Deserialize)]
-struct FluxYaml {
-    version: String,
+pub(crate) struct FluxYaml {
+    pub(crate) version: String,
     #[serde(default)]
-    entries: Vec<EntreeMenace>,
+    pub(crate) entries: Vec<EntreeMenace>,
 }
 
 /// Full threat intelligence feed, ready for lookups.
@@ -75,6 +95,26 @@ impl FluxMenaces {
             entrees: parsed.entries,
             version_feed: parsed.version,
         }
+    }
+
+    /// Parse a raw YAML payload using the same shape as the bundled feed.
+    ///
+    /// Used by [`refresh::rafraichir_feed`] to validate remote responses
+    /// and by [`refresh::charger_feed`] to rehydrate the on-disk cache.
+    /// Returns an `Err` when the YAML is malformed or fails the
+    /// non-empty/version invariants that the bundled feed satisfies.
+    pub fn depuis_yaml(yaml: &str) -> Result<Self, refresh::ThreatFeedError> {
+        let parsed: FluxYaml = serde_yaml::from_str(yaml)
+            .map_err(|e| refresh::ThreatFeedError::Parse(e.to_string()))?;
+        if parsed.version.trim().is_empty() {
+            return Err(refresh::ThreatFeedError::Parse(
+                "missing or empty `version` field".to_string(),
+            ));
+        }
+        Ok(Self {
+            entrees: parsed.entries,
+            version_feed: parsed.version,
+        })
     }
 
     /// Returns every threat entry that matches the supplied declared MCP

@@ -7,7 +7,7 @@
 // Inventory first; opening the drawer directly across pages is a future
 // iteration (the contract here is: palette → Inventory page).
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import DashboardLayout, { type NavId } from './components/DashboardLayout';
 import Welcome from './components/Welcome';
@@ -17,6 +17,7 @@ import CommandPalette, {
 } from './components/CommandPalette';
 import { useOnboarding } from './hooks/useOnboarding';
 import { useCommandPalette } from './hooks/useCommandPalette';
+import { api, onTrayScanRequested } from './api/tauri';
 
 export default function App() {
   const { done } = useOnboarding();
@@ -45,6 +46,34 @@ export default function App() {
     [],
   );
 
+  // Tray "Run scan now" → trigger a default scan and route the user to the
+  // Live Scan page so progress is immediately visible. We start the scan
+  // with no params, letting `api.startScan` use the user's configured
+  // capture defaults.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    onTrayScanRequested(() => {
+      setActive('scan');
+      api.startScan().catch((err) => {
+        // The Scan page will surface any real error in its own UI; here we
+        // just want the tray-shortcut to fail silently rather than crash.
+        // eslint-disable-next-line no-console
+        console.warn('tray scan start failed:', err);
+      });
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   if (!done) {
     return <Welcome />;
   }
@@ -52,7 +81,7 @@ export default function App() {
   return (
     <>
       {/* Global drag strip so the whole top edge of the window can move the app. */}
-      <div className="window-drag-strip" aria-hidden />
+      <div className="window-drag-strip" data-tauri-drag-region aria-hidden />
       <DashboardLayout
         active={active}
         onActiveChange={setActive}

@@ -24,6 +24,8 @@ fn serveur_test(endpoint: &str, couleur: Couleur, statut: StatutServeur) -> Serv
         premiere_vue: Utc::now(),
         derniere_vue: Utc::now(),
         empreinte_courante: None,
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     }
 }
 

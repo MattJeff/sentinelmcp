@@ -145,7 +145,7 @@ export default function DashboardLayout({
         <main className="flex-1 min-w-0 p-3 md:pl-0 overflow-hidden flex flex-col">
           <div className="glass-strong rounded-glass flex-1 overflow-hidden flex flex-col">
             {/* Titlebar */}
-            <div className="titlebar flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-white/8 gap-3">
+            <div className="titlebar flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-white/8 gap-3" data-tauri-drag-region>
               <div className="no-drag flex items-center gap-2 min-w-0">
                 {/* Hamburger — only < md. */}
                 <button
@@ -252,8 +252,19 @@ function Sidebar({
     >
       <div className="glass-strong h-full rounded-glass p-3 flex flex-col gap-1">
         {/* Header: brand + close-on-mobile button. */}
-        <div className="titlebar px-1 pt-1 pb-3 flex items-center gap-2">
-          <div className="flex items-center gap-2.5 no-drag min-w-0 flex-1">
+        <div
+          className={clsx(
+            'titlebar px-1 pt-1 pb-3 flex items-center gap-2',
+            compact ? 'md:justify-center lg:justify-center' : '',
+          )}
+          data-tauri-drag-region
+        >
+          <div
+            className={clsx(
+              'flex items-center gap-2.5 no-drag min-w-0',
+              compact ? 'md:flex-none lg:flex-none md:justify-center lg:justify-center' : 'flex-1',
+            )}
+          >
             <div className="h-7 w-7 shrink-0 rounded-lg bg-gradient-to-br from-sentinel-blue to-sentinel-purple shadow-glow-blue flex items-center justify-center">
               <ShieldCheck className="h-4 w-4 text-white" />
             </div>

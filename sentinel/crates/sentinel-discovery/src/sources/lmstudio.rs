@@ -14,6 +14,7 @@
 //!
 //! Config schema is assumed to mirror Anthropic's `mcpServers` shape.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
@@ -217,6 +218,7 @@ fn extraire_serveurs(json: &Value, client: &mut ClientDecouvert) {
             env_keys,
             url,
             disabled,
+            scope: ScopeServeur::default(),
         });
     }
 }

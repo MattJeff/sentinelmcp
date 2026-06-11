@@ -25,6 +25,7 @@
 //! the user's OAuth tokens); we only check for its existence as a "Codex is
 //! configured" signal.
 
+use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
@@ -256,6 +257,7 @@ fn serveur_depuis_table(nom: &str, entry: &TomlValue) -> Option<ServeurMcpDeclar
             env_keys,
             url,
             disabled,
+            scope: ScopeServeur::default(),
         });
     }
 
@@ -281,5 +283,6 @@ fn serveur_depuis_table(nom: &str, entry: &TomlValue) -> Option<ServeurMcpDeclar
         env_keys,
         url,
         disabled,
+        scope: ScopeServeur::default(),
     })
 }

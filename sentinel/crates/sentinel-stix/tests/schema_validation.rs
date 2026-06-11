@@ -167,6 +167,8 @@ fn seed_store() -> Store {
         premiere_vue: Utc::now(),
         derniere_vue: Utc::now(),
         empreinte_courante: Some("abc123".to_string()),
+        tags: vec![],
+        scope: sentinel_protocol::ScopeServeur::default(),
     };
     store.upsert_serveur(&serveur).expect("upsert serveur");
 

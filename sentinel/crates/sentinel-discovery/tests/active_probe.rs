@@ -4,6 +4,7 @@
 //! print prebaked JSON-RPC responses to stdout in response to the standard
 //! handshake (`initialize` → `notifications/initialized` → `tools/list`).
 
+use sentinel_protocol::ScopeServeur;
 use sentinel_discovery::active_probe::{EtatProbe, ProbeurActif};
 use sentinel_discovery::model::ServeurMcpDeclare;
 
@@ -17,6 +18,7 @@ fn declarer(nom: &str, commande: &str, args: Vec<&str>) -> ServeurMcpDeclare {
         env_keys: vec![],
         url: None,
         disabled: false,
+        scope: ScopeServeur::default(),
     }
 }
 
@@ -126,6 +128,7 @@ async fn probe_serveur_http_est_ignore() {
         env_keys: vec![],
         url: Some("https://example.com/mcp".into()),
         disabled: false,
+        scope: ScopeServeur::default(),
     };
 
     let probe = ProbeurActif::par_defaut();
