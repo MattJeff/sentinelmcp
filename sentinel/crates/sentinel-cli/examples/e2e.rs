@@ -1,6 +1,5 @@
 use sentinel_detect::*;
 use sentinel_protocol::*;
-use sentinel_alerts::*;
 use sentinel_report::*;
 use sentinel_store::Store;
 use std::sync::Arc;

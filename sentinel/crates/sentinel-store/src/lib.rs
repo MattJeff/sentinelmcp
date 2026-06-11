@@ -29,6 +29,30 @@ pub struct HistoriqueContact {
     pub horodatage: DateTime<Utc>,
 }
 
+/// Nombre de versions de baseline conservées par serveur par défaut
+/// lors du GC de l'historique (`Store::gc_historique_baselines`).
+pub const GC_HISTORIQUE_BASELINES_DEFAUT: usize = 50;
+
+/// DTO miroir d'une ligne de la table `historique_baselines` (V5).
+///
+/// Chaque enregistrement de baseline archive une version complète —
+/// empreintes, outils, approbateur, raison — avec un numéro de version
+/// monotone par serveur. Sert l'audit (« qui a changé quoi, quand,
+/// pourquoi ») et le rollback vers une version antérieure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionBaseline {
+    pub id: String,
+    pub serveur_id: ServeurId,
+    pub baseline_id: BaselineId,
+    pub empreinte_serveur: Empreinte,
+    pub empreintes_outils: std::collections::BTreeMap<String, Empreinte>,
+    pub outils: Vec<Outil>,
+    pub horodatage: DateTime<Utc>,
+    pub approbateur: String,
+    pub raison: String,
+    pub version: i64,
+}
+
 /// DTO miroir d'une ligne de la table `investigations`.
 ///
 /// Une investigation est une note libre attachée à un serveur — créée
@@ -695,9 +719,36 @@ impl Store {
         Ok(v)
     }
 
+    /// Enregistre une baseline (raison vide). Voir
+    /// [`Store::enregistrer_baseline_versionnee`] pour fournir une raison
+    /// explicite (rollback, import golden, ré-approbation…).
     pub fn enregistrer_baseline(&self, b: &Baseline) -> Result<()> {
-        let conn = self.inner.lock().unwrap();
-        conn.execute(
+        self.enregistrer_baseline_versionnee(b, "").map(|_| ())
+    }
+
+    /// Enregistre une baseline et archive simultanément une version dans
+    /// `historique_baselines`. Rien n'est jamais écrasé : la table
+    /// `baselines` accumule (la « courante » est la plus récente) et
+    /// l'historique reçoit une nouvelle ligne au numéro de version
+    /// suivant (monotone par serveur). Tout se passe dans une
+    /// transaction unique — soit les deux écritures réussissent, soit
+    /// aucune. Retourne le numéro de version attribué.
+    ///
+    /// Attribution de version : `MAX(version) + 1` lu dans une
+    /// transaction `BEGIN IMMEDIATE`, qui prend le verrou d'écriture
+    /// SQLite dès l'ouverture — le couple lecture/écriture est donc
+    /// sérialisé aussi entre process partageant le même fichier (au
+    /// sein d'un process, le Mutex suffit). Si un autre process tient
+    /// déjà le verrou, SQLite retourne `SQLITE_BUSY` : erreur propre,
+    /// jamais de version dupliquée ni de corruption.
+    pub fn enregistrer_baseline_versionnee(&self, b: &Baseline, raison: &str) -> Result<i64> {
+        let mut conn = self.inner.lock().unwrap();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        let empreintes_outils_json = serde_json::to_string(&b.empreintes_outils)?;
+        let outils_json = serde_json::to_string(&b.outils)?;
+
+        tx.execute(
             r#"INSERT INTO baselines (id, serveur_id, empreinte_serveur, empreintes_outils,
                 outils, date_approbation, approuve_par)
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"#,
@@ -705,13 +756,182 @@ impl Store {
                 b.id.to_string(),
                 b.serveur_id.to_string(),
                 b.empreinte_serveur.as_str(),
-                serde_json::to_string(&b.empreintes_outils)?,
-                serde_json::to_string(&b.outils)?,
+                empreintes_outils_json,
+                outils_json,
                 b.date_approbation.to_rfc3339(),
                 b.approuve_par,
             ],
         )?;
-        Ok(())
+
+        let version: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM historique_baselines
+             WHERE serveur_id = ?1",
+            params![b.serveur_id.to_string()],
+            |r| r.get(0),
+        )?;
+
+        tx.execute(
+            r#"INSERT INTO historique_baselines (id, serveur_id, baseline_id,
+                empreinte_serveur, empreintes_outils, outils, horodatage,
+                approbateur, raison, version)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                b.serveur_id.to_string(),
+                b.id.to_string(),
+                b.empreinte_serveur.as_str(),
+                empreintes_outils_json,
+                outils_json,
+                b.date_approbation.to_rfc3339(),
+                b.approuve_par,
+                raison,
+                version,
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok(version)
+    }
+
+    /// Liste l'historique versionné des baselines d'un serveur, de la
+    /// version la plus récente à la plus ancienne.
+    pub fn lister_historique_baselines(
+        &self,
+        serveur_id: ServeurId,
+    ) -> Result<Vec<VersionBaseline>> {
+        let conn = self.inner.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT id, baseline_id, empreinte_serveur, empreintes_outils,
+                outils, horodatage, approbateur, raison, version
+               FROM historique_baselines
+               WHERE serveur_id = ?1
+               ORDER BY version DESC"#,
+        )?;
+        let rows = stmt.query_map(params![serveur_id.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, i64>(8)?,
+            ))
+        })?;
+        let mut v = vec![];
+        for r in rows {
+            let (id, baseline_id, emp_s, emp_o, outils, horodatage, approbateur, raison, version) =
+                r?;
+            // Toute ligne illisible est une erreur dure — pas de valeur
+            // par défaut silencieuse : un rollback vers une version au
+            // JSON corrompu restaurerait sinon une baseline vide (0
+            // outil) comme baseline courante sans que personne ne le voie.
+            v.push(VersionBaseline {
+                id,
+                serveur_id,
+                baseline_id: uuid::Uuid::parse_str(&baseline_id).map_err(|e| {
+                    anyhow::anyhow!(
+                        "historique_baselines (serveur {serveur_id}, version {version}) : \
+                         baseline_id invalide '{baseline_id}' : {e}"
+                    )
+                })?,
+                empreinte_serveur: Empreinte::new(emp_s),
+                empreintes_outils: serde_json::from_str(&emp_o).map_err(|e| {
+                    anyhow::anyhow!(
+                        "historique_baselines (serveur {serveur_id}, version {version}) : \
+                         empreintes_outils JSON corrompu : {e}"
+                    )
+                })?,
+                outils: serde_json::from_str(&outils).map_err(|e| {
+                    anyhow::anyhow!(
+                        "historique_baselines (serveur {serveur_id}, version {version}) : \
+                         outils JSON corrompu : {e}"
+                    )
+                })?,
+                horodatage: DateTime::parse_from_rfc3339(&horodatage)
+                    .map(|d| d.with_timezone(&Utc))
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "historique_baselines (serveur {serveur_id}, version {version}) : \
+                             horodatage invalide '{horodatage}' : {e}"
+                        )
+                    })?,
+                approbateur,
+                raison,
+                version,
+            });
+        }
+        Ok(v)
+    }
+
+    /// Restaure une version antérieure de baseline comme baseline
+    /// courante. Le contenu (empreintes + outils) de la version visée
+    /// est ré-enregistré comme **nouvelle** baseline — l'historique
+    /// reste intact et gagne une ligne `rollback vers version N`
+    /// attribuée à `approbateur`. Erreur si la version n'existe pas.
+    pub fn rollback_baseline(
+        &self,
+        serveur_id: ServeurId,
+        version: i64,
+        approbateur: &str,
+    ) -> Result<Baseline> {
+        let cible = self
+            .lister_historique_baselines(serveur_id)?
+            .into_iter()
+            .find(|v| v.version == version)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "version {} introuvable dans l'historique des baselines du serveur {}",
+                    version,
+                    serveur_id
+                )
+            })?;
+
+        let baseline = Baseline {
+            id: uuid::Uuid::new_v4(),
+            serveur_id,
+            empreinte_serveur: cible.empreinte_serveur,
+            empreintes_outils: cible.empreintes_outils,
+            outils: cible.outils,
+            date_approbation: Utc::now(),
+            approuve_par: approbateur.to_string(),
+        };
+        self.enregistrer_baseline_versionnee(
+            &baseline,
+            &format!("rollback vers version {}", version),
+        )?;
+        Ok(baseline)
+    }
+
+    /// GC de l'historique des baselines : conserve les `garder` versions
+    /// les plus récentes de chaque serveur, supprime le reste. Retourne
+    /// le nombre de lignes supprimées.
+    pub fn gc_historique_baselines(&self, garder: usize) -> Result<usize> {
+        let conn = self.inner.lock().unwrap();
+        let n = conn.execute(
+            r#"DELETE FROM historique_baselines
+               WHERE (SELECT COUNT(*) FROM historique_baselines h2
+                      WHERE h2.serveur_id = historique_baselines.serveur_id
+                        AND h2.version > historique_baselines.version) >= ?1"#,
+            params![garder as i64],
+        )?;
+        Ok(n)
+    }
+
+    /// GC avec la rétention par défaut ([`GC_HISTORIQUE_BASELINES_DEFAUT`]).
+    pub fn gc_historique_baselines_defaut(&self) -> Result<usize> {
+        self.gc_historique_baselines(GC_HISTORIQUE_BASELINES_DEFAUT)
+    }
+
+    /// Exécute une requête SQL arbitraire sans paramètres — réservé aux
+    /// tests externes qui doivent forger ou corrompre des lignes pour
+    /// vérifier la robustesse des lectures (e.g. JSON corrompu dans
+    /// `historique_baselines`). À ne PAS utiliser en production.
+    pub fn executer_sql_pour_tests_seulement(&self, sql: &str) -> Result<usize> {
+        let conn = self.inner.lock().unwrap();
+        Ok(conn.execute(sql, [])?)
     }
 
     /// Liste toutes les baselines enregistrées pour un serveur, du plus récent

@@ -39,6 +39,10 @@ interface Settings {
       port: number;
       from: string;
       to: string;
+      user: string;
+      /** Either a new clear value, '' (no/cleared secret) or the backend's
+       *  '********' sentinel meaning "stored secret, unchanged". */
+      pass: string;
     };
     webhook: {
       enabled: boolean;
@@ -78,6 +82,8 @@ const INITIAL: Settings = {
       port: 587,
       from: 'sentinel@example.com',
       to: 'security@example.com',
+      user: '',
+      pass: '',
     },
     webhook: {
       enabled: false,
@@ -142,6 +148,9 @@ function fromPersisted(p: PersistedSettings): Settings {
         port: p.alerts.email.port,
         from: p.alerts.email.from,
         to: p.alerts.email.to,
+        user: p.alerts.email.user ?? '',
+        // '********' sentinel when a secret is stored — never the clear value.
+        pass: p.alerts.email.pass ?? '',
       },
       webhook: {
         enabled: p.alerts.webhook.enabled,
@@ -537,6 +546,44 @@ export default function SettingsPage() {
               onChange={(e) =>
                 set((s) => {
                   s.alerts.email.to = e.target.value;
+                })
+              }
+              disabled={!draft.alerts.email.enabled}
+            />
+          </SettingRow>
+          <SettingRow
+            label="SMTP user"
+            description="Leave empty when the server does not require authentication."
+            htmlForId="alerts-smtp-user"
+          >
+            <input
+              id="alerts-smtp-user"
+              className="input w-64"
+              autoComplete="off"
+              value={draft.alerts.email.user}
+              onChange={(e) =>
+                set((s) => {
+                  s.alerts.email.user = e.target.value;
+                })
+              }
+              disabled={!draft.alerts.email.enabled}
+            />
+          </SettingRow>
+          <SettingRow
+            label="SMTP password"
+            description="Stored in the OS keychain — never written to disk in clear text. A saved password shows as ******** ; leave it untouched to keep it, clear the field to remove it."
+            htmlForId="alerts-smtp-pass"
+          >
+            <input
+              id="alerts-smtp-pass"
+              type="password"
+              className="input w-64"
+              autoComplete="new-password"
+              placeholder="No password stored"
+              value={draft.alerts.email.pass}
+              onChange={(e) =>
+                set((s) => {
+                  s.alerts.email.pass = e.target.value;
                 })
               }
               disabled={!draft.alerts.email.enabled}
@@ -1360,6 +1407,8 @@ interface EmailDraft {
   port: number;
   from: string;
   to: string;
+  user: string;
+  pass: string;
 }
 
 interface TestEmailFeedback {
@@ -1397,11 +1446,13 @@ function TestEmailButton({
     setPending(true);
     setFeedback(null);
     try {
+      // The password may be the '********' sentinel (stored secret,
+      // unchanged) — the backend resolves it through the OS keyring.
       const result = await api.testEmailChannel({
         smtp_host: email.host,
         smtp_port: email.port,
-        user: null,
-        password: null,
+        user: email.user.trim() ? email.user : null,
+        password: email.pass ? email.pass : null,
         sender: email.from,
         recipient: email.to,
       });

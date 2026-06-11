@@ -1,0 +1,231 @@
+name: 'Sentinel MCP Audit'
+description: >-
+  Audit statique des configurations MCP d'un dépôt (poisoning, typosquats /
+  sosies) via le CLI Sentinel. Produit un Job Summary, des annotations et
+  échoue selon la sévérité des constats.
+author: 'MattJeff'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Dossier (ou fichier de config MCP) à auditer, relatif au workspace.'
+    required: false
+    default: '.'
+  version:
+    description: >-
+      Version du CLI Sentinel à installer, sans le préfixe « v »
+      (ex. « 0.3.0 »), ou « latest » pour la dernière release.
+    required: false
+    default: 'latest'
+  fail-on:
+    description: >-
+      Sévérité minimale d'un constat qui fait échouer le job :
+      critical | high | medium | low | never.
+    required: false
+    default: 'high'
+
+outputs:
+  constats:
+    description: 'Nombre total de constats remontés par l''audit.'
+    value: ${{ steps.audit.outputs.constats }}
+  exit-code:
+    description: 'Code de sortie brut du CLI (0 = ok, 1 = constats haute/critique, 2 = erreur).'
+    value: ${{ steps.audit.outputs.exit-code }}
+  json:
+    description: 'Chemin du rapport JSON brut produit par « sentinel audit --json ».'
+    value: ${{ steps.audit.outputs.json }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Installer le CLI Sentinel
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SENTINEL_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        repo="MattJeff/sentinelmcp"
+
+        case "${RUNNER_OS}" in
+          Linux)   triple_os="unknown-linux-gnu";  binaire="sentinel" ;;
+          macOS)   triple_os="apple-darwin";       binaire="sentinel" ;;
+          Windows) triple_os="pc-windows-msvc";    binaire="sentinel.exe" ;;
+          *) echo "::error::OS de runner non supporté : ${RUNNER_OS}"; exit 2 ;;
+        esac
+        case "${RUNNER_ARCH}" in
+          X64)   triple_arch="x86_64" ;;
+          ARM64) triple_arch="aarch64" ;;
+          *) echo "::error::Architecture de runner non supportée : ${RUNNER_ARCH}"; exit 2 ;;
+        esac
+        target="${triple_arch}-${triple_os}"
+
+        # Seules les cibles effectivement publiées dans les releases sont
+        # acceptées (pas de binaire aarch64-pc-windows-msvc, notamment).
+        case "${target}" in
+          x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-apple-darwin|aarch64-apple-darwin|x86_64-pc-windows-msvc)
+            ;;
+          *)
+            echo "::error::Cible ${target} non publiée dans les releases de ${repo}. Cibles disponibles : x86_64/aarch64-unknown-linux-gnu, x86_64/aarch64-apple-darwin, x86_64-pc-windows-msvc (Windows arm64 non supporté)."
+            exit 2
+            ;;
+        esac
+
+        version="${SENTINEL_VERSION}"
+        if [ -z "${version}" ] || [ "${version}" = "latest" ]; then
+          tag="$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${repo}/releases/latest" \
+            | jq -r '.tag_name // empty')"
+          if [ -z "${tag}" ]; then
+            echo "::error::Impossible de déterminer la dernière release de ${repo}"
+            exit 2
+          fi
+          version="${tag#v}"
+        else
+          version="${version#v}"
+        fi
+        echo "Sentinel CLI ${version} (${target})"
+
+        artefact="sentinel-${version}-${target}.tar.gz"
+        base_url="https://github.com/${repo}/releases/download/v${version}"
+        tmp="${RUNNER_TEMP}/sentinel-install"
+        mkdir -p "${tmp}"
+
+        curl -fsSL -o "${tmp}/${artefact}" "${base_url}/${artefact}" || {
+          echo "::error::Téléchargement impossible : ${base_url}/${artefact}"
+          exit 2
+        }
+
+        if curl -fsSL -o "${tmp}/${artefact}.sha256" "${base_url}/${artefact}.sha256" 2>/dev/null; then
+          attendu="$(awk '{print $1}' "${tmp}/${artefact}.sha256")"
+          if command -v sha256sum >/dev/null 2>&1; then
+            obtenu="$(sha256sum "${tmp}/${artefact}" | awk '{print $1}')"
+          else
+            obtenu="$(shasum -a 256 "${tmp}/${artefact}" | awk '{print $1}')"
+          fi
+          if [ "${attendu}" != "${obtenu}" ]; then
+            echo "::error::Checksum SHA-256 invalide pour ${artefact} (attendu ${attendu}, obtenu ${obtenu})"
+            exit 2
+          fi
+          echo "Checksum SHA-256 vérifié"
+        else
+          echo "::warning::Fichier ${artefact}.sha256 absent de la release — checksum non vérifié"
+        fi
+
+        tar -xzf "${tmp}/${artefact}" -C "${tmp}"
+        if [ ! -f "${tmp}/${binaire}" ]; then
+          echo "::error::Binaire ${binaire} introuvable dans ${artefact}"
+          exit 2
+        fi
+        chmod +x "${tmp}/${binaire}"
+        echo "${tmp}" >> "${GITHUB_PATH}"
+
+    - name: Exécuter sentinel audit
+      id: audit
+      shell: bash
+      env:
+        AUDIT_PATH: ${{ inputs.path }}
+        FAIL_ON: ${{ inputs['fail-on'] }}
+      run: |
+        set -euo pipefail
+
+        rapport="${RUNNER_TEMP}/sentinel-audit.json"
+        set +e
+        sentinel audit "${AUDIT_PATH}" --json > "${rapport}"
+        code=$?
+        set -e
+        echo "exit-code=${code}" >> "${GITHUB_OUTPUT}"
+        echo "json=${rapport}" >> "${GITHUB_OUTPUT}"
+
+        if [ "${code}" -ne 0 ] && [ "${code}" -ne 1 ]; then
+          echo "::error::sentinel audit a échoué (code ${code}) — erreur d'exécution"
+          exit "${code}"
+        fi
+        if ! jq empty "${rapport}" 2>/dev/null; then
+          echo "::error::Sortie JSON de sentinel audit illisible"
+          exit 2
+        fi
+
+        nb_configs="$(jq '.configs_trouvees | length' "${rapport}")"
+        nb_serveurs="$(jq '.serveurs | length' "${rapport}")"
+        nb_constats="$(jq '.constats | length' "${rapport}")"
+        echo "constats=${nb_constats}" >> "${GITHUB_OUTPUT}"
+
+        # --- Annotations ::error / ::warning ---------------------------------
+        # Échappement des workflow commands GitHub (% -> %25, CR -> %0D,
+        # LF -> %0A) en expansion bash pure : portable, contrairement à
+        # « sed 's/\r/…/' » qui, sur BSD sed (runners macOS), traite \r comme
+        # la lettre « r » littérale.
+        echappe() {
+          local s="$1"
+          s="${s//'%'/%25}"
+          s="${s//$'\r'/%0D}"
+          s="${s//$'\n'/%0A}"
+          printf '%s' "${s}"
+        }
+        echappe_prop() {
+          local s
+          s="$(echappe "$1")"
+          s="${s//:/%3A}"
+          s="${s//,/%2C}"
+          printf '%s' "${s}"
+        }
+        while IFS=$'\t' read -r sev cfg titre detail; do
+          [ -n "${sev}" ] || continue
+          case "${sev}" in
+            haute|critique) niveau="error" ;;
+            *)              niveau="warning" ;;
+          esac
+          # Le CLI émet des chemins préfixés « ./ » (WalkDir sur « . ») ;
+          # GitHub exige un chemin relatif au workspace, sans ce préfixe,
+          # pour rattacher l'annotation au fichier.
+          cfg="${cfg#./}"
+          echo "::${niveau} file=$(echappe_prop "${cfg}"),title=$(echappe_prop "Sentinel MCP — ${sev}")::$(echappe "${titre} — ${detail}")"
+        done < <(jq -r '.constats[] | [.severite, .config, .titre, .detail] | @tsv' "${rapport}")
+
+        # --- Job Summary ------------------------------------------------------
+        {
+          echo "## Sentinel MCP — Audit"
+          echo ""
+          echo "**Chemin :** \`${AUDIT_PATH}\` · **Configs MCP :** ${nb_configs} · **Serveurs :** ${nb_serveurs} · **Constats :** ${nb_constats}"
+          echo ""
+          if [ "${nb_constats}" -gt 0 ]; then
+            echo "| Sévérité | Type | Serveur | Config | Titre |"
+            echo "|---|---|---|---|---|"
+            jq -r '.constats[]
+              | [.severite, .type, .serveur, .config, .titre]
+              | map(gsub("\\|"; "\\|") | gsub("\n"; " "))
+              | "| \(.[0]) | \(.[1]) | \(.[2]) | `\(.[3])` | \(.[4]) |"' "${rapport}"
+          else
+            echo "Aucun constat — configurations MCP saines."
+          fi
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+        # --- Échec selon fail-on ----------------------------------------------
+        case "$(printf '%s' "${FAIL_ON}" | tr '[:upper:]' '[:lower:]')" in
+          never|none)        seuil=99 ;;
+          critical|critique) seuil=3 ;;
+          high|haute)        seuil=2 ;;
+          medium|moyenne)    seuil=1 ;;
+          low|info|any)      seuil=0 ;;
+          *)
+            echo "::error::Valeur fail-on invalide : « ${FAIL_ON} » (attendu : critical | high | medium | low | never)"
+            exit 2
+            ;;
+        esac
+
+        max="$(jq '[.constats[].severite
+          | if . == "critique" then 3
+            elif . == "haute" then 2
+            elif . == "moyenne" then 1
+            else 0 end] | max // -1' "${rapport}")"
+
+        if [ "${max}" -ge "${seuil}" ]; then
+          echo "::error::Sentinel MCP : ${nb_constats} constat(s) dont sévérité maximale au-dessus du seuil fail-on=${FAIL_ON}"
+          exit 1
+        fi
+        echo "Audit terminé : ${nb_constats} constat(s), seuil fail-on=${FAIL_ON} non atteint."

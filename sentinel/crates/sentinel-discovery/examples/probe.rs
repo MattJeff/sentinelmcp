@@ -1,5 +1,5 @@
 // Quick host probe — runs every Sentinel discovery source and prints what's on this Mac.
-use sentinel_discovery::{OrchestrateurDecouverte, sources::sources_par_defaut};
+use sentinel_discovery::OrchestrateurDecouverte;
 
 #[tokio::main]
 async fn main() {

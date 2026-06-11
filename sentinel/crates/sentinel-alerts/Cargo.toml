@@ -26,6 +26,7 @@ tokio-rustls = "0.26"
 rustls = "0.23"
 rustls-pemfile = "2"
 rustls-platform-verifier = "0.5"
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [dev-dependencies]
 wiremock = "0.6"

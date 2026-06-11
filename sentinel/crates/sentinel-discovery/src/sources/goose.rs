@@ -1,10 +1,12 @@
 //! Goose MCP discovery source.
 //!
-//! Goose is Block's open-source AI agent. On macOS it stores its global
-//! configuration under `~/.config/goose/`. Two YAML files matter:
+//! Goose is Block's open-source AI agent. It stores its global configuration
+//! under `~/.config/goose/` on macOS and Linux (`$XDG_CONFIG_HOME/goose/`
+//! honoré sur Linux) and under `%APPDATA%\Block\goose\config\` on Windows.
+//! Two YAML files matter:
 //!
-//!   * `~/.config/goose/config.yaml` — the modern, flat `extensions:` map.
-//!   * `~/.config/goose/profiles.yaml` — older profile-based form where each
+//!   * `config.yaml` — the modern, flat `extensions:` map.
+//!   * `profiles.yaml` — older profile-based form where each
 //!     profile carries its own `extensions:` block.
 //!
 //! Goose's YAML schema differs from most other MCP clients on a few key
@@ -36,12 +38,48 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{pousser_unique, ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_yaml::Value as YamlValue;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
+
+/// Dossiers de configuration Goose candidats selon l'OS, en ordre de
+/// priorité. Fonction pure.
+fn dossiers_config(ctx: &ContexteOs) -> Vec<PathBuf> {
+    match ctx.os {
+        OsCible::MacOs => vec![ctx.home.join(".config").join("goose")],
+        OsCible::Windows => vec![
+            ctx.dossier_appdata().join("Block").join("goose").join("config"),
+            ctx.home.join(".config").join("goose"),
+        ],
+        OsCible::Linux => {
+            let mut out = vec![];
+            for d in ctx.dossiers_config_linux() {
+                pousser_unique(&mut out, d.join("goose"));
+            }
+            out
+        }
+    }
+}
+
+/// Chemins candidats de `config.yaml` selon l'OS. Fonction pure.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    dossiers_config(ctx)
+        .into_iter()
+        .map(|d| d.join("config.yaml"))
+        .collect()
+}
+
+/// Chemins candidats de `profiles.yaml` selon l'OS. Fonction pure.
+pub fn chemins_profiles_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    dossiers_config(ctx)
+        .into_iter()
+        .map(|d| d.join("profiles.yaml"))
+        .collect()
+}
 
 pub struct SourceGoose;
 
@@ -50,12 +88,12 @@ impl SourceClient for SourceGoose {
     fn id(&self) -> &'static str { "goose" }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
             None => return vec![],
         };
         let app = PathBuf::from("/Applications/Goose.app");
-        let mut res = detecter_avec_chemins(&home, &app);
+        let mut res = detecter_avec_contexte(&ctx, &app);
 
         // Best-effort: ask the CLI for its version. Only do this once and
         // never let a stuck binary block us.
@@ -71,19 +109,30 @@ impl SourceClient for SourceGoose {
 }
 
 /// Pure detection helper — used by both the live source and the tests.
-///
-/// `home` is treated as the user's home directory and `app` is the absolute
-/// path of the `Goose.app` bundle to probe.
+/// Resolves paths for the **current** OS; for per-OS tests use
+/// [`detecter_avec_contexte`].
 pub fn detecter_avec_chemins(home: &Path, app: &Path) -> Vec<ClientDecouvert> {
-    let goose_dir = home.join(".config").join("goose");
-    let config_path = goose_dir.join("config.yaml");
-    let profiles_path = goose_dir.join("profiles.yaml");
+    let ctx = ContexteOs::nouveau(OsCible::courant(), home);
+    detecter_avec_contexte(&ctx, app)
+}
+
+/// Variante entièrement paramétrée (OS + home injectés) — testable sur tous
+/// les OS sans `cfg!`. `app` is the absolute path of the `Goose.app` bundle
+/// to probe (macOS only).
+pub fn detecter_avec_contexte(ctx: &ContexteOs, app: &Path) -> Vec<ClientDecouvert> {
+    let home = ctx.home.as_path();
+    let config_path = chemins_config_candidats(ctx)
+        .into_iter()
+        .find(|p| p.exists());
+    let profiles_path = chemins_profiles_candidats(ctx)
+        .into_iter()
+        .find(|p| p.exists());
     let local_bin = home.join(".local").join("bin").join("goose");
 
     let app_present = app.exists();
     let local_bin_present = local_bin.exists();
-    let config_present = config_path.exists();
-    let profiles_present = profiles_path.exists();
+    let config_present = config_path.is_some();
+    let profiles_present = profiles_path.is_some();
 
     if !app_present
         && !local_bin_present
@@ -109,11 +158,11 @@ pub fn detecter_avec_chemins(home: &Path, app: &Path) -> Vec<ClientDecouvert> {
         decouvert.binary_path = Some(local_bin);
     }
 
-    if config_present {
-        traiter_yaml_config(&config_path, &mut decouvert);
+    if let Some(p) = &config_path {
+        traiter_yaml_config(p, &mut decouvert);
     }
-    if profiles_present {
-        traiter_yaml_profiles(&profiles_path, &mut decouvert);
+    if let Some(p) = &profiles_path {
+        traiter_yaml_profiles(p, &mut decouvert);
     }
 
     if !config_present && !profiles_present && (app_present || local_bin_present) {
@@ -357,4 +406,47 @@ async fn lire_version_cli() -> Option<String> {
     }
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if s.is_empty() { None } else { Some(s) }
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos() {
+        let ctx = ContexteOs::nouveau(OsCible::MacOs, "/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![PathBuf::from("/Users/alice/.config/goose/config.yaml")]
+        );
+        assert_eq!(
+            chemins_profiles_candidats(&ctx),
+            vec![PathBuf::from("/Users/alice/.config/goose/profiles.yaml")]
+        );
+    }
+
+    #[test]
+    fn windows_appdata_block_puis_fallback() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![
+                PathBuf::from("C:/Users/alice/AppData/Roaming/Block/goose/config/config.yaml"),
+                PathBuf::from("C:/Users/alice/.config/goose/config.yaml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn linux_xdg_puis_config() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob")
+            .avec_xdg_config_home("/home/bob/xdg");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![
+                PathBuf::from("/home/bob/xdg/goose/config.yaml"),
+                PathBuf::from("/home/bob/.config/goose/config.yaml"),
+            ]
+        );
+    }
 }

@@ -82,6 +82,8 @@ fn validate_bundle_objects(bundle: &Value) -> Vec<Violation> {
     let software = compile(&load_schema("software.json"));
     let infrastructure = compile(&load_schema("infrastructure.json"));
     let relationship = compile(&load_schema("relationship.json"));
+    let identity = compile(&load_schema("identity.json"));
+    let sighting = compile(&load_schema("sighting.json"));
 
     let objects = bundle
         .get("objects")
@@ -106,6 +108,8 @@ fn validate_bundle_objects(bundle: &Value) -> Vec<Violation> {
             "software" => &software,
             "infrastructure" => &infrastructure,
             "relationship" => &relationship,
+            "identity" => &identity,
+            "sighting" => &sighting,
             other => panic!(
                 "bundle contains an object of unknown STIX type '{}' at index {}; \
                  either the test schemas need extending or `export_bundle` is producing unexpected types",
@@ -334,6 +338,8 @@ fn schemas_directory_is_well_formed() {
         "software.json",
         "infrastructure.json",
         "relationship.json",
+        "identity.json",
+        "sighting.json",
         "common.json",
     ] {
         let s = load_schema(name);

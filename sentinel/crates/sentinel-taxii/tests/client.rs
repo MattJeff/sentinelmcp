@@ -17,6 +17,15 @@ fn status_body(success: u64) -> serde_json::Value {
     })
 }
 
+/// Builds a response carrying the strict TAXII 2.1 media type — the client
+/// now verifies the Content-Type of every successful response.
+fn taxii_response(code: u16, body: &serde_json::Value) -> ResponseTemplate {
+    ResponseTemplate::new(code).set_body_raw(
+        serde_json::to_vec(body).unwrap(),
+        "application/taxii+json;version=2.1",
+    )
+}
+
 fn make_config(server: &MockServer, auth: TaxiiAuth) -> TaxiiConfig {
     TaxiiConfig {
         api_root_url: format!("{}/taxii2", server.uri()),
@@ -40,7 +49,7 @@ async fn test_push_objects_success() {
         .and(body_partial_json(json!({
             "objects": [{"type": "indicator"}]
         })))
-        .respond_with(ResponseTemplate::new(202).set_body_json(status_body(1)))
+        .respond_with(taxii_response(202, &status_body(1)))
         .expect(1)
         .mount(&server)
         .await;
@@ -64,7 +73,7 @@ async fn test_push_objects_auth_basic() {
             "/taxii2/collections/11111111-2222-3333-4444-555555555555/objects/",
         ))
         .and(header("Authorization", expected.as_str()))
-        .respond_with(ResponseTemplate::new(202).set_body_json(status_body(1)))
+        .respond_with(taxii_response(202, &status_body(1)))
         .expect(1)
         .mount(&server)
         .await;
@@ -91,7 +100,7 @@ async fn test_push_objects_auth_bearer() {
             "/taxii2/collections/11111111-2222-3333-4444-555555555555/objects/",
         ))
         .and(header("Authorization", format!("Bearer {token}").as_str()))
-        .respond_with(ResponseTemplate::new(202).set_body_json(status_body(1)))
+        .respond_with(taxii_response(202, &status_body(1)))
         .expect(1)
         .mount(&server)
         .await;
@@ -152,7 +161,7 @@ async fn test_test_send() {
                 "indicator_types": ["benign"]
             }]
         })))
-        .respond_with(ResponseTemplate::new(202).set_body_json(status_body(1)))
+        .respond_with(taxii_response(202, &status_body(1)))
         .expect(1)
         .mount(&server)
         .await;
@@ -206,7 +215,7 @@ async fn test_push_bundle_extracts_objects() {
                 {"type": "malware", "id": "malware--b"}
             ]
         })))
-        .respond_with(ResponseTemplate::new(202).set_body_json(status_body(2)))
+        .respond_with(taxii_response(202, &status_body(2)))
         .expect(1)
         .mount(&server)
         .await;

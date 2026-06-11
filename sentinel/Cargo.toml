@@ -12,6 +12,7 @@ members = [
     "crates/sentinel-cli",
     "crates/sentinel-taxii",
     "crates/sentinel-stix",
+    "crates/sentinel-guard",
 ]
 exclude = ["sentinel-desktop"]
 
@@ -30,6 +31,7 @@ sentinel-monitor = { path = "crates/sentinel-monitor" }
 sentinel-detect = { path = "crates/sentinel-detect" }
 sentinel-alerts = { path = "crates/sentinel-alerts" }
 sentinel-report = { path = "crates/sentinel-report" }
+sentinel-discovery = { path = "crates/sentinel-discovery" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

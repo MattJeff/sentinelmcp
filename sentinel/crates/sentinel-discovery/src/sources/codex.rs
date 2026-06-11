@@ -2,9 +2,11 @@
 //! agent, installed as `@openai/codex` from npm or via the `codex` Homebrew
 //! formula).
 //!
-//! Codex stores its configuration on macOS as TOML:
-//!   * primary: `~/.codex/config.toml`
-//!   * alternate: `~/.config/openai-codex/config.toml`
+//! Codex stores its configuration as TOML:
+//!   * primary: `~/.codex/config.toml` (tous OS — `%USERPROFILE%\.codex\…`
+//!     sur Windows, défaut de `$CODEX_HOME`)
+//!   * alternate (macOS / Linux): `~/.config/openai-codex/config.toml`
+//!     (`$XDG_CONFIG_HOME` honoré sur Linux)
 //!
 //! MCP servers are declared either as table-style entries:
 //! ```toml
@@ -27,12 +29,35 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{pousser_unique, ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 use toml::Value as TomlValue;
+
+/// Chemins candidats de `config.toml` selon l'OS. Fonction pure.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    let mut out = vec![ctx.home.join(".codex").join("config.toml")];
+    match ctx.os {
+        OsCible::MacOs => {
+            out.push(
+                ctx.home
+                    .join(".config")
+                    .join("openai-codex")
+                    .join("config.toml"),
+            );
+        }
+        OsCible::Linux => {
+            for d in ctx.dossiers_config_linux() {
+                pousser_unique(&mut out, d.join("openai-codex").join("config.toml"));
+            }
+        }
+        OsCible::Windows => {}
+    }
+    out
+}
 
 pub struct SourceCodex;
 
@@ -43,17 +68,26 @@ impl SourceClient for SourceCodex {
     }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
             None => return vec![],
         };
-        detecter_avec_home(&home).await
+        detecter_avec_contexte(&ctx).await
     }
 }
 
 /// Core detection routine, parameterised by `$HOME` so tests can pass a fake
-/// root that doesn't depend on the real user's environment.
+/// root that doesn't depend on the real user's environment. Uses the current
+/// machine's OS for the candidate paths.
 pub async fn detecter_avec_home(home: &Path) -> Vec<ClientDecouvert> {
+    let ctx = ContexteOs::nouveau(OsCible::courant(), home);
+    detecter_avec_contexte(&ctx).await
+}
+
+/// Variante entièrement paramétrée (OS + home injectés) — testable sur tous
+/// les OS sans `cfg!`.
+pub async fn detecter_avec_contexte(ctx: &ContexteOs) -> Vec<ClientDecouvert> {
+    let home = ctx.home.as_path();
     let mut client = ClientDecouvert::nouveau(ClientKind::Codex);
 
     // -- 1. Locate the `codex` binary ---------------------------------------
@@ -70,22 +104,17 @@ pub async fn detecter_avec_home(home: &Path) -> Vec<ClientDecouvert> {
             .insert("auth_present".to_string(), "true".to_string());
     }
 
-    // -- 3. Primary config: ~/.codex/config.toml ----------------------------
-    let primary = home.join(".codex").join("config.toml");
-    parser_config(&primary, &mut client);
-
-    // -- 4. Alt config: ~/.config/openai-codex/config.toml ------------------
-    let alt = home
-        .join(".config")
-        .join("openai-codex")
-        .join("config.toml");
-    parser_config(&alt, &mut client);
+    // -- 3./4. Configs (primary + per-OS alternates) -------------------------
+    let candidats = chemins_config_candidats(ctx);
+    for cfg in &candidats {
+        parser_config(cfg, &mut client);
+    }
 
     // -- 5. Decide whether we actually found anything -----------------------
     // We also keep the client around if a config file exists on disk but
     // failed to parse — otherwise the "parse error" note would be silently
     // dropped and the user would have no way to see Codex is mis-configured.
-    let config_file_exists = primary.is_file() || alt.is_file();
+    let config_file_exists = candidats.iter().any(|p| p.is_file());
     let found_something = client.binary_path.is_some()
         || !client.configs.is_empty()
         || client.meta.contains_key("auth_present")
@@ -285,4 +314,44 @@ fn serveur_depuis_table(nom: &str, entry: &TomlValue) -> Option<ServeurMcpDeclar
         disabled,
         scope: ScopeServeur::default(),
     })
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos() {
+        let ctx = ContexteOs::nouveau(OsCible::MacOs, "/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![
+                PathBuf::from("/Users/alice/.codex/config.toml"),
+                PathBuf::from("/Users/alice/.config/openai-codex/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_codex_home_seul() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![PathBuf::from("C:/Users/alice/.codex/config.toml")]
+        );
+    }
+
+    #[test]
+    fn linux_avec_xdg() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob")
+            .avec_xdg_config_home("/home/bob/xdg");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![
+                PathBuf::from("/home/bob/.codex/config.toml"),
+                PathBuf::from("/home/bob/xdg/openai-codex/config.toml"),
+                PathBuf::from("/home/bob/.config/openai-codex/config.toml"),
+            ]
+        );
+    }
 }

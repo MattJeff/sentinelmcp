@@ -996,13 +996,27 @@ pub async fn test_email_channel(
 
     use sentinel_alerts::channels::email::{CanalEmail, ConfigEmail};
     use sentinel_alerts::channels::CanalEmetteur;
+    use sentinel_alerts::secrets;
     use sentinel_protocol::{Alerte, CanalAlerte, Severite};
+
+    // The UI only ever sees the masked sentinel for a stored SMTP password —
+    // swap it for the real secret (resolved through the OS keyring) so the
+    // SMTP auth path (`CanalEmail` credentials) is exercised for real.
+    let mot_de_passe = match cfg.password {
+        Some(p) if secrets::est_masque(&p) => {
+            let reel = crate::commands_settings::smtp_password_reel(&app)?;
+            if reel.is_empty() { None } else { Some(reel) }
+        }
+        Some(p) if p.is_empty() => None,
+        autre => autre,
+    };
+    let utilisateur = cfg.user.filter(|u| !u.trim().is_empty());
 
     let config = ConfigEmail {
         smtp_host: cfg.smtp_host,
         smtp_port: cfg.smtp_port,
-        utilisateur: cfg.user,
-        mot_de_passe: cfg.password,
+        utilisateur,
+        mot_de_passe,
         expediteur: cfg.sender,
         destinataire: cfg.recipient,
     };

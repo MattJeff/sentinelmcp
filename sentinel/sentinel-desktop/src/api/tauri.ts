@@ -844,6 +844,8 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
           port: 587,
           from: 'sentinel@example.com',
           to: 'security@example.com',
+          user: '',
+          pass: '',
         },
         webhook: { enabled: false, url: '', format: 'generic' },
       },

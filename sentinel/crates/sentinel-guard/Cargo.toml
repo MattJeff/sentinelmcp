@@ -1,0 +1,26 @@
+[package]
+name = "sentinel-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sentinel MCP — garde stdio temps réel : relais transparent, détection de dérive tools/list, blocage optionnel"
+
+[[bin]]
+name = "sentinel-guard"
+path = "src/main.rs"
+
+[dependencies]
+sentinel-protocol = { workspace = true }
+sentinel-store = { workspace = true }
+sentinel-scan = { workspace = true }
+sentinel-detect = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+clap = { workspace = true }
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"

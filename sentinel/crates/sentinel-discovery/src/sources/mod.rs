@@ -6,6 +6,7 @@
 use crate::model::ClientDecouvert;
 use async_trait::async_trait;
 
+pub mod os_paths;
 pub mod claude_desktop;
 pub mod claude_code_cli;
 pub mod cursor;

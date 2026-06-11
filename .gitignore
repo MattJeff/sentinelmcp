@@ -8,10 +8,18 @@ Icon?
 target/
 **/target/
 Cargo.lock
+# Lockfile du workspace tracke (binaire => builds reproductibles, requis par
+# `brew install --HEAD` qui passe --locked via std_cargo_args)
+!/sentinel/Cargo.lock
 
 # Node / Vite / Tauri
 node_modules/
 dist/
+# dist/ a la racine du depot contient le packaging (formule Homebrew), pas un
+# build Vite : on re-inclut uniquement dist/homebrew/
+!/dist/
+/dist/*
+!/dist/homebrew/
 dist-ssr/
 .vite/
 *.local

@@ -4,12 +4,15 @@
 //! Insiders builds and a growing number of community extensions wire MCP
 //! servers via `settings.json`. We scan:
 //!
-//! 1. The user `settings.json` at
-//!    `~/Library/Application Support/Code/User/settings.json` — this is JSONC
-//!    (JSON with `//` line comments and `/* */` block comments), so we strip
-//!    comments before handing it to `serde_json`. We look for a top-level
-//!    `"mcp.servers"` block (the Insiders convention) of the shape
-//!    `{ name: { command, args, env } }`.
+//! 1. The user `settings.json` — per OS:
+//!    * macOS: `~/Library/Application Support/Code/User/settings.json`
+//!    * Windows: `%APPDATA%\Code\User\settings.json`
+//!    * Linux: `$XDG_CONFIG_HOME/Code/User/settings.json`
+//!      (défaut `~/.config/Code/User/settings.json`)
+//!    This is JSONC (JSON with `//` line comments and `/* */` block
+//!    comments), so we strip comments before handing it to `serde_json`. We
+//!    look for a top-level `"mcp.servers"` block (the Insiders convention)
+//!    of the shape `{ name: { command, args, env } }`.
 //! 2. Installed extensions at `~/.vscode/extensions/`. Each extension lives in
 //!    `<publisher>.<name>-<version>/`. We flag known MCP-capable extensions
 //!    (e.g. `automatalabs.copilot-mcp`, `anthropic.claude-dev`,
@@ -21,11 +24,31 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{
+    pousser_unique, premier_existant_ou_premier, ContexteOs, OsCible,
+};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+
+/// Chemins candidats du `settings.json` utilisateur selon l'OS.
+/// Fonction pure : testable sur n'importe quelle machine.
+pub fn chemins_settings_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    let suffixe = |racine: PathBuf| racine.join("Code").join("User").join("settings.json");
+    match ctx.os {
+        OsCible::MacOs => vec![suffixe(ctx.home.join("Library").join("Application Support"))],
+        OsCible::Windows => vec![suffixe(ctx.dossier_appdata())],
+        OsCible::Linux => {
+            let mut out = vec![];
+            for d in ctx.dossiers_config_linux() {
+                pousser_unique(&mut out, suffixe(d));
+            }
+            out
+        }
+    }
+}
 
 pub struct SourceVscode;
 
@@ -34,8 +57,8 @@ impl SourceClient for SourceVscode {
     fn id(&self) -> &'static str { "vscode" }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
             None => return vec![],
         };
         let apps = vec![
@@ -43,7 +66,7 @@ impl SourceClient for SourceVscode {
             PathBuf::from("/Applications/VSCodium.app"),
         ];
         let app = apps.into_iter().find(|p| p.exists());
-        detecter_avec_chemins(&home, app.as_deref())
+        detecter_avec_contexte(&ctx, app.as_deref())
     }
 }
 
@@ -57,18 +80,23 @@ const EXTENSIONS_MCP_CONNUES: &[&str] = &[
 ];
 
 /// Pure detection helper — used by both the live source and the tests.
-///
-/// `home` is treated as the user's home directory (we read
-/// `<home>/Library/Application Support/Code/User/settings.json` and
-/// `<home>/.vscode/extensions/`) and `app` is the optional absolute path of
-/// the `Visual Studio Code.app` (or `VSCodium.app`) bundle.
+/// Resolves the settings path for the **current** OS; for per-OS tests use
+/// [`detecter_avec_contexte`].
 pub fn detecter_avec_chemins(home: &Path, app: Option<&Path>) -> Vec<ClientDecouvert> {
-    let settings_path = home
-        .join("Library")
-        .join("Application Support")
-        .join("Code")
-        .join("User")
-        .join("settings.json");
+    let ctx = ContexteOs::nouveau(OsCible::courant(), home);
+    detecter_avec_contexte(&ctx, app)
+}
+
+/// Variante entièrement paramétrée (OS + home injectés) — testable sur tous
+/// les OS sans `cfg!`. We read the per-OS user `settings.json` plus
+/// `<home>/.vscode/extensions/`; `app` is the optional absolute path of the
+/// `Visual Studio Code.app` (or `VSCodium.app`) bundle (macOS only).
+pub fn detecter_avec_contexte(ctx: &ContexteOs, app: Option<&Path>) -> Vec<ClientDecouvert> {
+    let home = ctx.home.as_path();
+    let settings_path = match premier_existant_ou_premier(&chemins_settings_candidats(ctx)) {
+        Some(p) => p,
+        None => return vec![],
+    };
     let extensions_dir = home.join(".vscode").join("extensions");
 
     let settings_present = settings_path.exists();
@@ -318,4 +346,53 @@ fn lire_version_info_plist(plist: &Path) -> Option<String> {
     let after_open = &tail[open + "<string>".len()..];
     let close = after_open.find("</string>")?;
     Some(after_open[..close].trim().to_string())
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos_application_support() {
+        let ctx = ContexteOs::nouveau(OsCible::MacOs, "/Users/alice");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![PathBuf::from(
+                "/Users/alice/Library/Application Support/Code/User/settings.json"
+            )]
+        );
+    }
+
+    #[test]
+    fn windows_appdata() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![PathBuf::from(
+                "C:/Users/alice/AppData/Roaming/Code/User/settings.json"
+            )]
+        );
+    }
+
+    #[test]
+    fn linux_xdg_puis_config() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob")
+            .avec_xdg_config_home("/home/bob/xdg");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![
+                PathBuf::from("/home/bob/xdg/Code/User/settings.json"),
+                PathBuf::from("/home/bob/.config/Code/User/settings.json"),
+            ]
+        );
+    }
+
+    #[test]
+    fn linux_sans_xdg() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![PathBuf::from("/home/bob/.config/Code/User/settings.json")]
+        );
+    }
 }

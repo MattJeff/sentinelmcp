@@ -1,0 +1,37 @@
+{
+  "$id": "sentinel://stix/2.1/identity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "STIX 2.1 identity (subset)",
+  "type": "object",
+  "properties": {
+    "type": { "type": "string", "const": "identity" },
+    "spec_version": { "type": "string", "const": "2.1" },
+    "id": {
+      "type": "string",
+      "pattern": "^identity--[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "created": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "modified": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "roles": { "type": "array", "items": { "type": "string" } },
+    "identity_class": { "type": "string" },
+    "sectors": { "type": "array", "items": { "type": "string" } },
+    "contact_information": { "type": "string" }
+  },
+  "required": [
+    "type",
+    "spec_version",
+    "id",
+    "created",
+    "modified",
+    "name"
+  ],
+  "additionalProperties": true
+}

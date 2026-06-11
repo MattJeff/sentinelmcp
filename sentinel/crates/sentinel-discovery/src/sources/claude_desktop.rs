@@ -1,28 +1,54 @@
-//! Detection source for Claude Desktop (macOS).
+//! Detection source for Claude Desktop (macOS / Windows / Linux).
 //!
-//! Claude Desktop stores its MCP servers in a single JSON file at
-//! `~/Library/Application Support/Claude/claude_desktop_config.json`. This
-//! source parses that file and also tries to pick up the installed app
-//! version from `/Applications/Claude.app/Contents/Info.plist` so the UI
-//! can show "Claude Desktop X.Y.Z" alongside its declared MCP servers.
+//! Claude Desktop stores its MCP servers in a single JSON file:
+//!   * macOS:   `~/Library/Application Support/Claude/claude_desktop_config.json`
+//!   * Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+//!   * Linux:   `$XDG_CONFIG_HOME/Claude/claude_desktop_config.json`
+//!     (défaut `~/.config/Claude/…`, builds communautaires)
+//!
+//! This source parses that file and also tries to pick up the installed app
+//! version from `/Applications/Claude.app/Contents/Info.plist` (macOS only)
+//! so the UI can show "Claude Desktop X.Y.Z" alongside its declared MCP
+//! servers.
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{premier_existant_ou_premier, ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Default macOS path to Claude Desktop's MCP config file.
-const CONFIG_REL: &str = "Library/Application Support/Claude/claude_desktop_config.json";
 /// Default macOS path to the Claude Desktop app bundle.
 const APP_BUNDLE: &str = "/Applications/Claude.app";
 /// Default macOS path to the Claude Desktop main binary inside the bundle.
 const APP_BINARY: &str = "/Applications/Claude.app/Contents/MacOS/Claude";
 /// Default macOS path to the Claude Desktop Info.plist used for version reads.
 const APP_INFO_PLIST: &str = "/Applications/Claude.app/Contents/Info.plist";
+
+/// Chemins candidats du fichier `claude_desktop_config.json` selon l'OS.
+/// Fonction pure : testable sur n'importe quelle machine.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    match ctx.os {
+        OsCible::MacOs => vec![ctx
+            .home
+            .join("Library")
+            .join("Application Support")
+            .join("Claude")
+            .join("claude_desktop_config.json")],
+        OsCible::Windows => vec![ctx
+            .dossier_appdata()
+            .join("Claude")
+            .join("claude_desktop_config.json")],
+        OsCible::Linux => ctx
+            .dossiers_config_linux()
+            .into_iter()
+            .map(|d| d.join("Claude").join("claude_desktop_config.json"))
+            .collect(),
+    }
+}
 
 pub struct SourceClaudeDesktop;
 
@@ -33,8 +59,12 @@ impl SourceClient for SourceClaudeDesktop {
     }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let config_path = match dirs::home_dir() {
-            Some(home) => home.join(CONFIG_REL),
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
+            None => return vec![],
+        };
+        let config_path = match premier_existant_ou_premier(&chemins_config_candidats(&ctx)) {
+            Some(p) => p,
             None => return vec![],
         };
         detecter_aux(
@@ -288,5 +318,56 @@ fn lire_version_plist(info_plist: &Path) -> Option<String> {
         None
     } else {
         Some(s)
+    }
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos() {
+        let ctx = ContexteOs::nouveau(OsCible::MacOs, "/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![PathBuf::from(
+                "/Users/alice/Library/Application Support/Claude/claude_desktop_config.json"
+            )]
+        );
+    }
+
+    #[test]
+    fn windows_appdata() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![PathBuf::from(
+                "C:/Users/alice/AppData/Roaming/Claude/claude_desktop_config.json"
+            )]
+        );
+    }
+
+    #[test]
+    fn linux_xdg_puis_config() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob")
+            .avec_xdg_config_home("/home/bob/xdg");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![
+                PathBuf::from("/home/bob/xdg/Claude/claude_desktop_config.json"),
+                PathBuf::from("/home/bob/.config/Claude/claude_desktop_config.json"),
+            ]
+        );
+    }
+
+    #[test]
+    fn linux_sans_xdg() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![PathBuf::from(
+                "/home/bob/.config/Claude/claude_desktop_config.json"
+            )]
+        );
     }
 }

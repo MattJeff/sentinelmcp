@@ -3,6 +3,11 @@ name = "sentinel-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Sentinel MCP — CLI de découverte, d'audit statique et de surveillance des serveurs MCP (Model Context Protocol)"
+repository = "https://github.com/MattJeff/sentinelmcp"
+homepage = "https://github.com/MattJeff/sentinelmcp"
+keywords = ["mcp", "security", "cli", "audit", "monitoring"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "sentinel"
@@ -16,13 +21,18 @@ sentinel-monitor = { workspace = true }
 sentinel-detect = { workspace = true }
 sentinel-alerts = { workspace = true }
 sentinel-report = { workspace = true }
+sentinel-discovery = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+dirs = "5"
+walkdir = "2"
 
 [dev-dependencies]
-uuid = { workspace = true }
-chrono = { workspace = true }
-serde_json = { workspace = true }
+tempfile = "3"

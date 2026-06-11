@@ -409,6 +409,20 @@ fn extraire_package_stdio(endpoint: &str) -> String {
         return endpoint.trim().to_string();
     }
 
+    // Le garde temps réel (`sentinel-guard [--db …] [--block] -- vraie
+    // commande …`) est transparent pour l'identité : on extrait le paquet
+    // de la commande wrappée derrière le séparateur `--`.
+    let basename = tokens[0].rsplit(['/', '\\']).next().unwrap_or(tokens[0]);
+    let basename = basename.strip_suffix(".exe").unwrap_or(basename);
+    if basename == "sentinel-guard" {
+        if let Some(pos) = tokens.iter().position(|t| *t == "--") {
+            if pos + 1 < tokens.len() {
+                return extraire_package_stdio(&tokens[pos + 1..].join(" "));
+            }
+        }
+        return strip_version_suffix(tokens[0]);
+    }
+
     // Wrappers à un seul mot (`npx pkg`, `uvx pkg`, `bunx pkg`, `pnpx pkg`).
     const WRAPPERS_DIRECTS: &[&str] = &["npx", "uvx", "bunx", "pnpx"];
     // Wrappers à deux mots (`npm exec pkg`, `pnpm exec pkg`, `yarn dlx pkg`,
@@ -526,6 +540,38 @@ mod tests_package_id {
         assert_eq!(
             extraire_package_id("mcp-postgres-helper /path/to/db", Transport::Stdio),
             "mcp-postgres-helper"
+        );
+    }
+
+    #[test]
+    fn sentinel_guard_transparent_pour_identite() {
+        // Entrée injectée par sentinel-guard : l'identité reste celle du
+        // serveur wrappé, pas celle du garde.
+        assert_eq!(
+            extraire_package_id(
+                "/usr/local/bin/sentinel-guard -- npx -y @modelcontextprotocol/server-filesystem /tmp",
+                Transport::Stdio,
+            ),
+            "@modelcontextprotocol/server-filesystem"
+        );
+        assert_eq!(
+            extraire_package_id(
+                "sentinel-guard --db /tmp/sentinel.db --block -- uvx mcp-server-time --tz UTC",
+                Transport::Stdio,
+            ),
+            "mcp-server-time"
+        );
+        assert_eq!(
+            extraire_package_id(
+                "C:\\Programs\\sentinel-guard.exe -- node serveur.js",
+                Transport::Stdio,
+            ),
+            "node"
+        );
+        // Garde sans séparateur `--` : repli sur le token lui-même.
+        assert_eq!(
+            extraire_package_id("sentinel-guard --block", Transport::Stdio),
+            "sentinel-guard"
         );
     }
 

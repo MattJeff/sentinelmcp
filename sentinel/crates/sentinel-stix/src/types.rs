@@ -83,6 +83,44 @@ pub struct Infrastructure {
     pub description: Option<String>,
 }
 
+/// STIX 2.1 `identity` SDO.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Identity {
+    #[serde(rename = "type")]
+    pub type_: String, // always "identity"
+    pub spec_version: String, // always "2.1"
+    pub id: String,
+    pub created: String,
+    pub modified: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_class: Option<String>,
+}
+
+/// STIX 2.1 `sighting` SRO.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Sighting {
+    #[serde(rename = "type")]
+    pub type_: String, // always "sighting"
+    pub spec_version: String, // always "2.1"
+    pub id: String,
+    pub created: String,
+    pub modified: String,
+    pub sighting_of_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_seen: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub observed_data_refs: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub where_sighted_refs: Vec<String>,
+}
+
 /// STIX 2.1 `relationship` SRO.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Relationship {

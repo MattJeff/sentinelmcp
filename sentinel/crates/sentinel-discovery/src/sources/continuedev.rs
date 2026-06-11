@@ -23,6 +23,7 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::ContexteOs;
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -44,10 +45,18 @@ impl SourceClient for SourceContinuedev {
     }
 }
 
+/// Chemins candidats des configs Continue — identiques sur les trois OS
+/// (`~/.continue/config.yaml` puis `~/.continue/config.json`,
+/// `%USERPROFILE%\.continue\…` sur Windows). Fonction pure.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    let dir = ctx.home.join(".continue");
+    vec![dir.join("config.yaml"), dir.join("config.json")]
+}
+
 /// Pure detection helper — used by both the live source and the tests.
 ///
 /// `home` is treated as the user's home directory (so we look at
-/// `<home>/.continue/config.{yaml,json}`).
+/// `<home>/.continue/config.{yaml,json}`, same path on every OS).
 pub fn detecter_avec_home(home: &Path) -> Vec<ClientDecouvert> {
     let continue_dir = home.join(".continue");
     let yaml_path = continue_dir.join("config.yaml");
@@ -264,4 +273,25 @@ fn parser_entree_objet(nom: &str, value: &YamlValue) -> Option<ServeurMcpDeclare
 #[allow(dead_code)]
 pub fn detecter_avec_chemins(home: &Path, _app: &PathBuf) -> Vec<ClientDecouvert> {
     detecter_avec_home(home)
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+    use crate::sources::os_paths::OsCible;
+
+    #[test]
+    fn config_identique_sur_tous_les_os() {
+        for os in OsCible::TOUS {
+            let ctx = ContexteOs::nouveau(os, "/home/user");
+            assert_eq!(
+                chemins_config_candidats(&ctx),
+                vec![
+                    PathBuf::from("/home/user/.continue/config.yaml"),
+                    PathBuf::from("/home/user/.continue/config.json"),
+                ],
+                "os = {os:?}"
+            );
+        }
+    }
 }

@@ -14,13 +14,44 @@
 //! the feed doesn't carry free-form tags. See
 //! `sentinel-discovery/data/threat_feed.yaml` for the source data.
 
-use crate::ids::{deterministic_id, random_id};
+use crate::ids::deterministic_id;
 use crate::types::{
-    ExternalReference, Indicator, Infrastructure, ObservedData, Relationship, Software,
+    ExternalReference, Identity, Indicator, Infrastructure, ObservedData, Relationship, Sighting,
+    Software,
 };
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use sentinel_discovery::threat_intel::EntreeMenace;
 use sentinel_protocol::{Constat, Serveur, Severite, TypeConstat};
+
+/// Fixed canonical timestamp used for objects that have no natural source
+/// timestamp (the Sentinel identity, relationships). Keeping it constant
+/// preserves the idempotence of repeated exports/pushes: a TAXII server
+/// deduplicates on `(id, modified)`.
+pub const SENTINEL_EPOCH: &str = "2024-01-01T00:00:00.000Z";
+
+/// Serialises a timestamp the way STIX 2.1 mandates: strict RFC 3339,
+/// millisecond precision, `Z` suffix (never a `+00:00` offset).
+pub fn stix_timestamp(dt: &DateTime<Utc>) -> String {
+    dt.to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+/// The `identity` SDO describing Sentinel itself, with a fully
+/// deterministic ID and timestamps.
+pub fn sentinel_identity() -> Identity {
+    Identity {
+        type_: "identity".to_string(),
+        spec_version: "2.1".to_string(),
+        id: deterministic_id("identity", "identity:sentinel-mcp"),
+        created: SENTINEL_EPOCH.to_string(),
+        modified: SENTINEL_EPOCH.to_string(),
+        name: "Sentinel MCP".to_string(),
+        description: Some(
+            "Sentinel MCP — surveillance de sécurité des serveurs Model Context Protocol."
+                .to_string(),
+        ),
+        identity_class: Some("system".to_string()),
+    }
+}
 
 /// Maps a threat-intel feed entry to a STIX 2.1 `indicator` SDO.
 ///
@@ -31,13 +62,13 @@ use sentinel_protocol::{Constat, Serveur, Severite, TypeConstat};
 /// - `external_references` lifts any `SAFE-T*` token in `references` into
 ///   a STIX external-reference with `source_name = "SAFE-MCP"`.
 pub fn intel_entry_to_indicator(entry: &EntreeMenace) -> Indicator {
-    let now = Utc::now().to_rfc3339();
-    // `publie_a` is a NaiveDate; convert to RFC 3339 at UTC midnight.
+    // `publie_a` is a NaiveDate; convert to RFC 3339 at UTC midnight. Using
+    // the publication date (not `now`) keeps the object fully deterministic.
     let valid_from = entry
         .publie_a
         .and_hms_opt(0, 0, 0)
-        .map(|naive| Utc.from_utc_datetime(&naive).to_rfc3339())
-        .unwrap_or_else(|| now.clone());
+        .map(|naive| stix_timestamp(&Utc.from_utc_datetime(&naive)))
+        .unwrap_or_else(|| SENTINEL_EPOCH.to_string());
 
     // Tags = references + severity-derived hint.
     let mut tags: Vec<String> = entry.references.clone();
@@ -76,8 +107,8 @@ pub fn intel_entry_to_indicator(entry: &EntreeMenace) -> Indicator {
         type_: "indicator".to_string(),
         spec_version: "2.1".to_string(),
         id: deterministic_id("indicator", &entry.package_name),
-        created: now.clone(),
-        modified: now,
+        created: valid_from.clone(),
+        modified: valid_from.clone(),
         pattern: format!("[software:name = '{}']", escape_stix_string(&entry.package_name)),
         pattern_type: "stix".to_string(),
         indicator_types: tag_to_indicator_types(&tags),
@@ -138,8 +169,7 @@ pub fn tag_to_indicator_types(tags: &[String]) -> Vec<String> {
 /// it. The presence of the SDO alone is sufficient for downstream
 /// consumers that just want timeline / count data.
 pub fn finding_to_observed_data(finding: &Constat) -> ObservedData {
-    let ts = finding.horodatage.to_rfc3339();
-    let now = Utc::now().to_rfc3339();
+    let ts = stix_timestamp(&finding.horodatage);
     ObservedData {
         type_: "observed-data".to_string(),
         spec_version: "2.1".to_string(),
@@ -147,8 +177,8 @@ pub fn finding_to_observed_data(finding: &Constat) -> ObservedData {
             "observed-data",
             &format!("constat:{}", finding.id),
         ),
-        created: now.clone(),
-        modified: now,
+        created: ts.clone(),
+        modified: ts.clone(),
         first_observed: ts.clone(),
         last_observed: ts,
         number_observed: 1,
@@ -177,14 +207,16 @@ pub fn server_to_software(server: &Serveur) -> Software {
 }
 
 /// Maps a Sentinel `Serveur` to a STIX 2.1 `infrastructure` SDO.
+///
+/// `created`/`modified` derive from the server's first/last sighting, so
+/// the object only changes when the server actually changes.
 pub fn server_to_infrastructure(server: &Serveur) -> Infrastructure {
-    let now = Utc::now().to_rfc3339();
     Infrastructure {
         type_: "infrastructure".to_string(),
         spec_version: "2.1".to_string(),
         id: deterministic_id("infrastructure", &format!("server:{}", server.id)),
-        created: now.clone(),
-        modified: now,
+        created: stix_timestamp(&server.premiere_vue),
+        modified: stix_timestamp(&server.derniere_vue),
         name: format!("MCP server {}", server.endpoint),
         infrastructure_types: vec!["unknown".to_string()],
         description: Some(format!("transport={:?} statut={:?}", server.transport, server.statut)),
@@ -192,23 +224,99 @@ pub fn server_to_infrastructure(server: &Serveur) -> Infrastructure {
 }
 
 /// Builds a STIX 2.1 `relationship` SRO between two existing object IDs.
+///
+/// The ID is a UUID v5 over `(rel_type, source, target)` and the
+/// timestamps are the fixed [`SENTINEL_EPOCH`], so the SRO is idempotent
+/// across exports.
 pub fn relate(source: &str, target: &str, rel_type: &str) -> Relationship {
-    let now = Utc::now().to_rfc3339();
     Relationship {
         type_: "relationship".to_string(),
         spec_version: "2.1".to_string(),
-        id: random_id("relationship"),
-        created: now.clone(),
-        modified: now,
+        id: deterministic_id(
+            "relationship",
+            &format!("relationship:{rel_type}:{source}:{target}"),
+        ),
+        created: SENTINEL_EPOCH.to_string(),
+        modified: SENTINEL_EPOCH.to_string(),
         relationship_type: rel_type.to_string(),
         source_ref: source.to_string(),
         target_ref: target.to_string(),
     }
 }
 
+/// Maps a Sentinel `Constat` (finding) to a STIX 2.1 `indicator` SDO with
+/// a valid STIX pattern.
+///
+/// The pattern targets the offending server's package/endpoint when known
+/// (`[software:name = '<endpoint>']`), falling back to the tool name. ID
+/// and timestamps derive entirely from the finding, so repeated exports of
+/// the same store produce byte-identical objects.
+pub fn finding_to_indicator(finding: &Constat, endpoint: Option<&str>) -> Indicator {
+    let ts = stix_timestamp(&finding.horodatage);
+    let subject = endpoint
+        .map(|e| e.to_string())
+        .or_else(|| finding.outil_nom.clone())
+        .unwrap_or_else(|| format!("mcp-server-{}", finding.serveur_id));
+    let pattern = format!("[software:name = '{}']", escape_stix_string(&subject));
+
+    let mut external_references = vec![ExternalReference {
+        source_name: "Sentinel".to_string(),
+        external_id: Some(finding.id.to_string()),
+        url: None,
+    }];
+    for r in &finding.references_conformite {
+        external_references.push(ExternalReference {
+            source_name: "Sentinel-Conformite".to_string(),
+            external_id: Some(r.clone()),
+            url: None,
+        });
+    }
+
+    Indicator {
+        type_: "indicator".to_string(),
+        spec_version: "2.1".to_string(),
+        id: deterministic_id("indicator", &format!("constat:{}", finding.id)),
+        created: ts.clone(),
+        modified: ts.clone(),
+        pattern,
+        pattern_type: "stix".to_string(),
+        indicator_types: type_constat_to_indicator_types(&finding.type_constat),
+        name: finding.titre.clone(),
+        description: Some(finding.detail.clone()),
+        valid_from: ts,
+        labels: vec![format!("sentinel:{:?}", finding.type_constat).to_lowercase()],
+        external_references,
+    }
+}
+
+/// Builds a STIX 2.1 `sighting` SRO for a finding: the indicator derived
+/// from the finding was sighted (once) by the Sentinel identity, with the
+/// matching `observed-data` attached.
+pub fn finding_to_sighting(
+    finding: &Constat,
+    indicator_id: &str,
+    observed_data_id: &str,
+    identity_id: &str,
+) -> Sighting {
+    let ts = stix_timestamp(&finding.horodatage);
+    Sighting {
+        type_: "sighting".to_string(),
+        spec_version: "2.1".to_string(),
+        id: deterministic_id("sighting", &format!("constat:{}", finding.id)),
+        created: ts.clone(),
+        modified: ts.clone(),
+        sighting_of_ref: indicator_id.to_string(),
+        first_seen: Some(ts.clone()),
+        last_seen: Some(ts),
+        count: Some(1),
+        observed_data_refs: vec![observed_data_id.to_string()],
+        where_sighted_refs: vec![identity_id.to_string()],
+    }
+}
+
 /// Returns a copy of `s` safe to embed inside a STIX single-quoted pattern
-/// literal. STIX 2.1 patterns escape single quotes by doubling them, and
-/// backslashes by doubling them too.
+/// literal. The STIX 2.1 patterning grammar escapes with a backslash:
+/// `\` becomes `\\` and `'` becomes `\'`.
 fn escape_stix_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
 }

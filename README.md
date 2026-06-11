@@ -1,222 +1,199 @@
 # Sentinel MCP
 
-> See every MCP server your AI agents reach. Detect rug-pulls, tool poisoning, and supply-chain attacks before they hit production.
+> **EDR for your AI agents' MCP servers.**
 
-Sentinel MCP is a native macOS app that discovers every Model Context Protocol (MCP) server installed on your machine across all major AI clients (Claude Desktop, Claude Code CLI, Cursor, Windsurf, Continue, Zed, VS Code, Aider, Goose, Codex, Antigravity, LM Studio), actively probes each one, computes a cryptographic fingerprint of its tool surface, watches for drift across sessions, maps every finding to OWASP MCP09/MCP03 + SAFE-MCP T1001/T1201, and produces a signed Ed25519 compliance bundle ready for an auditor.
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/MattJeff/sentinelmcp/actions)
+[![Release](https://img.shields.io/badge/release-v0.3-blue)](https://github.com/MattJeff/sentinelmcp/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20CLI%20%7C%20CI-orange)](#quickstart)
 
-**Read-only by default. Nothing leaves your Mac.**
+Sentinel MCP discovers every Model Context Protocol (MCP) server your machine exposes to its AI agents — across **14 AI clients** (Claude Desktop, Claude Code CLI, Cursor, Windsurf, Continue, Zed, VS Code, Aider, Goose, Codex, Antigravity, LM Studio, Open WebUI, Sketch) — actively probes each one, fingerprints its tool surface with a canonical SHA-256, watches for drift across sessions, and speaks the language of your SOC: **Splunk, Elastic, Syslog TLS, STIX 2.1, TAXII 2.1**, and Ed25519-signed compliance reports mapped to SOC 2, ISO 27001, OWASP MCP and SAFE-MCP.
+
+**100 % local. Zero cloud. Read-only by default.**
 
 ---
 
-## Download
+## Why
 
-The latest signed-on-build `.dmg` lives in **[Releases](https://github.com/MattJeff/sentinelmcp/releases/latest)**.
+Modern AI agents connect to MCP servers installed with a casual `npx -y @org/...` — no audit, no inventory, no review. Those servers can:
 
+- **Lie** about their identity (typosquat of an official package)
+- **Change** their tools silently between sessions (the "rug-pull")
+- **Hide** hostile instructions inside a tool description ("read `~/.ssh`, exfiltrate via webhook…")
+- **Combine** dangerous scopes (secret read + network write in the same session)
+
+In 2012, Shadow IT was an employee dropping files into Dropbox. In 2026, **Shadow MCP** is an AI agent reaching out to servers nobody audited. No AI client ships an inventory, a canonical fingerprint, an approval workflow, an event log, or a compliance report for those servers.
+
+A one-shot scanner misses tomorrow's rug-pull. A cloud scanner ships your configs to someone else's infrastructure. Sentinel runs continuously, on your machine, in Rust — and alerts your SIEM the moment a single byte of a tool surface changes.
+
+We call the category **MCP Detection & Response (MCPDR)**.
+
+---
+
+## Quickstart
+
+### Install
+
+```bash
+# One-liner
+curl -fsSL https://sentinelmcp.dev/install.sh | sh
+
+# Homebrew
+brew install MattJeff/sentinelmcp/sentinel-mcp
+
+# Cargo
+cargo install sentinel-cli
 ```
-Sentinel MCP_0.1.0_aarch64.dmg   ~10.6 MB
-SHA-256: aaf398196ed43e27ae384f6995afc934bb927bcd886a914340fee159e35c2b9e
+
+Or grab the signed & **Apple-notarized** desktop app (`.dmg`) from [Releases](https://github.com/MattJeff/sentinelmcp/releases/latest) — installs with zero Gatekeeper warnings. CLI binaries are published for macOS, Linux and Windows (x86_64 + ARM64); see **[docs/INSTALL.md](docs/INSTALL.md)** for all targets and checksum verification.
+
+### First scan (60 seconds)
+
+```bash
+# Discover every AI client and MCP server on this machine
+sentinel scan
+
+# Actively probe each declared server (initialize → tools/list) and fingerprint it
+sentinel scan --probe
+
+# Generate a signed audit bundle (PDF + JSON + Ed25519 signature)
+sentinel report
 ```
 
-Double-click → drag into `/Applications` → launch. On first launch Sentinel asks for permission to read the AI-client config files listed below; nothing else.
+### Audit in CI
+
+```yaml
+- uses: MattJeff/sentinelmcp/action@v1
+  with:
+    fail-on: critical
+```
+
+See **[docs/QUICKSTART.md](docs/QUICKSTART.md)** for the full walkthrough, including guard mode.
 
 ---
 
 ## What it does
 
-### 1. Discovery — finds every MCP server your machine declares
-
-Sentinel walks 12 well-known config locations and parses each:
-
-| AI client | Config file |
+| Capability | How |
 |---|---|
-| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Claude Code CLI | `~/.claude.json` |
-| Cursor | `~/.cursor/mcp.json` |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-| Continue.dev | `~/.continue/config.yaml` |
-| Zed | `~/.config/zed/settings.json` |
-| VS Code | `~/Library/Application Support/Code/User/settings.json` |
-| Aider | `~/.aider.conf.yml` |
-| Goose | `~/.config/goose/config.yaml` |
-| Codex CLI | `~/.codex/config.toml` |
-| Antigravity | `~/Library/Application Support/Antigravity/User/settings.json` |
-| LM Studio | `~/.lmstudio/mcp.json` |
+| **Multi-client discovery** | Reads the configs of 14 AI clients locally; distinguishes user-scope vs project-scope servers; file watcher detects any `mcpServers` change in < 500 ms |
+| **Active probing** | Speaks real MCP to each server (stdio & Streamable HTTP): `initialize` → `tools/list`, captures the full tool inventory + input schemas. No tool is ever executed |
+| **Canonical fingerprinting** | Sorted-keys, stable-encoding JSON → SHA-256 per tool and per server, plus a canonical `package_id` identity. Persisted as a baseline at approval time |
+| **Rug-pull detection** | Any drift from the approved baseline raises a finding with a tool-by-tool diff (additions, removals, renames, schema/enum/default changes) |
+| **Tool poisoning detection** | 40+ local patterns scan every tool description and schema for secret exfiltration, hidden prompt injection, hostile network loads. No LLM, no cloud, no token |
+| **Lookalike / typosquat scan** | Jaro-Winkler similarity (name + description) against 4 public registries (PulseMCP, Smithery, mcp.so, official MCP registry), with an official-package allowlist |
+| **Exfiltration combo detector** | Flags "secret read + external write" combinations within a session window |
+| **Threat-intel feed** | Curated feed of malicious MCP packages, bundled in the binary with an optional remote refresh (`remote → disk cache → bundled` cascade — never blind, even offline) |
+| **Trust graph & blast radius** | `AI client → MCP server → scope` graph with a 0–10 attack-surface score per client |
+| **SIEM-native alerting** | Splunk HEC, Elasticsearch, Syslog UDP/TCP/TLS (RFC 5425), email, webhooks (Slack/Teams) — straight from your machine, no intermediary cloud |
+| **STIX 2.1 / TAXII 2.1** | Export findings as STIX 2.1 bundles and push them to any TAXII 2.1 collection — direct CTI-platform integration |
+| **Signed compliance reports** | Ed25519-signed PDF + JSON audit bundle, with findings mapped to SOC 2 (CC6.1/CC7.1/CC7.2), ISO 27001, OWASP MCP (MCP03/MCP09) and SAFE-MCP (T1001/T1201) |
+| **Approval workflow & enforcement** | Approve / Investigate / Block each server; optional enforcement mode quarantines a compromised server from the client config (timestamped backup + one-click restore) |
+| **Operator workflow** | Free-form operator tags, signed investigation notes, time-travel replay of every observed JSON-RPC envelope, `⌘K` command palette, menubar tray with live alert counter |
 
-It also auto-detects installed apps via `/Applications` + reads their version from `Info.plist`.
-
-### 2. Active probe — talks to every declared server
-
-For each declared stdio server, Sentinel spawns it in a sandbox, runs the standard MCP handshake (`initialize` → `notifications/initialized` → `tools/list`), captures the full tool list with `inputSchema`, computes a **canonical SHA-256 fingerprint** (sorted keys, stable encoding), and runs poisoning patterns on every description and schema.
-
-This is what distinguishes Sentinel from a config grep: you see what the server actually exposes at runtime, not what its config claims.
-
-### 3. Continuous monitoring — live by default
-
-A tokio task re-runs Discovery + Active Probe every N seconds (default 30, configurable in Settings). A `notify` file watcher arms every config path; the moment you run `claude mcp add foo`, Sentinel sees it in ~300 ms with zero user action. The "Live · 30s" pulsing badge in the sidebar reflects the cadence.
-
-### 4. Four security differentiators
-
-| | What it does |
-|---|---|
-| **Active probe** | Launches each server, fingerprints its tool surface, detects poisoning live |
-| **Supply-chain attestation** | Queries the npm registry, captures SHA-512 tarball hashes, maintainers, publish date |
-| **Threat intelligence feed** | 17 curated entries: typo-squats, SAFE-T1001 poisoning, SAFE-T1201 rug-pulls, revoked maintainers. Cross-references against your inventory in real time |
-| **Trust graph + blast radius** | Typed graph of `AI client → MCP server → scope (filesystem, secrets, network, …)` with a 0–10 risk score per client. Pinpoints which agent would bleed the most if compromised |
-
-### 5. Signed compliance bundle
-
-One click in the Report tab → PDF + JSON + Ed25519 signature. Every constat maps to:
-
-- **OWASP MCP09** (Shadow MCP Server)
-- **OWASP MCP03** (Tool Poisoning)
-- **SAFE-T1001** (Tool Description Poisoning)
-- **SAFE-T1201** (Rug Pull / Tool Behavior Change)
-- **SOC 2** (CC6.1, CC7.1, CC7.2)
-- **ISO 27001** (A.8.1.1, A.12.4.1, A.12.6.1, A.13.1.1, A.14.2.2, …)
+Privacy posture: the global **Outbound calls** gate is **OFF by default** — until you flip it, nothing (TAXII, SIEM, email, webhook, registry lookups, feed refresh) leaves your machine. All state lives in a local SQLite database. No telemetry, ever.
 
 ---
 
-## The 11 pages
+## How it compares
 
-| Page | What you do here |
-|---|---|
-| **Overview** | KPI tiles: servers detected, at risk, critical findings, time-to-first-red. Recent findings feed. Compliance snapshot |
-| **Inventory** | Every server with its tools, fingerprint, scopes, status. Click a card → drawer with Approve / Investigate / Block |
-| **Discovery** | Every AI client found on your Mac with the MCP servers it declares. Threat intel feed at the bottom |
-| **Live Scan** | One-shot or live probe of every declared server with streaming log + KPI tiles |
-| **Alerts** | Rug-pulls, poisoning, sosies, exfiltration with the diff that triggered them. Filtered by severity + channel |
-| **Approvals** | Approve fixes the baseline fingerprint. Investigate marks limbo. Block raises the status |
-| **Trust graph** | Interactive force-directed graph; per-client blast radius bar sorted desc |
-| **Time travel** | Replay every JSON-RPC envelope ever observed (with `tools/call` arguments redacted) |
-| **Compliance** | Framework coverage with clickable identifiers that open the official spec |
-| **Report** | Generate a signed PDF + JSON bundle. Open with the system PDF viewer |
-| **Settings** | Persisted to `~/Library/Application Support/com.sentinel-mcp.desktop/settings.toml`. Channels, retention, scan mode, live interval |
+| Capability | **Sentinel** | mcp-scan / Snyk | ToolHive | mcp-watch | MCP Guardian | Cisco mcp-scanner | Commercial (Proofpoint, JFrog, Wiz…) |
+|---|---|---|---|---|---|---|---|
+| Multi-client discovery | **14 clients** | 13 agents | No | No | No | Partial | Cloud/SaaS-side |
+| Active probing (`tools/list`) | **Yes** | Yes (consent) | N/A | No | Via proxy | Yes | Varies |
+| Persistent cross-session baselines | **SHA-256 canonical + package_id** | Description hashes only | No | No | No | No | Cloud inventory |
+| Tool poisoning detection | **40+ patterns, local** | Cloud LLM (token required) | Indirect | Yes | Basic | YARA + LLM | Yes |
+| Lookalike / typosquatting | **4 registries** | No | No | No | No | No | Partial |
+| Native SIEM (Splunk/Elastic/Syslog TLS) | **Yes** | No | OTel only | No | No | No | Yes |
+| STIX 2.1 / TAXII 2.1 | **Yes** | No | No | No | No | No | Rare |
+| Signed compliance reports | **Ed25519, SOC 2/ISO/OWASP/SAFE-MCP** | No | No | No | No | No | Dashboards |
+| Runs without a cloud / token | **Yes** | No (Snyk token) | Yes | Yes | Yes | Yes | No |
+
+Full matrix with positioning notes: **[docs/COMPARISON.md](docs/COMPARISON.md)**.
+
+Where Sentinel is uniquely ahead today:
+
+1. **Persistent canonical baselines** — full-surface SHA-256 + `package_id` identity across sessions; rug-pull detection survives renames and migrations.
+2. **STIX 2.1 + TAXII 2.1 export** — no other OSS tool (and few commercial ones) speaks CTI-platform formats.
+3. **Native SIEM without a cloud** — Splunk HEC / Elastic / Syslog TLS straight from the endpoint.
+4. **Multi-registry lookalike detection** — nobody else covers MCP typosquatting.
+5. **Ed25519-signed compliance bundles** — an auditor-ready artifact neither scanners nor gateways offer.
 
 ---
 
-## Architecture
+## Architecture in brief
+
+A Rust workspace of eleven crates plus a Tauri 2 + React 19 desktop shell:
 
 ```
-[ AI agent traffic ]
+discovery (14 clients) ──► scan (stdio/HTTP capture, tools/list parser, proxy)
+        │                          │
+        ▼                          ▼
+   monitor (continuous loop, file watcher, baselines, drift)
         │
         ▼
-[ Capteur ]  ── passive local capture, read-only by default
-        │  • stdio wrapper      (sentinel-scan)
-        │  • HTTP proxy local
-        ▼
-[ Pipeline ]
-   ├─ Coarse JSON-RPC filter
-   ├─ MCP signature confirmation
-   ├─ tools/list parser
-   ├─ Canonical SHA-256 fingerprint   (sentinel-detect)
-   ├─ Poisoning pattern library       (37 patterns, 5 categories)
-   ├─ Rug-pull diff engine
-   ├─ Exfiltration combo detector
-   ├─ Lookalike + SBOM verifier
-   └─ Continuous monitor               (sentinel-monitor)
+   detect (canonical fingerprint · rug-pull diff · 40+ poisoning patterns
+           · lookalikes · exfiltration combos)
         │
         ▼
-[ SQLite store ]   ~/Library/Application Support/com.sentinel-mcp.desktop/sentinel.db
+   SQLite store (local only)
         │
-        ▼
-[ Tauri + React UI ]  11 pages, glass-style WWDC26 / CleanMyMac palette
+        ├──► alerts  (dedup, severity, channels: dashboard / email / webhook
+        │             / Splunk HEC / Elastic / Syslog UDP-TCP-TLS)
+        ├──► report  (PDF + JSON, Ed25519 signature, compliance mapping)
+        ├──► stix / taxii (STIX 2.1 bundles, TAXII 2.1 push)
+        └──► cli + desktop UI (Tauri 2, menubar tray, ⌘K command palette)
 ```
 
-### Workspace layout
+| Crate | Role |
+|---|---|
+| `sentinel-protocol` | Shared MCP types (JSON-RPC, transports, scopes) |
+| `sentinel-store` | SQLite persistence (servers, tools, baselines, findings, tags, scopes) |
+| `sentinel-scan` | stdio + HTTP capture, `tools/list` parser, proxy mode |
+| `sentinel-monitor` | Continuous monitoring loop, baselines, drift |
+| `sentinel-detect` | Fingerprint, rug-pull, poisoning, lookalike detectors |
+| `sentinel-alerts` | Alert engine + Splunk / Elastic / Syslog UDP/TCP/TLS sinks |
+| `sentinel-report` | PDF + JSON generation, Ed25519 signing, compliance mapping |
+| `sentinel-discovery` | 14 client sources, threat-intel feed, trust graph |
+| `sentinel-stix` / `sentinel-taxii` | STIX 2.1 serialization, TAXII 2.1 client |
+| `sentinel-cli` | Command-line interface (scan, report, list…) |
 
-```
-sentinel/                       — Rust workspace
-├── crates/
-│   ├── sentinel-protocol/      Shared types (zero logic)
-│   ├── sentinel-store/         SQLite store with anti-leak guarantees
-│   ├── sentinel-scan/          Capture, signature, parser, scope detector
-│   ├── sentinel-monitor/       Baselines, drift, retention, privacy
-│   ├── sentinel-detect/        Canonical hash, diff, poisoning, rug-pull, exfiltration, lookalikes, corpus
-│   ├── sentinel-alerts/        Engine, severity, channels (dashboard/email/webhook/siem), enrichment, dedup, lifecycle
-│   ├── sentinel-report/        Generator, summary, inventory, compliance, signature, PDF, JSON, dashboard, approval, remediation
-│   ├── sentinel-discovery/     12 client sources + active probe + supply chain + threat intel + trust graph
-│   └── sentinel-cli/           Command-line entry point
-└── sentinel-desktop/           Tauri 2 + React 19 + Vite + Tailwind app
-    ├── src/                    Frontend
-    └── src-tauri/              Native shell + Tauri commands + background live loop
-```
+The desktop app is signed **Developer ID** and **notarized by Apple** (macOS / Apple Silicon in v0.3). The CLI runs anywhere Rust runs and slots into CI.
+
+For the complete feature reference (every page, detector, setting and Tauri command), see **[sentinel/FEATURES.md](sentinel/FEATURES.md)**.
 
 ---
 
 ## Build from source
 
-### Prerequisites
-- Rust ≥ 1.77 (`rustup install stable`)
-- Node 20+ and pnpm 10
-- Xcode Command Line Tools (`xcode-select --install`)
-
-### Steps
 ```bash
 git clone https://github.com/MattJeff/sentinelmcp.git
-cd sentinelmcp/sentinel/sentinel-desktop
+cd sentinelmcp/sentinel
+cargo test --workspace        # run the full test suite
+cargo build -p sentinel-cli --release
+
+# Desktop app (requires Node 20+, pnpm, Xcode CLT)
+cd sentinel-desktop
 pnpm install
 pnpm tauri build --bundles dmg
 ```
 
-Output : `src-tauri/target/release/bundle/dmg/Sentinel MCP_0.1.0_aarch64.dmg`.
-
-### Run the Rust workspace tests
-```bash
-cd sentinel
-cargo test --workspace --no-fail-fast
-# 377 tests passing
-```
-
-### Live end-to-end probe on your own machine
-```bash
-cd sentinel
-cargo run -p sentinel-discovery --example smoke_e2e
-```
-Sample output (this machine, after installing `orizn-visa` via `claude mcp add`):
-```
-detected clients : 7
-declared servers : 2 (chrome-devtools, orizn-visa)
-active probe     : 2/2 success
-  chrome-devtools = 29 tools (2008 ms)
-  orizn-visa      = 5 tools  (1546 ms)
-trust graph      : Claude Code CLI blast_radius=2/2
-threat intel     : 17 entries
-```
-
 ---
 
-## Privacy guarantees
+## Documentation
 
-- **Read-only by default.** Sentinel never modifies your AI-client configs.
-- **Inspection in flight, no payload storage.** `params.arguments` of `tools/call` are never written to disk. This is enforced in `sentinel-monitor::privacy`.
-- **No outbound calls** outside the optional npm registry attestation. The threat intel feed ships embedded in the binary via `include_str!`.
-- **No telemetry.** Sentinel has zero analytics, zero crash reporting, zero phone-home.
-- The SQLite store lives at `~/Library/Application Support/com.sentinel-mcp.desktop/sentinel.db` and is yours alone.
+- **[Quickstart](docs/QUICKSTART.md)** — scan in 60 seconds, CI audits, guard mode
+- **[Installation](docs/INSTALL.md)** — all platforms, release artifacts, checksum verification
+- **[Comparison](docs/COMPARISON.md)** — detailed competitive matrix
+- **[Full feature reference](sentinel/FEATURES.md)** — every capability, in depth
 
----
+## Compliance references
 
-## Why this exists
-
-> In 2012 the Shadow IT problem was an employee dropping files into Dropbox.
-> In 2026 the Shadow MCP problem is an AI agent reaching out to MCP servers nobody audited.
-
-Up to 15 lookalike packages exist per official MCP server on public registries.
-88 % of organisations surveyed reported an agent-related incident in the last 12 months.
-The OWASP MCP Top 10 and SAFE-MCP framework codified the threat — there was no light-weight tool that surfaced it on a developer's own machine.
-
-Sentinel MCP is that tool.
-
----
+- [OWASP MCP Top 10](https://owasp.org/) — MCP03 (Tool Poisoning), MCP09 (Shadow MCP Server)
+- [SAFE-MCP](https://safemcp.io/) — T1001 (Tool Description Poisoning), T1201 (Rug Pull)
+- SOC 2 — CC6.1, CC7.1, CC7.2
+- ISO 27001 — A.8.1.1, A.12.4.1, A.12.4.3, A.12.6.1, A.13.1.1, A.14.2.2
 
 ## License
 
 MIT.
-
----
-
-## Compliance references
-
-- [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/) — MCP09 (Shadow MCP), MCP03 (Tool Poisoning)
-- [SAFE-MCP](https://safemcp.io/) — T1001 (Tool Description Poisoning), T1201 (Rug Pull)
-- SOC 2 — CC6.1, CC7.1, CC7.2
-- ISO 27001 — A.8.1.1, A.12.4.1, A.12.4.3, A.12.6.1, A.13.1.1, A.14.2.2

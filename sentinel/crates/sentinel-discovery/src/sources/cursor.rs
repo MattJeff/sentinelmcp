@@ -1,24 +1,46 @@
 //! Cursor MCP discovery source.
 //!
 //! Cursor stores its global MCP server declarations in `~/.cursor/mcp.json`
-//! using the same `{ "mcpServers": { ... } }` shape as Anthropic's Claude
-//! Desktop config. Each entry can either be a stdio command (`command`,
+//! — same home-relative path on macOS, Windows (`%USERPROFILE%\.cursor\mcp.json`)
+//! and Linux — using the same `{ "mcpServers": { ... } }` shape as Anthropic's
+//! Claude Desktop config. Each entry can either be a stdio command (`command`,
 //! `args`, `env`) or a remote endpoint (`url`, `type` = "sse" | "http").
 //!
 //! The app itself lives at `/Applications/Cursor.app` on macOS; we read its
 //! version from `Contents/Info.plist` and surface the binary at
-//! `Contents/MacOS/Cursor`.
+//! `Contents/MacOS/Cursor`. On Windows the install dir is
+//! `%LOCALAPPDATA%\Programs\cursor`; on Linux it's usually an AppImage so we
+//! rely on the config file alone.
 //!
 //! For v1 we only scan the global config — per-workspace `<project>/.cursor/mcp.json`
 //! is intentionally out of scope.
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+
+/// Chemins candidats de `mcp.json` — identiques sur les trois OS
+/// (chemin relatif au home). Fonction pure.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    vec![ctx.home.join(".cursor").join("mcp.json")]
+}
+
+/// Chemins candidats de l'app/binaire Cursor selon l'OS. Fonction pure.
+pub fn chemins_app_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    match ctx.os {
+        OsCible::MacOs => vec![PathBuf::from("/Applications/Cursor.app")],
+        OsCible::Windows => vec![ctx
+            .dossier_local_appdata()
+            .join("Programs")
+            .join("cursor")],
+        OsCible::Linux => vec![],
+    }
+}
 
 pub struct SourceCursor;
 
@@ -27,12 +49,15 @@ impl SourceClient for SourceCursor {
     fn id(&self) -> &'static str { "cursor" }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
             None => return vec![],
         };
-        let app = PathBuf::from("/Applications/Cursor.app");
-        detecter_avec_chemins(&home, &app)
+        let app = chemins_app_candidats(&ctx)
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| PathBuf::from("/Applications/Cursor.app"));
+        detecter_avec_chemins(&ctx.home, &app)
     }
 }
 
@@ -202,4 +227,36 @@ fn lire_version_info_plist(plist: &Path) -> Option<String> {
     let after_open = &tail[open + "<string>".len()..];
     let close = after_open.find("</string>")?;
     Some(after_open[..close].trim().to_string())
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn config_identique_sur_tous_les_os() {
+        for os in OsCible::TOUS {
+            let ctx = ContexteOs::nouveau(os, "/home/user");
+            assert_eq!(
+                chemins_config_candidats(&ctx),
+                vec![PathBuf::from("/home/user/.cursor/mcp.json")],
+                "os = {os:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn app_windows_local_appdata() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_app_candidats(&ctx),
+            vec![PathBuf::from("C:/Users/alice/AppData/Local/Programs/cursor")]
+        );
+    }
+
+    #[test]
+    fn app_linux_aucun_chemin_fixe() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob");
+        assert!(chemins_app_candidats(&ctx).is_empty());
+    }
 }

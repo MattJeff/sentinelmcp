@@ -80,6 +80,8 @@ fn severite_inconnue_retourne_moyenne() {
 }
 
 /// Test 4 : lookup O(1) — 1000 lookups en moins de 1 ms.
+/// Meilleure de plusieurs mesures pour neutraliser la contention quand
+/// toute la suite tourne en parallèle (`cargo test --workspace`, CI).
 #[test]
 fn lookup_o1_moins_de_1ms_pour_1000_appels() {
     let matrice = MatriceSeverite::par_defaut();
@@ -91,17 +93,24 @@ fn lookup_o1_moins_de_1ms_pour_1000_appels() {
         TypeConstat::Exfiltration,
     ];
 
-    let debut = Instant::now();
-    for i in 0..1000usize {
-        let tc = &types[i % types.len()];
-        let _ = matrice.severite_pour(tc);
+    const ESSAIS: usize = 5;
+    let mut meilleure = std::time::Duration::MAX;
+    for _ in 0..ESSAIS {
+        let debut = Instant::now();
+        for i in 0..1000usize {
+            let tc = &types[i % types.len()];
+            let _ = std::hint::black_box(matrice.severite_pour(std::hint::black_box(tc)));
+        }
+        let duree = debut.elapsed();
+        meilleure = meilleure.min(duree);
+        if duree.as_millis() < 1 {
+            return;
+        }
     }
-    let duree = debut.elapsed();
 
-    assert!(
-        duree.as_millis() < 1,
-        "1000 lookups ont pris {:?}, attendu < 1 ms",
-        duree
+    panic!(
+        "1000 lookups ont pris {:?} (meilleure de {} mesures), attendu < 1 ms",
+        meilleure, ESSAIS
     );
 }
 

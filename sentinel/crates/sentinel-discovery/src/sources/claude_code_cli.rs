@@ -2,8 +2,10 @@
 //!
 //! Claude Code stores its primary configuration in `~/.claude.json` (a single
 //! large JSON file with a top-level `mcpServers` key — same shape as Claude
-//! Desktop). It also supports:
+//! Desktop). The same home-relative path applies on Windows
+//! (`%USERPROFILE%\.claude.json`) and Linux. It also supports:
 //!   * an alternate user-level location: `~/.config/claude/mcp.json`
+//!     (macOS / Linux, `$XDG_CONFIG_HOME` honoré sur Linux)
 //!   * per-project `.mcp.json` files (merged at runtime when you open Claude
 //!     Code inside that directory).
 //!
@@ -13,6 +15,7 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{pousser_unique, ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -29,17 +32,47 @@ impl SourceClient for SourceClaudeCodeCli {
     }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
             None => return vec![],
         };
-        detecter_avec_home(&home).await
+        detecter_avec_contexte(&ctx).await
     }
 }
 
+/// Chemins candidats des configs globales selon l'OS. Fonction pure.
+///
+/// * Tous OS : `<home>/.claude.json` (primaire)
+/// * macOS  : + `~/.config/claude/mcp.json`
+/// * Linux  : + `$XDG_CONFIG_HOME/claude/mcp.json` (défaut `~/.config/…`)
+/// * Windows: `%USERPROFILE%\.claude.json` uniquement
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    let mut out = vec![ctx.home.join(".claude.json")];
+    match ctx.os {
+        OsCible::MacOs => {
+            out.push(ctx.home.join(".config").join("claude").join("mcp.json"));
+        }
+        OsCible::Linux => {
+            for d in ctx.dossiers_config_linux() {
+                pousser_unique(&mut out, d.join("claude").join("mcp.json"));
+            }
+        }
+        OsCible::Windows => {}
+    }
+    out
+}
+
 /// Core detection routine that is parameterised by `$HOME` so tests can pass a
-/// synthetic root.
+/// synthetic root. Uses the current machine's OS for the candidate paths.
 pub async fn detecter_avec_home(home: &Path) -> Vec<ClientDecouvert> {
+    let ctx = ContexteOs::nouveau(OsCible::courant(), home);
+    detecter_avec_contexte(&ctx).await
+}
+
+/// Variante entièrement paramétrée (OS + home injectés) — testable sur tous
+/// les OS sans `cfg!`.
+pub async fn detecter_avec_contexte(ctx: &ContexteOs) -> Vec<ClientDecouvert> {
+    let home = ctx.home.as_path();
     let mut client = ClientDecouvert::nouveau(ClientKind::ClaudeCodeCli);
 
     // -- 1. Locate the `claude` binary ---------------------------------------
@@ -48,13 +81,10 @@ pub async fn detecter_avec_home(home: &Path) -> Vec<ClientDecouvert> {
         client.version = version;
     }
 
-    // -- 2. Primary config: ~/.claude.json (top-level mcpServers) ------------
-    let primary = home.join(".claude.json");
-    parser_config_globale(&primary, &mut client);
-
-    // -- 3. Alt config: ~/.config/claude/mcp.json ---------------------------
-    let alt = home.join(".config").join("claude").join("mcp.json");
-    parser_config_globale(&alt, &mut client);
+    // -- 2./3. Global configs (primary + per-OS alternates) ------------------
+    for cfg in chemins_config_candidats(ctx) {
+        parser_config_globale(&cfg, &mut client);
+    }
 
     // -- 4. Per-project .mcp.json files -------------------------------------
     // v1 scope: ~/.mcp.json + any ~/<dir>/.mcp.json one level deep.
@@ -365,4 +395,44 @@ fn serveur_depuis_entree(
         disabled,
         scope,
     })
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos() {
+        let ctx = ContexteOs::nouveau(OsCible::MacOs, "/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![
+                PathBuf::from("/Users/alice/.claude.json"),
+                PathBuf::from("/Users/alice/.config/claude/mcp.json"),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_userprofile_seul() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![PathBuf::from("C:/Users/alice/.claude.json")]
+        );
+    }
+
+    #[test]
+    fn linux_avec_xdg() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob")
+            .avec_xdg_config_home("/home/bob/xdg");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![
+                PathBuf::from("/home/bob/.claude.json"),
+                PathBuf::from("/home/bob/xdg/claude/mcp.json"),
+                PathBuf::from("/home/bob/.config/claude/mcp.json"),
+            ]
+        );
+    }
 }

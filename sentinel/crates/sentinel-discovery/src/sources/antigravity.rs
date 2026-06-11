@@ -12,8 +12,12 @@
 //!
 //! We look at:
 //!
-//! 1. `<home>/Library/Application Support/Antigravity/User/settings.json`
-//!    (VS-Code-derived layout). JSONC, so we strip comments first.
+//! 1. The user `settings.json` (VS-Code-derived layout, JSONC so we strip
+//!    comments first) — per OS:
+//!    * macOS: `<home>/Library/Application Support/Antigravity/User/settings.json`
+//!    * Windows: `%APPDATA%\Antigravity\User\settings.json`
+//!    * Linux: `$XDG_CONFIG_HOME/Antigravity/User/settings.json`
+//!      (défaut `~/.config/Antigravity/User/settings.json`)
 //! 2. `<home>/.antigravity/mcp.json` — a plausible standalone MCP file
 //!    (mirrors how Cursor/Windsurf ship their dedicated MCP config).
 //! 3. `<home>/.antigravity/extensions/` — flagged in meta if present.
@@ -27,12 +31,33 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{
+    pousser_unique, premier_existant_ou_premier, ContexteOs, OsCible,
+};
 use crate::sources::SourceClient;
 use crate::sources::vscode::strip_jsonc_comments;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+
+/// Chemins candidats du `settings.json` utilisateur selon l'OS.
+/// Fonction pure : testable sur n'importe quelle machine.
+pub fn chemins_settings_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    let suffixe =
+        |racine: PathBuf| racine.join("Antigravity").join("User").join("settings.json");
+    match ctx.os {
+        OsCible::MacOs => vec![suffixe(ctx.home.join("Library").join("Application Support"))],
+        OsCible::Windows => vec![suffixe(ctx.dossier_appdata())],
+        OsCible::Linux => {
+            let mut out = vec![];
+            for d in ctx.dossiers_config_linux() {
+                pousser_unique(&mut out, suffixe(d));
+            }
+            out
+        }
+    }
+}
 
 pub struct SourceAntigravity;
 
@@ -41,8 +66,8 @@ impl SourceClient for SourceAntigravity {
     fn id(&self) -> &'static str { "antigravity" }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
             None => return vec![],
         };
         let apps = vec![
@@ -50,21 +75,27 @@ impl SourceClient for SourceAntigravity {
             PathBuf::from("/Applications/Google Antigravity.app"),
         ];
         let app = apps.into_iter().find(|p| p.exists());
-        detecter_avec_chemins(&home, app.as_deref())
+        detecter_avec_contexte(&ctx, app.as_deref())
     }
 }
 
 /// Pure detection helper — used by both the live source and the tests.
-///
-/// `home` is treated as the user's home directory and `app` is the optional
-/// absolute path of the `Antigravity.app` bundle.
+/// Resolves the settings path for the **current** OS; for per-OS tests use
+/// [`detecter_avec_contexte`].
 pub fn detecter_avec_chemins(home: &Path, app: Option<&Path>) -> Vec<ClientDecouvert> {
-    let settings_path = home
-        .join("Library")
-        .join("Application Support")
-        .join("Antigravity")
-        .join("User")
-        .join("settings.json");
+    let ctx = ContexteOs::nouveau(OsCible::courant(), home);
+    detecter_avec_contexte(&ctx, app)
+}
+
+/// Variante entièrement paramétrée (OS + home injectés) — testable sur tous
+/// les OS sans `cfg!`. `app` is the optional absolute path of the
+/// `Antigravity.app` bundle (macOS only).
+pub fn detecter_avec_contexte(ctx: &ContexteOs, app: Option<&Path>) -> Vec<ClientDecouvert> {
+    let home = ctx.home.as_path();
+    let settings_path = match premier_existant_ou_premier(&chemins_settings_candidats(ctx)) {
+        Some(p) => p,
+        None => return vec![],
+    };
     let mcp_json_path = home.join(".antigravity").join("mcp.json");
     let extensions_dir = home.join(".antigravity").join("extensions");
 
@@ -278,4 +309,44 @@ fn lire_version_info_plist(plist: &Path) -> Option<String> {
     let after_open = &tail[open + "<string>".len()..];
     let close = after_open.find("</string>")?;
     Some(after_open[..close].trim().to_string())
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos_application_support() {
+        let ctx = ContexteOs::nouveau(OsCible::MacOs, "/Users/alice");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![PathBuf::from(
+                "/Users/alice/Library/Application Support/Antigravity/User/settings.json"
+            )]
+        );
+    }
+
+    #[test]
+    fn windows_appdata() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![PathBuf::from(
+                "C:/Users/alice/AppData/Roaming/Antigravity/User/settings.json"
+            )]
+        );
+    }
+
+    #[test]
+    fn linux_xdg_puis_config() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob")
+            .avec_xdg_config_home("/home/bob/xdg");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![
+                PathBuf::from("/home/bob/xdg/Antigravity/User/settings.json"),
+                PathBuf::from("/home/bob/.config/Antigravity/User/settings.json"),
+            ]
+        );
+    }
 }

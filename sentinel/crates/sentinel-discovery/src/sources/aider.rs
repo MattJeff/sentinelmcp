@@ -35,6 +35,7 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -83,36 +84,62 @@ fn home_dir(opts: &AiderOptions) -> Option<PathBuf> {
     dirs::home_dir()
 }
 
-fn config_candidates(opts: &AiderOptions) -> Vec<PathBuf> {
-    let mut out = vec![];
-    if let Some(h) = home_dir(opts) {
-        out.push(h.join(".aider.conf.yml"));
-        out.push(h.join(".aider/config.yml"));
+/// Chemins candidats des configs globales Aider — identiques sur les trois
+/// OS (chemins relatifs au home, `%USERPROFILE%\.aider.conf.yml` sur
+/// Windows). Fonction pure.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    vec![
+        ctx.home.join(".aider.conf.yml"),
+        ctx.home.join(".aider/config.yml"),
+    ]
+}
+
+/// Nom du binaire `aider` selon l'OS.
+fn nom_binaire(os: OsCible) -> &'static str {
+    match os {
+        OsCible::Windows => "aider.exe",
+        _ => "aider",
     }
-    out
+}
+
+fn config_candidates(opts: &AiderOptions) -> Vec<PathBuf> {
+    match home_dir(opts) {
+        Some(h) => chemins_config_candidats(&ContexteOs::nouveau(OsCible::courant(), h)),
+        None => vec![],
+    }
 }
 
 fn binary_candidates(opts: &AiderOptions) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = vec![];
+    let bin = nom_binaire(OsCible::courant());
 
     if let Some(dirs) = &opts.bin_dirs {
         for d in dirs {
-            out.push(d.join("aider"));
+            out.push(d.join(bin));
         }
     } else {
-        // `which aider` first (catches venv / pipx installs).
-        if let Ok(output) = Command::new("which").arg("aider").output() {
+        // `which aider` first (catches venv / pipx installs). On Windows the
+        // equivalent lookup is `where`.
+        let lookup = if cfg!(target_os = "windows") { "where" } else { "which" };
+        if let Ok(output) = Command::new(lookup).arg("aider").output() {
             if output.status.success() {
-                let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let s = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
                 if !s.is_empty() {
                     out.push(PathBuf::from(s));
                 }
             }
         }
-        out.push(PathBuf::from("/opt/homebrew/bin/aider"));
+        if cfg!(target_os = "macos") {
+            out.push(PathBuf::from("/opt/homebrew/bin/aider"));
+        }
         if let Some(h) = home_dir(opts) {
-            out.push(h.join(".local/bin/aider"));
-            out.push(h.join(".aider/bin/aider"));
+            out.push(h.join(".local/bin").join(bin));
+            out.push(h.join(".aider/bin").join(bin));
         }
     }
 
@@ -426,4 +453,31 @@ fn parser_entree_objet(nom: &str, value: &YamlValue) -> Option<ServeurMcpDeclare
         disabled,
         scope: ScopeServeur::default(),
     })
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn config_identique_sur_tous_les_os() {
+        for os in OsCible::TOUS {
+            let ctx = ContexteOs::nouveau(os, "/home/user");
+            assert_eq!(
+                chemins_config_candidats(&ctx),
+                vec![
+                    PathBuf::from("/home/user/.aider.conf.yml"),
+                    PathBuf::from("/home/user/.aider/config.yml"),
+                ],
+                "os = {os:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn nom_binaire_windows_avec_exe() {
+        assert_eq!(nom_binaire(OsCible::Windows), "aider.exe");
+        assert_eq!(nom_binaire(OsCible::MacOs), "aider");
+        assert_eq!(nom_binaire(OsCible::Linux), "aider");
+    }
 }

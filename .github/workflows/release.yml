@@ -1,0 +1,207 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    name: CLI ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sentinel
+          key: ${{ matrix.target }}
+
+      - name: Build CLI
+        run: cargo build --release -p sentinel-cli --target ${{ matrix.target }}
+        working-directory: sentinel
+
+      - name: Empaqueter (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCHIVE="sentinel-${VERSION}-${{ matrix.target }}.tar.gz"
+          mkdir -p dist-cli
+          tar -czf "dist-cli/${ARCHIVE}" \
+            -C "sentinel/target/${{ matrix.target }}/release" sentinel
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist-cli && sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256")
+          else
+            (cd dist-cli && shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256")
+          fi
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Empaqueter (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCHIVE="sentinel-${VERSION}-${{ matrix.target }}.tar.gz"
+          mkdir -p dist-cli
+          tar -czf "dist-cli/${ARCHIVE}" \
+            -C "sentinel/target/${{ matrix.target }}/release" sentinel.exe
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist-cli && sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256")
+          else
+            (cd dist-cli && shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256")
+          fi
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Publier l'artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: |
+            dist-cli/${{ env.ARCHIVE }}
+            dist-cli/${{ env.ARCHIVE }}.sha256
+          if-no-files-found: error
+
+  tauri:
+    name: Tauri (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bundles: deb,rpm,appimage
+          - os: macos-latest
+            bundles: app,dmg
+          - os: windows-latest
+            bundles: msi,nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances système (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            libssl-dev patchelf
+
+      - name: Installer Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sentinel/sentinel-desktop/src-tauri
+
+      - name: Installer pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: sentinel/sentinel-desktop/package.json
+
+      - name: Installer Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: sentinel/sentinel-desktop/pnpm-lock.yaml
+
+      - name: Installer les dépendances
+        run: pnpm install --frozen-lockfile
+        working-directory: sentinel/sentinel-desktop
+
+      # --- Signature macOS (Developer ID + notarization) ---
+      # Pour activer la signature et la notarization sur macOS, décommenter le
+      # step ci-dessous et renseigner les secrets suivants dans le dépôt :
+      #   APPLE_CERTIFICATE          : certificat Developer ID Application (.p12) encodé en base64
+      #   APPLE_CERTIFICATE_PASSWORD : mot de passe du .p12
+      #   APPLE_SIGNING_IDENTITY     : ex. "Developer ID Application: Nom (TEAMID)"
+      #   APPLE_ID                   : identifiant Apple (email)
+      #   APPLE_PASSWORD             : mot de passe applicatif (app-specific password)
+      #   APPLE_TEAM_ID              : Team ID Apple Developer (ex. YV2MS7RRD5)
+      # Voir BUILD_SIGNING.md à la racine du dépôt pour la procédure complète.
+      #
+      # - name: Importer le certificat Developer ID (macOS)
+      #   if: runner.os == 'macOS'
+      #   env:
+      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #   run: |
+      #     KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+      #     KEYCHAIN_PASSWORD="$(uuidgen)"
+      #     echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+      #     security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      #     security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+      #     security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      #     security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" \
+      #       -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+      #     security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      #     security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Build des bundles Tauri
+        run: pnpm tauri build --bundles ${{ matrix.bundles }}
+        working-directory: sentinel/sentinel-desktop
+        # Pour signer + notarizer, décommenter le bloc env ci-dessous
+        # (le CLI Tauri prend en charge ces variables nativement) :
+        # env:
+        #   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        #   APPLE_ID: ${{ secrets.APPLE_ID }}
+        #   APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        #   APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Publier les bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-${{ matrix.os }}
+          path: |
+            sentinel/sentinel-desktop/src-tauri/target/release/bundle/deb/*.deb
+            sentinel/sentinel-desktop/src-tauri/target/release/bundle/rpm/*.rpm
+            sentinel/sentinel-desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            sentinel/sentinel-desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            sentinel/sentinel-desktop/src-tauri/target/release/bundle/msi/*.msi
+            sentinel/sentinel-desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub Release
+    needs: [cli, tauri]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Télécharger tous les artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Créer la draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: Sentinel MCP ${{ github.ref_name }}
+          files: artifacts/**
+          fail_on_unmatched_files: true

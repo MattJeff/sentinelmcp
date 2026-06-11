@@ -8,6 +8,7 @@ pub mod dedup;
 pub mod lifecycle;
 pub mod siem;
 pub mod sinks;
+pub mod secrets;
 
 pub use engine::MoteurAlertes;
 pub use severity::{MatriceSeverite, ConfigSeverite};
@@ -19,3 +20,4 @@ pub use siem::{
     AdaptateurStandard, ContratSiem, EnregistrementSiem,
     gravite_siem, vers_cef, vers_leef, vers_ecs_json,
 };
+pub use secrets::{CoffreKeyring, CoffreMemoire, CoffreSecrets};

@@ -1,12 +1,13 @@
-//! Detection source for LM Studio (macOS).
+//! Detection source for LM Studio (macOS / Windows / Linux).
 //!
 //! LM Studio (https://lmstudio.ai) is a desktop runner for local LLMs. It
 //! shipped MCP support in 2025; the user-managed MCP servers live in a
 //! JSON file under the user's LM Studio dotfolder. We probe two candidate
 //! paths because the install layout migrated between LM Studio versions:
 //!
-//! * `~/.lmstudio/mcp.json`  (current location)
-//! * `~/.cache/lm-studio/mcp.json`  (older builds)
+//! * `~/.lmstudio/mcp.json`  (current location, same home-relative path on
+//!   every OS — `%USERPROFILE%\.lmstudio\mcp.json` on Windows)
+//! * `~/.cache/lm-studio/mcp.json`  (older macOS / Linux builds)
 //!
 //! The app bundle (`/Applications/LM Studio.app`) and the models cache
 //! (`~/.lmstudio/models/`) are independent install indicators: either one
@@ -16,6 +17,7 @@
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+use crate::sources::os_paths::{ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -23,12 +25,22 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Primary macOS path for LM Studio's MCP config file (current builds).
+/// Primary home-relative path for LM Studio's MCP config file (all OSes).
 const CONFIG_REL_PRIMARY: &str = ".lmstudio/mcp.json";
-/// Legacy macOS path for LM Studio's MCP config file (older builds).
+/// Legacy macOS / Linux path for LM Studio's MCP config file (older builds).
 const CONFIG_REL_LEGACY: &str = ".cache/lm-studio/mcp.json";
 /// Models cache directory (existence implies LM Studio has been used).
 const MODELS_CACHE_REL: &str = ".lmstudio/models";
+
+/// Chemins candidats de `mcp.json` selon l'OS, en ordre de priorité.
+/// Fonction pure : testable sur n'importe quelle machine.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    let mut out = vec![ctx.home.join(CONFIG_REL_PRIMARY)];
+    if matches!(ctx.os, OsCible::MacOs | OsCible::Linux) {
+        out.push(ctx.home.join(CONFIG_REL_LEGACY));
+    }
+    out
+}
 /// macOS path to the LM Studio app bundle.
 const APP_BUNDLE: &str = "/Applications/LM Studio.app";
 /// macOS path to the LM Studio main binary inside the bundle.
@@ -45,15 +57,14 @@ impl SourceClient for SourceLmstudio {
     }
 
     async fn detecter(&self) -> Vec<ClientDecouvert> {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
+        let ctx = match ContexteOs::courant() {
+            Some(c) => c,
             None => return vec![],
         };
-        let primary = home.join(CONFIG_REL_PRIMARY);
-        let legacy = home.join(CONFIG_REL_LEGACY);
-        let models = home.join(MODELS_CACHE_REL);
+        let candidats = chemins_config_candidats(&ctx);
+        let models = ctx.home.join(MODELS_CACHE_REL);
         detecter_aux(
-            &[primary, legacy],
+            &candidats,
             &models,
             Path::new(APP_BUNDLE),
             Path::new(APP_BINARY),
@@ -243,5 +254,34 @@ fn lire_version_plist(info_plist: &Path) -> Option<String> {
         None
     } else {
         Some(s)
+    }
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos_et_linux_avec_legacy() {
+        for os in [OsCible::MacOs, OsCible::Linux] {
+            let ctx = ContexteOs::nouveau(os, "/home/user");
+            assert_eq!(
+                chemins_config_candidats(&ctx),
+                vec![
+                    PathBuf::from("/home/user/.lmstudio/mcp.json"),
+                    PathBuf::from("/home/user/.cache/lm-studio/mcp.json"),
+                ],
+                "os = {os:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_userprofile_seul() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_config_candidats(&ctx),
+            vec![PathBuf::from("C:/Users/alice/.lmstudio/mcp.json")]
+        );
     }
 }

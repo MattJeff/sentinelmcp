@@ -1,8 +1,10 @@
 //! Zed editor discovery source.
 //!
 //! Zed stores its user settings as JSONC at one of:
-//!   * `~/.config/zed/settings.json` (preferred, newer installs)
-//!   * `~/Library/Application Support/Zed/settings.json` (legacy macOS path)
+//!   * macOS: `~/.config/zed/settings.json` (preferred, newer installs)
+//!     puis `~/Library/Application Support/Zed/settings.json` (legacy)
+//!   * Linux: `$XDG_CONFIG_HOME/zed/settings.json` (défaut `~/.config/zed/…`)
+//!   * Windows: `%APPDATA%\Zed\settings.json`
 //!
 //! MCP servers in Zed are called "context servers" and live under the
 //! `context_servers` top-level key. Zed also exposes a parallel notion of
@@ -17,12 +19,32 @@ use sentinel_protocol::ScopeServeur;
 use crate::model::{
     ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare,
 };
+use crate::sources::os_paths::{pousser_unique, ContexteOs, OsCible};
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// Chemins candidats de `settings.json` selon l'OS, en ordre de priorité.
+/// Fonction pure : testable sur n'importe quelle machine.
+pub fn chemins_settings_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    match ctx.os {
+        OsCible::MacOs => vec![
+            ctx.home.join(".config/zed/settings.json"),
+            ctx.home.join("Library/Application Support/Zed/settings.json"),
+        ],
+        OsCible::Windows => vec![ctx.dossier_appdata().join("Zed").join("settings.json")],
+        OsCible::Linux => {
+            let mut out = vec![];
+            for d in ctx.dossiers_config_linux() {
+                pousser_unique(&mut out, d.join("zed").join("settings.json"));
+            }
+            out
+        }
+    }
+}
 
 /// Detection source for the Zed editor.
 pub struct SourceZed {
@@ -53,28 +75,24 @@ impl SourceZed {
         self
     }
 
-    fn home_dir(&self) -> Option<PathBuf> {
-        if let Some(h) = &self.home {
-            return Some(h.clone());
-        }
-        dirs::home_dir()
-    }
-
     fn applications_dir(&self) -> PathBuf {
         self.applications
             .clone()
             .unwrap_or_else(|| PathBuf::from("/Applications"))
     }
 
-    /// Returns the candidate settings paths in priority order.
+    /// Returns the candidate settings paths in priority order, for the OS
+    /// the binary is running on. A home override (tests) ignores the real
+    /// environment variables to keep the probe hermetic.
     fn settings_paths(&self) -> Vec<PathBuf> {
-        let Some(home) = self.home_dir() else {
-            return vec![];
+        let ctx = match &self.home {
+            Some(h) => ContexteOs::nouveau(OsCible::courant(), h.clone()),
+            None => match ContexteOs::courant() {
+                Some(c) => c,
+                None => return vec![],
+            },
         };
-        vec![
-            home.join(".config/zed/settings.json"),
-            home.join("Library/Application Support/Zed/settings.json"),
-        ]
+        chemins_settings_candidats(&ctx)
     }
 
     /// Returns the candidate app bundle paths (stable, preview, nightly).
@@ -396,5 +414,44 @@ impl SourceClient for SourceZed {
         }
 
         vec![client]
+    }
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+
+    #[test]
+    fn macos_config_puis_legacy() {
+        let ctx = ContexteOs::nouveau(OsCible::MacOs, "/Users/alice");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![
+                PathBuf::from("/Users/alice/.config/zed/settings.json"),
+                PathBuf::from("/Users/alice/Library/Application Support/Zed/settings.json"),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_appdata() {
+        let ctx = ContexteOs::nouveau(OsCible::Windows, "C:/Users/alice");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![PathBuf::from("C:/Users/alice/AppData/Roaming/Zed/settings.json")]
+        );
+    }
+
+    #[test]
+    fn linux_xdg_puis_config() {
+        let ctx = ContexteOs::nouveau(OsCible::Linux, "/home/bob")
+            .avec_xdg_config_home("/home/bob/xdg");
+        assert_eq!(
+            chemins_settings_candidats(&ctx),
+            vec![
+                PathBuf::from("/home/bob/xdg/zed/settings.json"),
+                PathBuf::from("/home/bob/.config/zed/settings.json"),
+            ]
+        );
     }
 }

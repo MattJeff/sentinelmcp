@@ -1,0 +1,34 @@
+# Hooks pre-commit de Sentinel MCP.
+#
+# Usage dans .pre-commit-config.yaml :
+#
+#   repos:
+#     - repo: https://github.com/MattJeff/sentinelmcp
+#       rev: v0.3.0
+#       hooks:
+#         - id: sentinel-audit
+#
+# Prérequis : le CLI « sentinel » doit être installé et présent dans le PATH :
+#   curl -fsSL https://raw.githubusercontent.com/MattJeff/sentinelmcp/main/scripts/install.sh | bash
+# ou :
+#   cargo install sentinel-cli
+#
+# Note Windows : le hook s'exécute via bash (fourni par Git for Windows /
+# Git Bash, présent dans l'environnement pre-commit standard sous Windows).
+
+- id: sentinel-audit
+  name: Sentinel MCP — audit des configs MCP
+  description: >-
+    Audit statique (poisoning, typosquats / sosies) des fichiers de
+    configuration MCP modifiés (mcp.json, .mcp.json, mcp_config.json,
+    claude_desktop_config.json).
+  entry: >-
+    bash -c 'if ! command -v sentinel >/dev/null 2>&1; then
+    echo "sentinel-audit : CLI « sentinel » introuvable dans le PATH." >&2;
+    echo "Installez-le via : curl -fsSL https://raw.githubusercontent.com/MattJeff/sentinelmcp/main/scripts/install.sh | bash" >&2;
+    echo "             ou : cargo install sentinel-cli" >&2;
+    exit 1; fi;
+    code=0; for f in "$@"; do sentinel audit "$f" || code=1; done; exit "$code"' --
+  language: system
+  files: '(^|/)(\.?mcp\.json|mcp_config\.json|claude_desktop_config\.json)$'
+  pass_filenames: true

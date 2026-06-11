@@ -396,6 +396,15 @@ export interface SettingsEmail {
   port: number;
   from: string;
   to: string;
+  /** SMTP auth user (empty string = no auth). */
+  user: string;
+  /**
+   * SMTP auth password. The backend never returns the clear secret: when a
+   * password is stored (OS keyring), `get_settings` returns the `"********"`
+   * sentinel. Sending the sentinel back unchanged on save keeps the existing
+   * secret; sending an empty string clears it.
+   */
+  pass: string;
 }
 
 export interface SettingsWebhook {

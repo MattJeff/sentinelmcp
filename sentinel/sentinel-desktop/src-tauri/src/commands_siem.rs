@@ -31,6 +31,7 @@ use serde_json::json;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+use sentinel_alerts::secrets::{self, CoffreSecrets};
 use sentinel_alerts::sinks::elastic::ClientElastic;
 use sentinel_alerts::sinks::splunk::ClientSplunkHec;
 use sentinel_alerts::sinks::syslog::{
@@ -38,6 +39,11 @@ use sentinel_alerts::sinks::syslog::{
 };
 
 const SIEM_FILENAME: &str = "siem.json";
+
+/// Keyring key (service "sentinel-mcp") for the Splunk HEC token.
+const CLE_SPLUNK_TOKEN: &str = "splunk_hec_token";
+/// Keyring key (service "sentinel-mcp") for the Elastic Basic-auth password.
+const CLE_ELASTIC_PASS: &str = "elastic_password";
 
 /// User-facing SIEM sink configuration.
 ///
@@ -91,6 +97,114 @@ fn siem_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir.join(SIEM_FILENAME))
 }
 
+// ─── Keyring protection helpers ──────────────────────────────────────────────
+//
+// Secrets (Splunk HEC token, Elastic password) are pushed into the OS keyring
+// (service "sentinel-mcp") and replaced on disk by a `"keyring:<name>"`
+// reference. Set `SENTINEL_NO_KEYRING=1` to opt out (CI / headless) and keep
+// the legacy clear-text file behaviour.
+
+/// Replace clear-text secrets in `cfg` by keyring references (writing the
+/// secrets into the vault). Returns `true` when at least one field changed.
+fn proteger_siem(cfg: &mut SiemConfig, coffre: &dyn CoffreSecrets) -> Result<bool, String> {
+    let mut change = secrets::proteger_option(coffre, CLE_SPLUNK_TOKEN, &mut cfg.token)
+        .map_err(|e| format!("keyring error ({}): {}", CLE_SPLUNK_TOKEN, e))?;
+    change |= secrets::proteger_option(coffre, CLE_ELASTIC_PASS, &mut cfg.pass)
+        .map_err(|e| format!("keyring error ({}): {}", CLE_ELASTIC_PASS, e))?;
+    Ok(change)
+}
+
+/// Resolve `"keyring:<name>"` references in `cfg` back to their secret values.
+/// Strict variant — used by [`siem_test_send`] where a dangling reference is
+/// a hard error (sending with an empty secret would be misleading).
+fn resoudre_siem(cfg: &mut SiemConfig, coffre: &dyn CoffreSecrets) -> Result<(), String> {
+    secrets::resoudre_option(coffre, &mut cfg.token)
+        .map_err(|e| format!("keyring error ({}): {}", CLE_SPLUNK_TOKEN, e))?;
+    secrets::resoudre_option(coffre, &mut cfg.pass)
+        .map_err(|e| format!("keyring error ({}): {}", CLE_ELASTIC_PASS, e))?;
+    Ok(())
+}
+
+/// Lenient variant used by config loading: a reference whose vault entry has
+/// been deleted loads as an empty secret (warning logged) so the Settings
+/// page never fails to render.
+fn resoudre_siem_souple(cfg: &mut SiemConfig, coffre: &dyn CoffreSecrets) {
+    if let Some(avert) = secrets::resoudre_option_souple(coffre, &mut cfg.token) {
+        log::warn!("siem ({}): {}", CLE_SPLUNK_TOKEN, avert);
+    }
+    if let Some(avert) = secrets::resoudre_option_souple(coffre, &mut cfg.pass) {
+        log::warn!("siem ({}): {}", CLE_ELASTIC_PASS, avert);
+    }
+}
+
+/// Purge vault entries whose config field has been emptied (secret cleared,
+/// or sink kind changed — the UI nulls the secrets of the other kinds).
+fn purger_orphelins_siem(cfg: &SiemConfig, coffre: &dyn CoffreSecrets) -> Result<(), String> {
+    secrets::purger_si_vide(coffre, CLE_SPLUNK_TOKEN, cfg.token.as_deref())
+        .map_err(|e| format!("keyring error ({}): {}", CLE_SPLUNK_TOKEN, e))?;
+    secrets::purger_si_vide(coffre, CLE_ELASTIC_PASS, cfg.pass.as_deref())
+        .map_err(|e| format!("keyring error ({}): {}", CLE_ELASTIC_PASS, e))?;
+    Ok(())
+}
+
+/// Atomic, verified write (tmp + read-back + rename). No `.bak` is ever
+/// kept: the contract is "no clear-text secret ever persists on disk".
+fn ecrire_siem_fichier(path: &std::path::Path, cfg: &SiemConfig) -> Result<(), String> {
+    let serialized = serde_json::to_string_pretty(cfg)
+        .map_err(|e| format!("could not serialize SIEM config: {}", e))?;
+    secrets::ecrire_fichier_verifie(path, &serialized)
+        .map_err(|e| format!("could not write {:?}: {}", path, e))
+}
+
+/// Persist `cfg`, protecting secrets through the keyring when one is provided
+/// and purging vault entries for secrets that have been emptied.
+fn sauver_siem_fichier(
+    path: &std::path::Path,
+    mut cfg: SiemConfig,
+    coffre: Option<&dyn CoffreSecrets>,
+) -> Result<(), String> {
+    if let Some(coffre) = coffre {
+        purger_orphelins_siem(&cfg, coffre)?;
+        proteger_siem(&mut cfg, coffre)?;
+    }
+    ecrire_siem_fichier(path, &cfg)
+}
+
+/// Load the persisted config. When a keyring is active, clear-text secrets
+/// found on disk are migrated transparently (pushed into the vault, file
+/// atomically rewritten with references — no clear-text `.bak` is kept),
+/// then references are resolved so callers always see usable values. A
+/// dangling reference degrades to an empty secret + warning.
+fn charger_siem_fichier(
+    path: &std::path::Path,
+    coffre: Option<&dyn CoffreSecrets>,
+) -> Result<SiemConfig, String> {
+    if !path.exists() {
+        return Ok(SiemConfig::default());
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| format!("could not read {:?}: {}", path, e))?;
+    let mut cfg: SiemConfig = serde_json::from_str(&raw)
+        .map_err(|e| format!("could not parse {:?}: {}", path, e))?;
+
+    let Some(coffre) = coffre else {
+        return Ok(cfg);
+    };
+
+    crate::commands_settings::purger_bak_en_clair(path);
+
+    if proteger_siem(&mut cfg, coffre)? {
+        ecrire_siem_fichier(path, &cfg)?;
+        log::info!(
+            "SIEM secrets migrated to the OS keyring; {:?} rewritten (no clear-text backup kept)",
+            path
+        );
+    }
+
+    resoudre_siem_souple(&mut cfg, coffre);
+    Ok(cfg)
+}
+
 /// Build the synthetic alert payload used by [`siem_test_send`].
 fn synthetic_alert() -> serde_json::Value {
     json!({
@@ -111,8 +225,14 @@ fn synthetic_alert() -> serde_json::Value {
 /// OFF — returns [`crate::outbound::OUTBOUND_DISABLED_MESSAGE`] verbatim,
 /// matching the gate already enforced on TAXII pushes.
 #[tauri::command]
-pub async fn siem_test_send(app: AppHandle, cfg: SiemConfig) -> Result<(), String> {
+pub async fn siem_test_send(app: AppHandle, mut cfg: SiemConfig) -> Result<(), String> {
     crate::outbound::ensure_outbound_enabled(&app)?;
+
+    // The UI may hand back `"keyring:<name>"` references untouched — resolve
+    // them against the OS keyring before dispatching.
+    if let Some(coffre) = secrets::coffre_actif() {
+        resoudre_siem(&mut cfg, coffre.as_ref())?;
+    }
 
     let alert = synthetic_alert();
     log::info!(
@@ -231,32 +351,28 @@ pub async fn siem_test_send(app: AppHandle, cfg: SiemConfig) -> Result<(), Strin
 
 /// Persist the last-used SIEM configuration as JSON.
 ///
-/// Secrets are written to disk in clear-text (same trust model as the existing
-/// `settings.toml`) but are never logged.
+/// Secrets (HEC token, Elastic password) are pushed into the OS keyring and
+/// only a `"keyring:<name>"` reference is written to disk — never the
+/// clear-text value (unless `SENTINEL_NO_KEYRING=1` opts out). Secrets are
+/// never logged.
 #[tauri::command]
 pub async fn siem_save_config(cfg: SiemConfig, app: AppHandle) -> Result<(), String> {
     let path = siem_path(&app)?;
-    let serialized = serde_json::to_string_pretty(&cfg)
-        .map_err(|e| format!("could not serialize SIEM config: {}", e))?;
-    std::fs::write(&path, serialized)
-        .map_err(|e| format!("could not write {:?}: {}", path, e))?;
-    log::info!("Sentinel SIEM config saved at {:?} (kind={})", path, cfg.kind);
+    let kind = cfg.kind.clone();
+    sauver_siem_fichier(&path, cfg, secrets::coffre_actif().as_deref())?;
+    log::info!("Sentinel SIEM config saved at {:?} (kind={})", path, kind);
     Ok(())
 }
 
 /// Read the persisted SIEM configuration back, or return defaults when no
-/// config has ever been saved.
+/// config has ever been saved. Legacy clear-text secrets are transparently
+/// migrated into the OS keyring (no clear-text backup is kept), and keyring
+/// references are resolved before returning. A reference whose vault entry
+/// has been deleted loads as an empty secret instead of failing.
 #[tauri::command]
 pub async fn siem_get_config(app: AppHandle) -> Result<SiemConfig, String> {
     let path = siem_path(&app)?;
-    if !path.exists() {
-        return Ok(SiemConfig::default());
-    }
-    let raw = std::fs::read_to_string(&path)
-        .map_err(|e| format!("could not read {:?}: {}", path, e))?;
-    let parsed: SiemConfig = serde_json::from_str(&raw)
-        .map_err(|e| format!("could not parse {:?}: {}", path, e))?;
-    Ok(parsed)
+    charger_siem_fichier(&path, secrets::coffre_actif().as_deref())
 }
 
 /// Open a native file picker so the operator can select a custom CA PEM
@@ -343,6 +459,153 @@ mod tests {
         assert_eq!(back.kind, "syslog");
         assert_eq!(back.transport.as_deref(), Some("tls"));
         assert_eq!(back.tls_ca_pem_path.as_deref(), Some("/etc/sentinel/ca.pem"));
+    }
+
+    use sentinel_alerts::secrets::CoffreMemoire;
+
+    /// A legacy `siem.json` carrying a clear-text Splunk token must be
+    /// migrated on load: token pushed into the vault, file atomically
+    /// rewritten with a `keyring:` reference, **no** clear-text `.bak` left
+    /// behind, and the returned config resolved back to the clear value.
+    #[test]
+    fn siem_load_migrates_clear_secret_into_keyring() {
+        let tmp = tempdir_unique("siem-keyring-migrate");
+        let path = tmp.join(super::SIEM_FILENAME);
+        let legacy = r#"{ "kind": "splunk", "url": "https://hec.local:8088", "token": "hec-clear-token" }"#;
+        std::fs::write(&path, legacy).unwrap();
+
+        let coffre = CoffreMemoire::nouveau();
+        let cfg = super::charger_siem_fichier(&path, Some(&coffre)).expect("load + migrate");
+
+        // Caller sees the resolved secret.
+        assert_eq!(cfg.token.as_deref(), Some("hec-clear-token"));
+        // Vault holds the secret.
+        assert_eq!(
+            coffre.lire(super::CLE_SPLUNK_TOKEN).unwrap().as_deref(),
+            Some("hec-clear-token")
+        );
+        // File now carries the reference, not the secret.
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("keyring:splunk_hec_token"), "{}", on_disk);
+        assert!(!on_disk.contains("hec-clear-token"), "{}", on_disk);
+        // Contract: no clear-text copy may persist on disk after migration.
+        assert!(!std::path::Path::new(&format!("{}.bak", path.display())).exists());
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// Saving from the UI never writes the clear secret to disk: the Elastic
+    /// password goes to the vault and the file gets the reference.
+    #[test]
+    fn siem_save_protects_secrets_with_keyring() {
+        let tmp = tempdir_unique("siem-keyring-save");
+        let path = tmp.join(super::SIEM_FILENAME);
+        let coffre = CoffreMemoire::nouveau();
+
+        let cfg = SiemConfig {
+            kind: "elastic".to_string(),
+            url: Some("https://es.local:9200".to_string()),
+            index: Some("sentinel".to_string()),
+            user: Some("elastic".to_string()),
+            pass: Some("es-clear-pass".to_string()),
+            ..SiemConfig::default()
+        };
+        super::sauver_siem_fichier(&path, cfg, Some(&coffre)).expect("save");
+
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("keyring:elastic_password"), "{}", on_disk);
+        assert!(!on_disk.contains("es-clear-pass"), "{}", on_disk);
+        assert_eq!(
+            coffre.lire(super::CLE_ELASTIC_PASS).unwrap().as_deref(),
+            Some("es-clear-pass")
+        );
+
+        // Reload resolves the reference back to the clear value.
+        let back = super::charger_siem_fichier(&path, Some(&coffre)).expect("reload");
+        assert_eq!(back.pass.as_deref(), Some("es-clear-pass"));
+        // No second migration happened (no .bak written for an already-protected file).
+        assert!(!std::path::Path::new(&format!("{}.bak", path.display())).exists());
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// Opt-out path (`SENTINEL_NO_KEYRING=1` → no vault handed in): the
+    /// legacy clear-text file behaviour is preserved bit-for-bit.
+    #[test]
+    fn siem_save_without_keyring_keeps_clear_file_behaviour() {
+        let tmp = tempdir_unique("siem-keyring-optout");
+        let path = tmp.join(super::SIEM_FILENAME);
+
+        let cfg = SiemConfig {
+            kind: "splunk".to_string(),
+            url: Some("https://hec.local:8088".to_string()),
+            token: Some("hec-clear-token".to_string()),
+            ..SiemConfig::default()
+        };
+        super::sauver_siem_fichier(&path, cfg, None).expect("save");
+
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("hec-clear-token"));
+        let back = super::charger_siem_fichier(&path, None).expect("reload");
+        assert_eq!(back.token.as_deref(), Some("hec-clear-token"));
+        assert!(!std::path::Path::new(&format!("{}.bak", path.display())).exists());
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// A dangling `keyring:` reference (vault wiped) must degrade
+    /// gracefully on load: the config comes back with an empty secret (and
+    /// a warning logged) instead of blocking the whole Settings page. It
+    /// must never leak the literal reference as a usable secret either.
+    #[test]
+    fn siem_load_degrades_gracefully_on_dangling_reference() {
+        let tmp = tempdir_unique("siem-keyring-dangling");
+        let path = tmp.join(super::SIEM_FILENAME);
+        std::fs::write(
+            &path,
+            r#"{ "kind": "splunk", "url": "https://hec.local:8088", "token": "keyring:splunk_hec_token" }"#,
+        )
+        .unwrap();
+
+        let coffre = CoffreMemoire::nouveau();
+        let cfg = super::charger_siem_fichier(&path, Some(&coffre))
+            .expect("load must not fail on a dangling reference");
+        assert_eq!(cfg.token.as_deref(), Some(""));
+        assert_eq!(cfg.url.as_deref(), Some("https://hec.local:8088"));
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// Switching sink kind (the UI nulls the secrets of the other kinds) or
+    /// clearing a secret purges the orphaned vault entries on save.
+    #[test]
+    fn siem_save_purges_orphaned_secrets() {
+        let tmp = tempdir_unique("siem-keyring-orphans");
+        let path = tmp.join(super::SIEM_FILENAME);
+        let coffre = CoffreMemoire::nouveau();
+
+        // Seed: a Splunk config with its token in the vault.
+        let splunk = SiemConfig {
+            kind: "splunk".to_string(),
+            url: Some("https://hec.local:8088".to_string()),
+            token: Some("hec-clear-token".to_string()),
+            ..SiemConfig::default()
+        };
+        super::sauver_siem_fichier(&path, splunk, Some(&coffre)).expect("save splunk");
+        assert!(coffre.lire(super::CLE_SPLUNK_TOKEN).unwrap().is_some());
+
+        // Operator switches to Syslog: no secret fields at all — both vault
+        // entries must be purged.
+        let syslog = SiemConfig {
+            kind: "syslog".to_string(),
+            addr: Some("127.0.0.1:514".to_string()),
+            ..SiemConfig::default()
+        };
+        super::sauver_siem_fichier(&path, syslog, Some(&coffre)).expect("save syslog");
+        assert!(coffre.lire(super::CLE_SPLUNK_TOKEN).unwrap().is_none());
+        assert!(coffre.lire(super::CLE_ELASTIC_PASS).unwrap().is_none());
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     /// The TCP client must surface a clean network error (`SinkError::Reseau`

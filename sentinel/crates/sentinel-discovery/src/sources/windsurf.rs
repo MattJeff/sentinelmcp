@@ -2,14 +2,16 @@
 //!
 //! Windsurf stores its MCP server configuration in
 //! `~/.codeium/windsurf/mcp_config.json` (key: `mcpServers`), using the same
-//! schema as Claude Desktop / Cursor. The app itself is shipped at
-//! `/Applications/Windsurf.app`. We also keep an eye on the optional
-//! `~/.codeium/windsurf-cli/` directory.
+//! schema as Claude Desktop / Cursor. The path is home-relative and identical
+//! on macOS, Windows (`%USERPROFILE%\.codeium\windsurf\mcp_config.json`) and
+//! Linux. The app itself is shipped at `/Applications/Windsurf.app` on macOS.
+//! We also keep an eye on the optional `~/.codeium/windsurf-cli/` directory.
 
 use sentinel_protocol::ScopeServeur;
 use crate::model::{
     ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare,
 };
+use crate::sources::os_paths::ContexteOs;
 use crate::sources::SourceClient;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -60,7 +62,9 @@ impl SourceWindsurf {
     }
 
     fn mcp_config_path(&self) -> Option<PathBuf> {
-        Some(self.home_dir()?.join(".codeium/windsurf/mcp_config.json"))
+        let home = self.home_dir()?;
+        let ctx = ContexteOs::nouveau(crate::sources::os_paths::OsCible::courant(), home);
+        chemins_config_candidats(&ctx).into_iter().next()
     }
 
     fn cli_dir(&self) -> Option<PathBuf> {
@@ -84,6 +88,16 @@ impl Default for SourceWindsurf {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Chemins candidats de `mcp_config.json` — identiques sur les trois OS
+/// (chemin relatif au home). Fonction pure.
+pub fn chemins_config_candidats(ctx: &ContexteOs) -> Vec<PathBuf> {
+    vec![ctx
+        .home
+        .join(".codeium")
+        .join("windsurf")
+        .join("mcp_config.json")]
 }
 
 /// On-disk shape of `mcp_config.json` (only the bits we care about).
@@ -269,5 +283,23 @@ impl SourceClient for SourceWindsurf {
         }
 
         vec![client]
+    }
+}
+
+#[cfg(test)]
+mod tests_chemins {
+    use super::*;
+    use crate::sources::os_paths::OsCible;
+
+    #[test]
+    fn config_identique_sur_tous_les_os() {
+        for os in OsCible::TOUS {
+            let ctx = ContexteOs::nouveau(os, "/home/user");
+            assert_eq!(
+                chemins_config_candidats(&ctx),
+                vec![PathBuf::from("/home/user/.codeium/windsurf/mcp_config.json")],
+                "os = {os:?}"
+            );
+        }
     }
 }
