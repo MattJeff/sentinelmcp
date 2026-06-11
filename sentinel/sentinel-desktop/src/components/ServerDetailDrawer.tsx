@@ -261,9 +261,9 @@ export default function ServerDetailDrawer({
 
   const dotClass = useMemo(() => {
     const color = data?.server.color;
-    if (color === 'green') return 'dot-green';
-    if (color === 'red') return 'dot-red';
-    return 'dot-orange';
+    if (color === 'green') return 'dot-ok';
+    if (color === 'red') return 'dot-critical';
+    return 'dot-high';
   }, [data]);
 
   const server = data?.server;
@@ -373,13 +373,13 @@ export default function ServerDetailDrawer({
         type="button"
         aria-label="Close drawer"
         onClick={onClose}
-        className="absolute inset-0 bg-black/45 backdrop-blur-md animate-fade-up"
+        className="absolute inset-0 bg-black/50 backdrop-blur-xs animate-fade-up"
         style={{ animationDuration: '200ms' }}
       />
 
       {/* Panel */}
       <aside
-        className="glass-strong absolute right-0 top-0 h-full w-[480px] max-w-full flex flex-col"
+        className="surface-raised shadow-raised absolute right-0 top-0 h-full w-[480px] max-w-full flex flex-col"
         style={{
           animation: 'drawerSlideIn 280ms cubic-bezier(0.2, 0, 0, 1) both',
         }}
@@ -392,36 +392,29 @@ export default function ServerDetailDrawer({
         `}</style>
 
         {/* Header */}
-        <header className="flex items-start gap-3 p-5 border-b border-white/[0.08]">
+        <header className="flex items-start gap-3 p-6 border-b border-sentinel-border-soft">
           <span
-            className={clsx('dot mt-2.5 shrink-0', dotClass)}
+            className={clsx('dot mt-2 shrink-0', dotClass)}
             aria-hidden
           />
           <div className="flex-1 min-w-0">
-            <div className="font-mono text-[15px] font-semibold text-sentinel-text-primary truncate">
+            <div className="font-mono text-title text-sentinel-text-primary truncate">
               {server?.endpoint ?? (isLoading ? 'Loading…' : '—')}
             </div>
-            <div className="mt-1.5 flex items-center gap-2">
+            <div className="mt-2 flex items-center gap-2">
               {server && (
                 <>
-                  <span
-                    className={clsx(
-                      'pill',
-                      server.transport === 'http'
-                        ? 'pill-blue'
-                        : 'pill-green',
-                    )}
-                  >
+                  <span className="badge badge-neutral">
                     {server.transport}
                   </span>
                   <span
                     className={clsx(
-                      'pill',
+                      'badge',
                       server.color === 'green'
-                        ? 'pill-green'
+                        ? 'badge-ok'
                         : server.color === 'red'
-                          ? 'pill-red'
-                          : 'pill-orange',
+                          ? 'badge-critical'
+                          : 'badge-high',
                     )}
                   >
                     {STATUS_LABEL[server.status]}
@@ -442,24 +435,24 @@ export default function ServerDetailDrawer({
         </header>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
           {/* Poisoning banner — top of drawer, sticks just below header */}
           {poisonSuspected && (
             <section
-              className="rounded-glass border border-sentinel-red/60 bg-sentinel-red/10 p-4 shadow-glow-red animate-fade-up"
+              className="rounded-glass border border-sentinel-critical-border bg-sentinel-critical-bg border-l-2 border-l-sentinel-critical p-4 animate-fade-up"
               role="alert"
             >
               <div className="flex items-start gap-3">
                 <AlertTriangle
                   size={16}
-                  className="shrink-0 mt-0.5 text-sentinel-red"
+                  className="shrink-0 mt-1 text-sentinel-critical"
                   aria-hidden
                 />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-sentinel-text-primary">
+                  <div className="text-body font-semibold text-sentinel-text-primary">
                     Poisoning suspect
                   </div>
-                  <p className="mt-1 text-[12px] leading-relaxed text-sentinel-text-secondary">
+                  <p className="mt-1 text-caption leading-relaxed text-sentinel-text-secondary">
                     One or more tool descriptions contain prompt-injection
                     indicators. Confirm by re-fetching the live tool list.
                   </p>
@@ -468,7 +461,7 @@ export default function ServerDetailDrawer({
                       type="button"
                       onClick={handleProbe}
                       disabled={probing}
-                      className="no-drag inline-flex items-center gap-1.5 text-[12px] font-medium text-sentinel-red hover:underline disabled:opacity-60 disabled:no-underline"
+                      className="no-drag inline-flex items-center gap-2 text-caption font-medium text-sentinel-critical hover:underline disabled:opacity-40 disabled:no-underline focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
                     >
                       {probing ? (
                         <>
@@ -484,7 +477,7 @@ export default function ServerDetailDrawer({
                       )}
                     </button>
                     {probeResult && (
-                      <span className="text-[11px] text-sentinel-text-tertiary">
+                      <span className="text-caption text-sentinel-text-tertiary tabular-nums">
                         {probeResult.tool_count}{' '}
                         {probeResult.tool_count === 1 ? 'tool' : 'tools'} ·{' '}
                         {probeResult.poisoning_findings.length} poisoning
@@ -495,19 +488,19 @@ export default function ServerDetailDrawer({
                     )}
                   </div>
                   {probeError && (
-                    <div className="mt-2 text-[11px] text-sentinel-red">
+                    <div className="mt-2 text-caption text-sentinel-critical">
                       Probe failed: {probeError}
                     </div>
                   )}
                   {probeResult &&
                     probeResult.poisoning_findings.length > 0 && (
-                      <ul className="mt-3 flex flex-col gap-1.5">
+                      <ul className="mt-3 flex flex-col gap-2">
                         {probeResult.poisoning_findings.map((f, idx) => (
                           <li
                             key={`${f.pattern}-${idx}`}
-                            className="rounded-md bg-black/30 px-2.5 py-1.5 text-[11px] font-mono text-sentinel-text-secondary"
+                            className="rounded-lg bg-sentinel-inset border border-sentinel-border-soft px-3 py-2 font-mono text-caption text-sentinel-text-secondary"
                           >
-                            <span className="text-sentinel-red">
+                            <span className="text-sentinel-critical">
                               {f.severity}
                             </span>{' '}
                             · {f.category} ·{' '}
@@ -515,7 +508,7 @@ export default function ServerDetailDrawer({
                               {f.pattern}
                             </span>
                             {f.excerpt && (
-                              <div className="mt-0.5 text-sentinel-text-tertiary truncate">
+                              <div className="mt-1 text-sentinel-text-tertiary truncate">
                                 {f.excerpt}
                               </div>
                             )}
@@ -545,23 +538,23 @@ export default function ServerDetailDrawer({
             <>
               {/* At a glance */}
               <section className="card animate-fade-up">
-                <div className="section-heading mb-3">At a glance</div>
-                <div className="grid grid-cols-2 gap-4 text-[12px]">
+                <div className="section-heading mb-4">At a glance</div>
+                <div className="grid grid-cols-2 gap-4 text-caption">
                   <div>
-                    <div className="text-sentinel-text-tertiary mb-1">
+                    <div className="text-overline text-sentinel-text-tertiary mb-1">
                       Tools
                     </div>
-                    <div className="text-sentinel-text-primary font-semibold text-[15px]">
+                    <div className="text-metric text-sentinel-text-primary tabular-nums">
                       {server?.tool_count ?? tools.length}
                     </div>
                   </div>
                   <div>
-                    <div className="text-sentinel-text-tertiary mb-1">
+                    <div className="text-overline text-sentinel-text-tertiary mb-1">
                       Fingerprint
                     </div>
-                    <div className="flex items-center gap-1.5 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
                       <div
-                        className="font-mono text-[12px] text-sentinel-text-secondary truncate"
+                        className="font-mono text-caption text-sentinel-text-secondary truncate"
                         title={server?.current_fingerprint ?? ''}
                       >
                         {server?.current_fingerprint
@@ -572,7 +565,7 @@ export default function ServerDetailDrawer({
                         <button
                           type="button"
                           onClick={handleCopyFingerprint}
-                          className="no-drag inline-flex items-center justify-center rounded-md p-1 text-sentinel-text-tertiary hover:text-sentinel-text-primary hover:bg-white/[0.06] transition-colors"
+                          className="no-drag inline-flex items-center justify-center rounded-lg p-1 text-sentinel-text-tertiary hover:text-sentinel-text-primary hover:bg-sentinel-inset transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus"
                           aria-label={
                             copied
                               ? 'Fingerprint copied'
@@ -581,7 +574,7 @@ export default function ServerDetailDrawer({
                           title={copied ? 'Copied!' : 'Copy fingerprint'}
                         >
                           {copied ? (
-                            <Check size={12} className="text-sentinel-green" />
+                            <Check size={12} className="text-sentinel-ok" />
                           ) : (
                             <Copy size={12} />
                           )}
@@ -590,23 +583,23 @@ export default function ServerDetailDrawer({
                     </div>
                   </div>
                   <div>
-                    <div className="text-sentinel-text-tertiary mb-1">
+                    <div className="text-overline text-sentinel-text-tertiary mb-1">
                       First seen
                     </div>
-                    <div className="text-sentinel-text-secondary">
+                    <div className="text-sentinel-text-secondary tabular-nums">
                       {server ? formatAppleDate(server.first_seen) : '—'}
                     </div>
                   </div>
                   <div>
-                    <div className="text-sentinel-text-tertiary mb-1">
+                    <div className="text-overline text-sentinel-text-tertiary mb-1">
                       Last seen
                     </div>
-                    <div className="text-sentinel-text-secondary">
+                    <div className="text-sentinel-text-secondary tabular-nums">
                       {server ? formatAppleDate(server.last_seen) : '—'}
                     </div>
                   </div>
                   <div className="col-span-2">
-                    <div className="text-sentinel-text-tertiary mb-1">
+                    <div className="text-overline text-sentinel-text-tertiary mb-1">
                       Scope
                     </div>
                     <div className="text-sentinel-text-secondary">
@@ -618,7 +611,7 @@ export default function ServerDetailDrawer({
                         <>
                           <span>Project — </span>
                           <span
-                            className="font-mono text-[11px] text-sentinel-text-primary break-all"
+                            className="font-mono text-caption text-sentinel-text-primary break-all"
                             title={server.scope.path}
                           >
                             {server.scope.path}
@@ -630,13 +623,13 @@ export default function ServerDetailDrawer({
                 </div>
 
                 {server && server.scopes.length > 0 && (
-                  <div className="mt-4">
+                  <div className="mt-6">
                     <div className="section-heading mb-2">Scopes</div>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-2">
                       {server.scopes.map((s) => (
                         <span
                           key={s}
-                          className="rounded-pill px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase bg-white/[0.06] text-sentinel-text-secondary border border-white/10"
+                          className="rounded-pill px-2 py-0.5 text-[11px] font-medium bg-sentinel-inset text-sentinel-text-tertiary border border-sentinel-border-soft"
                         >
                           {s}
                         </span>
@@ -648,9 +641,9 @@ export default function ServerDetailDrawer({
 
               {/* Tools */}
               <section className="card animate-fade-up">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-4">
                   <div className="section-heading">Tools</div>
-                  <div className="text-[11px] text-sentinel-text-tertiary">
+                  <div className="text-caption text-sentinel-text-tertiary tabular-nums">
                     {tools.length} {tools.length === 1 ? 'tool' : 'tools'}
                   </div>
                 </div>
@@ -664,12 +657,12 @@ export default function ServerDetailDrawer({
                     <div className="section-heading">Open findings</div>
                     <span
                       className={clsx(
-                        'pill',
+                        'badge tabular-nums',
                         openFindings === 0
-                          ? 'pill-green'
+                          ? 'badge-ok'
                           : openFindings > 2
-                            ? 'pill-red'
-                            : 'pill-orange',
+                            ? 'badge-critical'
+                            : 'badge-high',
                       )}
                     >
                       {openFindings}
@@ -677,7 +670,7 @@ export default function ServerDetailDrawer({
                   </div>
                   <a
                     href="#/alerts"
-                    className="inline-flex items-center gap-1 text-[12px] text-sentinel-blue-glow hover:underline no-drag"
+                    className="inline-flex items-center gap-1 text-caption text-sentinel-accent hover:underline no-drag focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
                   >
                     Go to alerts
                     <ArrowUpRight size={13} />
@@ -687,13 +680,13 @@ export default function ServerDetailDrawer({
 
               {/* Tags — operator-curated labels persisted on the server row */}
               <section className="card animate-fade-up">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-4">
                   <div className="section-heading">Tags</div>
                   <button
                     type="button"
                     onClick={handleSaveTags}
                     disabled={savingTags || !serverId}
-                    className="text-[12px] text-sentinel-blue-glow hover:underline no-drag disabled:opacity-60 disabled:no-underline"
+                    className="text-caption text-sentinel-accent hover:underline no-drag disabled:opacity-40 disabled:no-underline focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
                     title="Persist these tags on the server row"
                   >
                     {savingTags ? (
@@ -716,20 +709,20 @@ export default function ServerDetailDrawer({
 
               {/* Investigations — past notes attached to this server */}
               <section className="card animate-fade-up">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-4">
                   <div className="section-heading">
                     Investigations ({investigations.length})
                   </div>
                   <button
                     type="button"
-                    className="text-[12px] text-sentinel-blue-glow hover:underline no-drag"
+                    className="text-caption text-sentinel-accent hover:underline no-drag focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
                     onClick={() => setInvestigateOpen(true)}
                   >
                     Open new
                   </button>
                 </div>
                 {investigations.length === 0 ? (
-                  <p className="text-[12px] text-sentinel-text-tertiary">
+                  <p className="text-caption text-sentinel-text-tertiary">
                     No investigation has been opened on this server yet.
                   </p>
                 ) : (
@@ -737,12 +730,12 @@ export default function ServerDetailDrawer({
                     {investigations.map((entry) => (
                       <li
                         key={entry.id}
-                        className="rounded-glass border border-white/10 bg-black/20 p-3"
+                        className="rounded-lg border border-sentinel-border bg-sentinel-inset p-3"
                       >
-                        <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-sentinel-text-primary">
+                        <p className="whitespace-pre-wrap text-caption leading-relaxed text-sentinel-text-primary">
                           {entry.note}
                         </p>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-sentinel-text-tertiary">
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-caption text-sentinel-text-tertiary">
                           <span className="font-medium text-sentinel-text-secondary">
                             {entry.operator ?? entry.created_by}
                           </span>
@@ -761,7 +754,7 @@ export default function ServerDetailDrawer({
         </div>
 
         {/* Sticky footer — Quick actions */}
-        <footer className="glass-soft border-t border-white/[0.08] p-4 flex items-center gap-2">
+        <footer className="glass-soft border-t border-sentinel-border-soft p-4 flex items-center gap-2">
           <button
             type="button"
             className="btn btn-primary no-drag flex-1 justify-center"
@@ -808,14 +801,14 @@ export default function ServerDetailDrawer({
           <div
             role="status"
             aria-live="polite"
-            className="border-t border-white/[0.08] px-4 py-2 flex items-center gap-2 text-[11px] text-sentinel-text-secondary glass-soft"
+            className="border-t border-sentinel-border-soft px-4 py-2 flex items-center gap-2 text-caption text-sentinel-text-secondary glass-soft"
           >
-            <span className="font-mono truncate flex-1 min-w-0" title={lastBackup.backup_path}>
+            <span className="font-mono text-sentinel-text-tertiary truncate flex-1 min-w-0" title={lastBackup.backup_path}>
               Backup: {lastBackup.backup_path}
             </span>
             <button
               type="button"
-              className="no-drag text-sentinel-blue-glow hover:underline disabled:opacity-60 shrink-0"
+              className="no-drag text-sentinel-accent hover:underline disabled:opacity-40 shrink-0 focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
               disabled={restoring}
               onClick={async () => {
                 if (!lastBackup || restoring) return;

@@ -20,13 +20,13 @@ const SCAN_TIMEOUT_MS = 15_000;
 function severityPillClass(s: string): string {
   switch (s) {
     case 'critical':
-      return 'pill pill-red';
+      return 'badge badge-critical';
     case 'high':
-      return 'pill pill-orange';
+      return 'badge badge-high';
     case 'medium':
-      return 'pill pill-amber';
+      return 'badge badge-medium';
     default:
-      return 'pill bg-white/6 border border-white/10 text-sentinel-text-tertiary';
+      return 'badge badge-neutral';
   }
 }
 
@@ -109,7 +109,9 @@ function sourceLabel(s: 'registry' | 'intra-inventory'): string {
 }
 
 function sourcePillClass(s: 'registry' | 'intra-inventory'): string {
-  return s === 'intra-inventory' ? 'pill pill-violet' : 'pill pill-blue';
+  return s === 'intra-inventory'
+    ? 'badge text-sentinel-violet bg-sentinel-violet/10 border-sentinel-violet/30'
+    : 'badge badge-accent';
 }
 
 export default function LookalikePanel() {
@@ -148,28 +150,28 @@ export default function LookalikePanel() {
   }, [outboundEnabled]);
 
   return (
-    <section className="card flex flex-col gap-4">
+    <section className="card flex flex-col gap-6">
       {/* Header */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex items-start gap-3">
-          <div className="h-9 w-9 shrink-0 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center">
+          <div className="h-9 w-9 shrink-0 rounded-lg bg-sentinel-inset border border-sentinel-border flex items-center justify-center">
             <Radar
-              className="h-4.5 w-4.5 text-sentinel-text-primary"
+              className="h-4.5 w-4.5 text-sentinel-text-secondary"
               aria-hidden
             />
           </div>
-          <div>
-            <h3 className="text-[15px] font-semibold tracking-tight">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-title text-sentinel-text-primary">
               Lookalike scan
             </h3>
-            <p className="text-[12px] text-sentinel-text-secondary max-w-prose">
+            <p className="text-caption text-sentinel-text-secondary max-w-prose">
               Cross-reference each declared MCP server on this Mac against the
               public registries (PulseMCP, Smithery, mcp.so, mcp-registry) to
               flag suspicious doppelganger packages.
               {matches && matches.length > 0 && (
                 <>
                   {' '}
-                  <span className="text-sentinel-red font-semibold">
+                  <span className="text-sentinel-critical font-medium">
                     {matches.length} lookalike
                     {matches.length === 1 ? '' : 's'} detected.
                   </span>
@@ -180,7 +182,7 @@ export default function LookalikePanel() {
         </div>
         <button
           type="button"
-          className="btn btn-primary min-h-[44px] w-full sm:w-auto justify-center"
+          className="btn btn-primary w-full sm:w-auto justify-center shrink-0"
           onClick={() => void handleScan()}
           disabled={loading || !outboundEnabled}
           title={
@@ -200,16 +202,22 @@ export default function LookalikePanel() {
 
       {/* Body */}
       {error ? (
-        <div className="text-[12px] text-sentinel-red">
+        <div
+          className="rounded-lg border border-sentinel-critical-border bg-sentinel-critical-bg px-4 py-3 text-caption text-sentinel-critical"
+          role="alert"
+        >
           Lookalike scan failed: {error}
         </div>
       ) : matches === null ? (
-        <div className="text-[12px] text-sentinel-text-tertiary py-6 text-center">
-          Click <span className="font-semibold text-sentinel-text-primary">Scan registries</span>{' '}
+        <div className="rounded-lg border border-dashed border-sentinel-border py-8 text-center text-caption text-sentinel-text-tertiary">
+          Click{' '}
+          <span className="font-medium text-sentinel-text-secondary">
+            Scan registries
+          </span>{' '}
           to run a fresh sweep.
         </div>
       ) : matches.length === 0 ? (
-        <div className="text-[12px] text-sentinel-text-tertiary py-6 text-center">
+        <div className="rounded-lg border border-dashed border-sentinel-border py-8 text-center text-caption text-sentinel-text-tertiary">
           No lookalikes detected against your inventory.
         </div>
       ) : (
@@ -241,10 +249,11 @@ export default function LookalikePanel() {
               return false;
             return true;
           });
-          const pillBase = 'pill cursor-pointer select-none';
-          const pillActive = 'pill-blue';
+          const pillBase =
+            'badge cursor-pointer select-none transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus';
+          const pillActive = 'badge-accent';
           const pillIdle =
-            'bg-white/6 border border-white/10 text-sentinel-text-tertiary';
+            'badge-neutral hover:border-sentinel-border-strong hover:text-sentinel-text-secondary';
           const sourceOptions: { key: SourceFilter; label: string }[] = [
             { key: 'all', label: 'All' },
             { key: 'registry', label: 'Registry' },
@@ -257,10 +266,10 @@ export default function LookalikePanel() {
             { key: 'name-only', label: 'Name-only' },
           ];
           return (
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-2 rounded-glass bg-white/4 border border-white/8 px-3 py-2.5">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2 rounded-lg bg-sentinel-inset border border-sentinel-border-soft px-4 py-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="section-heading text-[11px] mr-1">
+                  <span className="section-heading mr-2">
                     Source
                   </span>
                   {sourceOptions.map((opt) => {
@@ -274,7 +283,7 @@ export default function LookalikePanel() {
                         aria-pressed={active}
                       >
                         {opt.label}
-                        <span className="ml-1 opacity-70">
+                        <span className="ml-1 opacity-70 tabular-nums">
                           {sourceCounts[opt.key]}
                         </span>
                       </button>
@@ -282,7 +291,7 @@ export default function LookalikePanel() {
                   })}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="section-heading text-[11px] mr-1">
+                  <span className="section-heading mr-2">
                     Signal
                   </span>
                   {signalOptions.map((opt) => {
@@ -296,7 +305,7 @@ export default function LookalikePanel() {
                         aria-pressed={active}
                       >
                         {opt.label}
-                        <span className="ml-1 opacity-70">
+                        <span className="ml-1 opacity-70 tabular-nums">
                           {signalCounts[opt.key]}
                         </span>
                       </button>
@@ -305,20 +314,20 @@ export default function LookalikePanel() {
                 </div>
               </div>
               {filtered.length === 0 ? (
-                <div className="text-[12px] text-sentinel-text-tertiary py-6 text-center">
+                <div className="rounded-lg border border-dashed border-sentinel-border py-8 text-center text-caption text-sentinel-text-tertiary">
                   No matches for the selected filters.
                 </div>
               ) : (
                 <div className="overflow-x-auto -mx-2">
-                  <table className="w-full text-[12px] border-separate border-spacing-y-1.5 px-2">
+                  <table className="w-full text-body border-separate border-spacing-y-2 px-2">
                     <thead>
                       <tr>
-                        <th className="text-left px-2 section-heading">Severity</th>
-                        <th className="text-left px-2 section-heading">Source</th>
-                        <th className="text-left px-2 section-heading">Declared</th>
-                        <th className="text-left px-2 section-heading">Registry</th>
-                        <th className="text-left px-2 section-heading">Candidate</th>
-                        <th className="text-right px-2 section-heading">Score</th>
+                        <th className="text-left px-3 pb-1 section-heading">Severity</th>
+                        <th className="text-left px-3 pb-1 section-heading">Source</th>
+                        <th className="text-left px-3 pb-1 section-heading">Declared</th>
+                        <th className="text-left px-3 pb-1 section-heading">Registry</th>
+                        <th className="text-left px-3 pb-1 section-heading">Candidate</th>
+                        <th className="text-right px-3 pb-1 section-heading">Score</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -328,10 +337,8 @@ export default function LookalikePanel() {
                   <tr
                     key={`${m.declared_package}::${m.registry}::${m.candidate_name}::${idx}`}
                     className={clsx(
-                      'rounded-glass cursor-pointer hover:bg-white/8 focus:outline-none focus-visible:ring-1 focus-visible:ring-sentinel-blue-glow/60',
-                      danger
-                        ? 'bg-sentinel-red/10 shadow-glow-red'
-                        : 'bg-white/4',
+                      'cursor-pointer transition-colors duration-150 hover:bg-sentinel-raised focus:outline-none focus-visible:shadow-focus',
+                      danger ? 'bg-sentinel-critical-bg' : 'bg-sentinel-inset',
                     )}
                     onClick={() => setDetailRow(m)}
                     onKeyDown={(e) => {
@@ -344,19 +351,26 @@ export default function LookalikePanel() {
                     tabIndex={0}
                     aria-label={`Open match details for ${m.candidate_name}`}
                   >
-                    <td className="px-2 py-2 rounded-l-glass">
+                    <td
+                      className={clsx(
+                        'px-3 py-3 rounded-l-lg border-l-2',
+                        danger
+                          ? 'border-sentinel-critical'
+                          : 'border-transparent',
+                      )}
+                    >
                       <span className={severityPillClass(m.severity)}>
                         {m.severity}
                       </span>
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="px-3 py-3">
                       <span className={sourcePillClass(matchSource(m))}>
                         {sourceLabel(matchSource(m))}
                       </span>
                     </td>
                     <td
                       className={clsx(
-                        'px-2 py-2 font-mono text-[11.5px] max-w-[200px] truncate',
+                        'px-3 py-3 font-mono text-caption max-w-[200px] truncate',
                         danger
                           ? 'text-sentinel-text-primary'
                           : 'text-sentinel-text-secondary',
@@ -370,7 +384,7 @@ export default function LookalikePanel() {
                     </td>
                     <td
                       className={clsx(
-                        'px-2 py-2 font-mono text-[11.5px]',
+                        'px-3 py-3 font-mono text-caption',
                         danger
                           ? 'text-sentinel-text-primary'
                           : 'text-sentinel-text-tertiary',
@@ -380,7 +394,7 @@ export default function LookalikePanel() {
                     </td>
                     <td
                       className={clsx(
-                        'px-2 py-2 max-w-[260px]',
+                        'px-3 py-3 max-w-[260px]',
                         danger
                           ? 'text-sentinel-text-primary'
                           : 'text-sentinel-text-secondary',
@@ -392,7 +406,7 @@ export default function LookalikePanel() {
                       }
                     >
                       <div className="flex flex-col gap-1">
-                        <span className="font-mono text-[11.5px] truncate">
+                        <span className="font-mono text-caption truncate">
                           {m.candidate_name}
                         </span>
                         {matchSignals(m).length > 0 && (
@@ -400,7 +414,7 @@ export default function LookalikePanel() {
                             {matchSignals(m).map((sig) => (
                               <span
                                 key={sig}
-                                className="pill pill-cyan !px-1.5 !py-0 !text-[9.5px] !tracking-normal normal-case"
+                                className="badge badge-neutral !px-1.5 !py-0 !text-[10px] !tracking-normal normal-case"
                               >
                                 {sig}
                               </span>
@@ -411,21 +425,21 @@ export default function LookalikePanel() {
                     </td>
                     <td
                       className={clsx(
-                        'px-2 py-2 text-right rounded-r-glass',
+                        'px-3 py-3 text-right rounded-r-lg',
                         danger
-                          ? 'text-sentinel-red'
+                          ? 'text-sentinel-critical'
                           : 'text-sentinel-text-secondary',
                       )}
                     >
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span className="font-semibold">
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="font-semibold tabular-nums">
                           {scoreLabel(m.similarity_score)}
                         </span>
                         {(() => {
                           const b = matchBreakdown(m);
                           if (!b) return null;
                           return (
-                            <span className="text-[10px] text-sentinel-text-tertiary font-mono">
+                            <span className="text-[10px] text-sentinel-text-tertiary font-mono tabular-nums">
                               name {b.name.toFixed(2)} · desc{' '}
                               {b.description.toFixed(2)} · tools{' '}
                               {b.tools.toFixed(2)} · enums{' '}

@@ -1,4 +1,4 @@
-// Sparkline — tiny area chart with token-colored gradient glow.
+// Sparkline — tiny area chart with a quiet token-colored gradient fill.
 // Implemented by Agent UI-10.
 
 import { useId } from 'react';
@@ -13,11 +13,12 @@ export interface SparklineProps {
   width?: number;
 }
 
+// Design-system hexes: green→ok, orange→high, red→critical, blue→accent.
 const COLOR_MAP: Record<SparklineColor, string> = {
-  green: '#34c759',
-  orange: '#ff9f0a',
-  red: '#ff453a',
-  blue: '#0a84ff',
+  green: '#4cc38a',
+  orange: '#e8804f',
+  red: '#e5534b',
+  blue: '#7aa5ff',
 };
 
 export default function Sparkline({
@@ -45,7 +46,7 @@ export default function Sparkline({
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={stroke} stopOpacity={0.55} />
+              <stop offset="0%" stopColor={stroke} stopOpacity={0.28} />
               <stop offset="100%" stopColor={stroke} stopOpacity={0} />
             </linearGradient>
           </defs>

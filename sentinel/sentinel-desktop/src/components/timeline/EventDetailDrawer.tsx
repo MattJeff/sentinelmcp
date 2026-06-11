@@ -24,19 +24,11 @@ export interface EventDetailDrawerProps {
 
 // Same color taxonomy as EventRow — kept local so the two components stay
 // independent and can be tweaked in isolation if needed.
-function methodPillClass(method: string): {
-  cls: string;
-  isPill: boolean;
-} {
-  if (method === 'initialize' || method === 'tools/list')
-    return { cls: 'pill-blue', isPill: true };
-  if (method === 'tools/call') return { cls: 'pill-orange', isPill: true };
-  if (method.startsWith('notifications/'))
-    return { cls: 'pill-green', isPill: true };
-  return {
-    cls: 'inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase bg-white/6 text-sentinel-text-tertiary border border-white/10',
-    isPill: false,
-  };
+function methodBadgeClass(method: string): string {
+  if (method === 'initialize' || method === 'tools/list') return 'badge-accent';
+  if (method === 'tools/call') return 'badge-medium';
+  if (method.startsWith('notifications/')) return 'badge-ok';
+  return 'badge-neutral';
 }
 
 function formatTimestamp(iso: string): string {
@@ -116,7 +108,7 @@ export default function EventDetailDrawer({
     : 'Server → Client';
   const DirectionIcon = isClientToServer ? ArrowRight : ArrowLeft;
 
-  const pill = methodPillClass(event.method);
+  const badgeClass = methodBadgeClass(event.method);
 
   const handleCopy = async () => {
     // Prefer the async Clipboard API (works in Tauri's webview and in modern
@@ -167,13 +159,13 @@ export default function EventDetailDrawer({
         type="button"
         aria-label="Close drawer"
         onClick={onClose}
-        className="absolute inset-0 bg-black/45 backdrop-blur-md animate-fade-up"
+        className="absolute inset-0 bg-black/50 backdrop-blur-xs animate-fade-up"
         style={{ animationDuration: '200ms' }}
       />
 
       {/* Panel — 520 px wide per spec */}
       <aside
-        className="glass-strong absolute right-0 top-0 h-full w-[520px] max-w-full flex flex-col"
+        className="surface-raised absolute right-0 top-0 h-full w-[520px] max-w-full flex flex-col"
         style={{
           animation: 'drawerSlideIn 280ms cubic-bezier(0.2, 0, 0, 1) both',
         }}
@@ -186,13 +178,13 @@ export default function EventDetailDrawer({
         `}</style>
 
         {/* Header */}
-        <header className="flex items-start gap-3 p-5 border-b border-white/[0.08]">
+        <header className="flex items-start gap-3 p-6 border-b border-sentinel-border-soft">
           <span
             className={clsx(
-              'mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
+              'mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
               isClientToServer
-                ? 'bg-sentinel-blue/12 text-sentinel-blue-glow'
-                : 'bg-sentinel-purple/14 text-sentinel-purple',
+                ? 'bg-sentinel-accent-dim text-sentinel-accent'
+                : 'bg-sentinel-violet/14 text-sentinel-violet',
             )}
             aria-hidden
           >
@@ -200,19 +192,15 @@ export default function EventDetailDrawer({
           </span>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              {pill.isPill ? (
-                <span className={clsx('pill', pill.cls)}>{event.method}</span>
-              ) : (
-                <span className={pill.cls}>{event.method}</span>
-              )}
-              <span className="text-[11px] text-sentinel-text-tertiary uppercase tracking-wide">
+              <span className={clsx('badge', badgeClass)}>{event.method}</span>
+              <span className="text-overline text-sentinel-text-tertiary">
                 {directionLabel}
               </span>
             </div>
-            <div className="mt-1.5 font-mono text-[13px] text-sentinel-text-primary truncate">
+            <div className="mt-2 font-mono text-body text-sentinel-text-primary truncate">
               {event.server_endpoint}
             </div>
-            <div className="mt-1 flex items-center gap-3 text-[11px] text-sentinel-text-tertiary font-mono tabular-nums">
+            <div className="mt-1 flex items-center gap-3 text-caption text-sentinel-text-tertiary font-mono tabular-nums">
               <span>{formatTimestamp(event.timestamp)}</span>
               {event.jsonrpc_id !== null &&
                 event.jsonrpc_id !== undefined && (
@@ -233,20 +221,20 @@ export default function EventDetailDrawer({
         </header>
 
         {/* Body — pretty-printed JSON envelope */}
-        <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
           <section className="card animate-fade-up">
             <div className="flex items-center justify-between mb-3">
               <div className="section-heading">JSON-RPC envelope</div>
               {event.method === 'tools/call' && (
-                <span className="pill pill-orange text-[9px]">
+                <span className="badge badge-medium">
                   arguments redacted
                 </span>
               )}
             </div>
             <pre
               className={clsx(
-                'glass-soft rounded-glass',
-                'p-4 font-mono text-[12px] leading-relaxed',
+                'bg-sentinel-inset border border-sentinel-border-soft rounded-lg',
+                'p-4 font-mono text-caption leading-relaxed',
                 'text-sentinel-text-secondary',
                 'overflow-x-auto whitespace-pre',
               )}
@@ -257,7 +245,7 @@ export default function EventDetailDrawer({
         </div>
 
         {/* Sticky footer — actions */}
-        <footer className="glass-soft border-t border-white/[0.08] p-4 flex items-center gap-2">
+        <footer className="glass-soft border-t border-sentinel-border p-4 flex items-center gap-2">
           <button
             type="button"
             className="btn btn-primary no-drag flex-1 justify-center"

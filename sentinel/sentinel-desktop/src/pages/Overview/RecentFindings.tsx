@@ -9,11 +9,12 @@ interface RecentFindingsProps {
   isLoading: boolean;
 }
 
-const SEVERITY_PILL: Record<Severity, string> = {
-  info: 'pill-blue',
-  medium: 'pill-orange',
-  high: 'pill-orange',
-  critical: 'pill-red',
+// Canonical severity → badge token mapping.
+const SEVERITY_BADGE: Record<Severity, string> = {
+  info: 'badge-info',
+  medium: 'badge-medium',
+  high: 'badge-high',
+  critical: 'badge-critical',
 };
 
 export default function RecentFindings({
@@ -35,8 +36,11 @@ export default function RecentFindings({
 
   if (items.length === 0) {
     return (
-      <div className="text-sentinel-text-tertiary text-[13px] py-6">
-        No findings yet — everything looks calm.
+      <div className="flex items-center gap-3 rounded-lg border border-sentinel-border-soft bg-white/3 px-4 py-8">
+        <span className="dot dot-ok" aria-hidden="true" />
+        <span className="text-body text-sentinel-text-tertiary">
+          No findings yet — everything looks calm.
+        </span>
       </div>
     );
   }
@@ -50,23 +54,32 @@ export default function RecentFindings({
             key={f.id}
             className={clsx(
               'flex items-center gap-3 py-3',
-              idx !== items.length - 1 && 'border-b border-white/5',
+              idx !== items.length - 1 &&
+                'border-b border-sentinel-border-soft',
             )}
           >
-            <span className={clsx('pill', SEVERITY_PILL[f.severity])}>
+            <span
+              className={clsx(
+                'badge shrink-0',
+                SEVERITY_BADGE[f.severity],
+              )}
+            >
               {f.severity}
             </span>
             <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-medium text-sentinel-text-primary truncate">
+              <div className="text-body font-medium text-sentinel-text-primary truncate">
                 {f.title}
               </div>
-              <div className="font-mono text-[11px] text-sentinel-text-tertiary truncate">
+              <div className="font-mono text-caption text-sentinel-text-tertiary truncate">
                 {endpoint}
               </div>
             </div>
-            <div className="text-[11px] text-sentinel-text-tertiary shrink-0 tabular-nums">
+            <time
+              dateTime={f.timestamp}
+              className="text-caption text-sentinel-text-tertiary shrink-0 tabular-nums"
+            >
               {formatAppleDate(f.timestamp)}
-            </div>
+            </time>
           </li>
         );
       })}

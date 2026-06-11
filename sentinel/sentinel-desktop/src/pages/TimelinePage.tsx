@@ -210,9 +210,9 @@ export default function TimelinePage() {
   const hasAnyEvents = events.length > 0;
 
   return (
-    <div className="animate-fade-up">
+    <div className="animate-fade-up mx-auto w-full max-w-[1400px]">
       {/* KPI tiles */}
-      <div className="grid grid-cols-1 min-[900px]:grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 min-[900px]:grid-cols-3 gap-4 mb-6">
         <KpiTile
           icon={<Layers size={16} />}
           label="Total events"
@@ -231,12 +231,12 @@ export default function TimelinePage() {
       </div>
 
       {/* Sticky filter row */}
-      <div className="sticky top-0 z-10 -mx-6 px-6 pb-4 pt-1 mb-4 bg-gradient-to-b from-black/30 to-transparent backdrop-blur-sm">
-        <div className="glass rounded-glass p-4 flex flex-col gap-3">
+      <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 pb-4 pt-1 mb-6 bg-sentinel-raised">
+        <div className="surface rounded-glass p-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <FilterField label="Server">
               <select
-                className="input text-[12px] !py-1.5 min-w-[200px]"
+                className="input text-caption min-w-[200px]"
                 value={serverId}
                 onChange={(e) => setServerId(e.target.value)}
               >
@@ -251,7 +251,7 @@ export default function TimelinePage() {
 
             <FilterField label="Method">
               <select
-                className="input text-[12px] !py-1.5 min-w-[160px]"
+                className="input text-caption min-w-[160px]"
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
               >
@@ -273,10 +273,10 @@ export default function TimelinePage() {
                       type="button"
                       onClick={() => setDirection(opt.value)}
                       className={clsx(
-                        'pill transition-all',
+                        'pill transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus',
                         active
                           ? 'pill-blue'
-                          : 'text-sentinel-text-secondary bg-white/4 border border-white/10 hover:bg-white/8 hover:text-white',
+                          : 'text-sentinel-text-secondary bg-sentinel-inset border border-sentinel-border hover:bg-sentinel-raised hover:border-sentinel-border-strong hover:text-sentinel-text-primary',
                       )}
                     >
                       {opt.label}
@@ -296,10 +296,10 @@ export default function TimelinePage() {
                       type="button"
                       onClick={() => setRange(opt.value)}
                       className={clsx(
-                        'pill transition-all',
+                        'pill transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus',
                         active
                           ? 'pill-blue'
-                          : 'text-sentinel-text-secondary bg-white/4 border border-white/10 hover:bg-white/8 hover:text-white',
+                          : 'text-sentinel-text-secondary bg-sentinel-inset border border-sentinel-border hover:bg-sentinel-raised hover:border-sentinel-border-strong hover:text-sentinel-text-primary',
                       )}
                     >
                       {opt.label}
@@ -309,7 +309,7 @@ export default function TimelinePage() {
               </div>
             </FilterField>
 
-            <div className="ml-auto text-[11px] text-sentinel-text-tertiary tabular-nums">
+            <div className="ml-auto text-caption text-sentinel-text-tertiary tabular-nums">
               {filteredAll.length}{' '}
               {filteredAll.length === 1 ? 'event' : 'events'}
             </div>
@@ -320,7 +320,7 @@ export default function TimelinePage() {
               <FilterField label="From">
                 <input
                   type="datetime-local"
-                  className="input text-[12px] !py-1.5"
+                  className="input text-caption"
                   value={customFrom}
                   onChange={(e) => setCustomFrom(e.target.value)}
                 />
@@ -328,7 +328,7 @@ export default function TimelinePage() {
               <FilterField label="To">
                 <input
                   type="datetime-local"
-                  className="input text-[12px] !py-1.5"
+                  className="input text-caption"
                   value={customTo}
                   onChange={(e) => setCustomTo(e.target.value)}
                 />
@@ -340,7 +340,7 @@ export default function TimelinePage() {
 
       {/* Feed */}
       {isLoading && events.length === 0 ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="glass-soft rounded-glass p-4">
               <div className="skeleton h-3 w-2/3 mb-2" />
@@ -350,38 +350,38 @@ export default function TimelinePage() {
         </div>
       ) : filteredAll.length === 0 ? (
         !hasAnyEvents ? (
-          <div className="glass rounded-glass p-10 text-center flex flex-col items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sentinel-blue/12 text-sentinel-blue-glow">
+          <div className="surface rounded-glass px-8 py-12 text-center flex flex-col items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sentinel-accent-dim text-sentinel-accent">
               <Clock size={18} />
             </div>
-            <div className="text-[15px] font-semibold">
+            <div className="text-title text-sentinel-text-primary">
               The timeline is empty.
             </div>
-            <div className="text-[13px] text-sentinel-text-secondary max-w-md">
+            <div className="text-body text-sentinel-text-secondary max-w-md">
               Sentinel hasn&apos;t captured any JSON-RPC traffic yet. Run a
               scan to populate the timeline — every observed envelope will
               appear here.
             </div>
             <button
               type="button"
-              className="btn btn-primary no-drag mt-1"
+              className="btn btn-primary no-drag mt-2"
               onClick={() => navigateTo('Live Scan')}
             >
               Run a scan to populate the timeline
             </button>
           </div>
         ) : (
-          <div className="glass rounded-glass p-10 text-center">
-            <div className="text-[15px] font-semibold mb-1">
+          <div className="surface rounded-glass px-8 py-12 text-center">
+            <div className="text-title text-sentinel-text-primary mb-2">
               No traffic in this window.
             </div>
-            <div className="text-[13px] text-sentinel-text-secondary">
+            <div className="text-body text-sentinel-text-secondary">
               Widen the date range or clear filters to see captured events.
             </div>
           </div>
         )
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {visible.map((e) => (
             <EventRow key={e.id} event={e} onSelect={setSelected} />
           ))}
@@ -393,7 +393,7 @@ export default function TimelinePage() {
                 onClick={() => setVisibleCount((n) => n + PAGE)}
               >
                 Load more
-                <span className="ml-1 text-sentinel-text-tertiary">
+                <span className="ml-1 text-sentinel-text-tertiary tabular-nums">
                   ({filteredAll.length - visibleCount} left)
                 </span>
               </button>
@@ -444,15 +444,15 @@ interface KpiTileProps {
 
 function KpiTile({ icon, label, value }: KpiTileProps) {
   return (
-    <div className="card min-w-0 flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sentinel-blue/12 text-sentinel-blue-glow shrink-0">
+    <div className="card min-w-0 flex items-center gap-4">
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sentinel-accent-dim text-sentinel-accent shrink-0">
         {icon}
       </div>
       <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wide text-sentinel-text-tertiary">
+        <div className="text-overline text-sentinel-text-tertiary">
           {label}
         </div>
-        <div className="text-[20px] font-semibold tabular-nums leading-tight">
+        <div className="text-metric font-semibold tabular-nums mt-1">
           {value}
         </div>
       </div>

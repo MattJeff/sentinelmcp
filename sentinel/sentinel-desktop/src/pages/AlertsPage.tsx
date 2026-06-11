@@ -199,19 +199,20 @@ export default function AlertsPage() {
     <Tabs.Root
       value={tab}
       onValueChange={(v) => setTab(v as SeverityTab)}
-      className="flex flex-col gap-4 mx-auto w-full max-w-[1400px]"
+      className="flex flex-col gap-6 mx-auto w-full max-w-[1400px]"
     >
       {/* Top severity tabs + refresh */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-4">
         <Tabs.List className="flex items-center gap-1 glass-soft rounded-pill p-1 w-fit overflow-x-auto max-w-full">
           {TABS.map((t) => (
             <Tabs.Trigger
               key={t.id}
               value={t.id}
               className={clsx(
-                'rounded-pill px-3.5 py-1.5 text-[12px] font-medium transition-all',
-                'text-sentinel-text-secondary hover:text-white',
-                'data-[state=active]:bg-white/14 data-[state=active]:text-white data-[state=active]:shadow-glass-soft',
+                'rounded-pill px-4 py-1.5 text-caption font-medium transition-colors duration-150',
+                'text-sentinel-text-secondary hover:text-sentinel-text-primary',
+                'focus-visible:outline-none focus-visible:shadow-focus',
+                'data-[state=active]:bg-sentinel-raised data-[state=active]:text-sentinel-text-primary',
               )}
             >
               {t.label}
@@ -223,11 +224,7 @@ export default function AlertsPage() {
           type="button"
           onClick={() => void refresh()}
           disabled={refreshing}
-          className={clsx(
-            'pill inline-flex items-center gap-1.5 transition-all',
-            'text-sentinel-text-secondary bg-white/6 border border-white/10 hover:bg-white/10 hover:text-white',
-            refreshing && 'opacity-60 cursor-not-allowed',
-          )}
+          className="btn btn-sm shrink-0"
           aria-label="Refresh alerts"
         >
           <RefreshCw className={clsx('h-3.5 w-3.5', refreshing && 'animate-spin')} />
@@ -236,35 +233,35 @@ export default function AlertsPage() {
       </div>
 
       {/* Sticky filter row: severity pills (counts) + channel pills */}
-      <div className="sticky top-0 z-10 -mx-6 px-6 py-3 backdrop-blur-md bg-black/20 border-b border-white/6">
+      <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 py-3 bg-sentinel-raised border-b border-sentinel-border-soft">
         <div className="flex flex-wrap items-center gap-2">
           {/* Severity pills: wrap on narrow, scroll if still tight */}
           <div className="flex flex-wrap items-center gap-2 overflow-x-auto max-w-full">
             <SeverityCount
               label="Critical"
               count={counts.critical}
-              cls="pill-red"
+              cls="badge-critical"
               active={tab === 'critical'}
               onClick={() => setTab(tab === 'critical' ? 'all' : 'critical')}
             />
             <SeverityCount
               label="High"
               count={counts.high}
-              cls="pill-red"
+              cls="badge-high"
               active={tab === 'high'}
               onClick={() => setTab(tab === 'high' ? 'all' : 'high')}
             />
             <SeverityCount
               label="Medium"
               count={counts.medium}
-              cls="pill-orange"
+              cls="badge-medium"
               active={tab === 'medium'}
               onClick={() => setTab(tab === 'medium' ? 'all' : 'medium')}
             />
           </div>
 
           {/* Divider (visible from md up) */}
-          <div className="hidden md:block mx-2 h-4 w-px bg-white/10" />
+          <div className="hidden md:block mx-2 h-4 w-px bg-sentinel-border" />
 
           {/* Channel pills: inline on md+, hidden behind Filter button on narrow */}
           <div className="hidden md:flex flex-wrap items-center gap-2">
@@ -274,10 +271,11 @@ export default function AlertsPage() {
                 type="button"
                 onClick={() => setChannel(c.id)}
                 className={clsx(
-                  'pill transition-all',
+                  'badge transition-colors duration-150',
+                  'focus-visible:outline-none focus-visible:shadow-focus',
                   channel === c.id
-                    ? 'pill-blue'
-                    : 'text-sentinel-text-secondary bg-white/6 border border-white/10 hover:bg-white/10',
+                    ? 'badge-accent'
+                    : 'badge-neutral hover:text-sentinel-text-primary hover:border-sentinel-border-strong',
                 )}
               >
                 {c.label}
@@ -292,10 +290,11 @@ export default function AlertsPage() {
             title="Include resolved findings in the feed"
             aria-pressed={showResolved}
             className={clsx(
-              'pill ml-auto transition-all',
+              'badge ml-auto transition-colors duration-150',
+              'focus-visible:outline-none focus-visible:shadow-focus',
               showResolved
-                ? 'pill-blue'
-                : 'text-sentinel-text-secondary bg-white/6 border border-white/10 hover:bg-white/10',
+                ? 'badge-accent'
+                : 'badge-neutral hover:text-sentinel-text-primary hover:border-sentinel-border-strong',
             )}
           >
             Show resolved
@@ -307,10 +306,11 @@ export default function AlertsPage() {
               type="button"
               onClick={() => setChannelMenuOpen((v) => !v)}
               className={clsx(
-                'pill inline-flex items-center gap-1.5 transition-all',
+                'badge inline-flex items-center gap-1.5 transition-colors duration-150',
+                'focus-visible:outline-none focus-visible:shadow-focus',
                 channel !== 'all'
-                  ? 'pill-blue'
-                  : 'text-sentinel-text-secondary bg-white/6 border border-white/10 hover:bg-white/10',
+                  ? 'badge-accent'
+                  : 'badge-neutral hover:text-sentinel-text-primary hover:border-sentinel-border-strong',
               )}
               aria-haspopup="menu"
               aria-expanded={channelMenuOpen}
@@ -318,7 +318,7 @@ export default function AlertsPage() {
               <Filter className="h-3.5 w-3.5" />
               Filter
               {channel !== 'all' && (
-                <span className="ml-1 rounded-pill bg-black/30 px-1.5 py-0.5 text-[10px] text-white/90">
+                <span className="ml-1 rounded-pill bg-black/30 px-1.5 py-0.5 text-[10px] tabular-nums">
                   {activeChannelLabel}
                 </span>
               )}
@@ -326,7 +326,7 @@ export default function AlertsPage() {
             {channelMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-2 z-20 min-w-[180px] glass-soft rounded-glass p-1 shadow-glass-soft border border-white/10"
+                className="absolute right-0 top-full mt-2 z-20 min-w-[180px] surface-raised rounded-lg p-1 shadow-raised"
               >
                 {CHANNELS.map((c) => (
                   <button
@@ -339,10 +339,11 @@ export default function AlertsPage() {
                       setChannelMenuOpen(false);
                     }}
                     className={clsx(
-                      'flex items-center justify-between w-full text-left rounded-md px-2.5 py-1.5 text-[12px] transition-colors',
+                      'flex items-center justify-between w-full text-left rounded-lg px-3 py-2 text-caption transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:shadow-focus',
                       channel === c.id
-                        ? 'bg-white/10 text-white'
-                        : 'text-sentinel-text-primary hover:bg-white/10',
+                        ? 'bg-sentinel-accent-dim text-sentinel-text-primary'
+                        : 'text-sentinel-text-secondary hover:bg-white/6 hover:text-sentinel-text-primary',
                     )}
                   >
                     {c.label}
@@ -359,22 +360,22 @@ export default function AlertsPage() {
         <div
           role="status"
           aria-live="polite"
-          className="pill pill-green w-fit inline-flex items-center gap-1.5 animate-fade-up"
+          className="badge badge-ok w-fit inline-flex items-center gap-1.5 tabular-nums animate-fade-up"
         >
           Resolved · {resolveToast.at}
         </div>
       )}
 
       {/* Feed */}
-      <Tabs.Content value={tab} className="flex flex-col gap-2">
+      <Tabs.Content value={tab} className="flex flex-col gap-3">
         {filtered.length === 0 ? (
           <EmptyState />
         ) : (
           filtered.map((a) => (
-            <div key={a.id} className="flex flex-col gap-1">
+            <div key={a.id} className="flex flex-col gap-2">
               <AlertRow alert={a} onResolve={handleResolve} />
               {resolveErrors[a.id] && (
-                <div className="pill pill-red w-fit" role="alert">
+                <div className="badge badge-critical w-fit" role="alert">
                   Resolve failed: {resolveErrors[a.id]}
                 </div>
               )}
@@ -388,11 +389,11 @@ export default function AlertsPage() {
 
 function EmptyState() {
   return (
-    <div className="glass-soft rounded-glass p-10 text-center">
-      <div className="text-[14px] font-semibold text-sentinel-text-primary">
+    <div className="surface rounded-glass px-8 py-12 text-center">
+      <div className="text-title text-sentinel-text-primary">
         Quiet for now.
       </div>
-      <div className="text-[12px] text-sentinel-text-tertiary mt-1">
+      <div className="text-caption text-sentinel-text-tertiary mt-2">
         We'll yell when something changes.
       </div>
     </div>
@@ -412,14 +413,16 @@ function SeverityCount({ label, count, cls, active, onClick }: SeverityCountProp
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={clsx(
-        'pill',
+        'badge transition-opacity duration-150',
+        'focus-visible:outline-none focus-visible:shadow-focus',
         cls,
-        active ? 'ring-1 ring-white/30' : 'opacity-80 hover:opacity-100',
+        active ? 'ring-1 ring-white/30' : 'opacity-70 hover:opacity-100',
       )}
     >
       {label}
-      <span className="ml-1 rounded-pill bg-black/30 px-1.5 py-0.5 text-[10px] text-white/90">
+      <span className="ml-1 rounded-pill bg-black/30 px-1.5 py-0.5 text-[10px] tabular-nums">
         {count}
       </span>
     </button>

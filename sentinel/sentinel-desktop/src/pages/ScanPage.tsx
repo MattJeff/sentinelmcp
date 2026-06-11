@@ -198,7 +198,7 @@ export default function ScanPage() {
   const running = status === 'running';
 
   return (
-    <div className="relative mx-auto w-full max-w-[1600px] flex flex-col gap-6 pb-16 px-4 sm:px-6">
+    <div className="relative mx-auto w-full max-w-[1400px] flex flex-col gap-6">
       <ProxyBanner />
 
       <ScanRunner
@@ -243,14 +243,14 @@ function ProxyBanner() {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 glass-soft rounded-md px-3 py-2">
-      <span className="pill pill-green">
-        <span className="dot dot-green" />
+    <div className="surface flex items-center justify-between gap-3 rounded-lg px-4 py-3">
+      <span className="badge badge-ok">
+        <span className="dot dot-ok" />
         Proxy capture · :{data.port ?? '—'} active
       </span>
       <button
         type="button"
-        className="text-[12px] text-sentinel-blue hover:underline disabled:opacity-50"
+        className="rounded-lg px-2 py-1 text-caption font-medium text-sentinel-accent transition-colors duration-150 hover:underline focus-visible:outline-none focus-visible:shadow-focus disabled:opacity-40"
         onClick={handleStop}
         disabled={stopping}
       >
@@ -274,37 +274,36 @@ function StatusPill({ status }: StatusPillProps) {
           ? 'Finished'
           : 'Error';
 
-  const pillClass =
+  const badgeClass =
     status === 'running'
-      ? 'pill-blue'
+      ? 'badge-accent'
       : status === 'finished'
-        ? 'pill-green'
+        ? 'badge-ok'
         : status === 'error'
-          ? 'pill-red'
-          : 'pill-orange';
+          ? 'badge-critical'
+          : 'badge-neutral';
 
   const dotClass =
     status === 'running'
-      ? 'dot-orange'
+      ? 'dot-accent'
       : status === 'finished'
-        ? 'dot-green'
+        ? 'dot-ok'
         : status === 'error'
-          ? 'dot-red'
-          : 'dot-orange';
+          ? 'dot-critical'
+          : 'dot-info';
 
   return (
     <div className="pointer-events-none sticky bottom-4 z-10 flex justify-end">
       <span
-        className={clsx(
-          'pill pointer-events-auto shadow-glass-soft backdrop-blur-glass',
-          pillClass,
-        )}
+        role="status"
+        aria-live="polite"
+        className={clsx('badge pointer-events-auto shadow-raised', badgeClass)}
       >
         <span
           className={clsx(
             'dot',
             dotClass,
-            (status === 'running' || status === 'error') && 'animate-pulse-glow',
+            (status === 'running' || status === 'error') && 'animate-pulse',
           )}
         />
         {label}

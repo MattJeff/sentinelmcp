@@ -73,22 +73,22 @@ export default function EnforcementConfirmDialog({
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm data-[state=open]:animate-fade-up" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs data-[state=open]:animate-fade-up" />
         <Dialog.Content
-          className="glass-strong fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-glass p-6 data-[state=open]:animate-fade-up"
+          className="surface-raised fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl p-6 shadow-overlay data-[state=open]:animate-fade-up"
         >
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-4">
             <span
-              className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sentinel-red/15 text-sentinel-red"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sentinel-critical-bg text-sentinel-critical"
               aria-hidden
             >
               <FileWarning size={16} />
             </span>
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-[17px] font-semibold text-sentinel-text-primary">
+              <Dialog.Title className="text-title text-sentinel-text-primary">
                 Remove this server from your AI-client config?
               </Dialog.Title>
-              <Dialog.Description className="mt-1.5 text-[13px] text-sentinel-text-secondary">
+              <Dialog.Description className="mt-2 text-body text-sentinel-text-secondary">
                 Enforcement mode is enabled. Sentinel will rewrite the
                 declaring config file on disk and drop a timestamped backup
                 next to it. The agent that owns the file will see the change
@@ -98,28 +98,28 @@ export default function EnforcementConfirmDialog({
           </div>
 
           {endpoint && (
-            <div className="mt-4 truncate rounded-pill px-3 py-1.5 font-mono text-[12px] text-sentinel-text-secondary bg-white/5 border border-white/10">
+            <div className="mt-4 truncate rounded-lg px-3 py-2 font-mono text-caption text-sentinel-text-tertiary bg-sentinel-inset border border-sentinel-border">
               {endpoint}
             </div>
           )}
 
-          <dl className="mt-4 flex flex-col gap-3 text-[12px]">
+          <dl className="mt-6 flex flex-col gap-4 text-caption">
             <PathRow label="Config to rewrite" value={configPath} />
             <PathRow label="Backup written to" value={backupPath} />
           </dl>
 
           <div
-            className="mt-5 flex items-start gap-2 rounded-md border border-sentinel-orange/40 bg-sentinel-orange/10 px-3 py-2 text-[11px] text-sentinel-text-secondary"
+            className="mt-6 flex items-start gap-3 rounded-lg border border-sentinel-medium-border bg-sentinel-medium-bg px-3 py-2 text-caption text-sentinel-text-secondary"
             role="note"
           >
-            <AlertTriangle size={13} className="mt-0.5 shrink-0 text-sentinel-orange" aria-hidden />
+            <AlertTriangle size={13} className="mt-px shrink-0 text-sentinel-medium" aria-hidden />
             <span>
               Restore is a single click — Sentinel can put the backup back
               over the config if the agent needs the server again.
             </span>
           </div>
 
-          <div className="mt-6 flex justify-end gap-2">
+          <div className="mt-8 flex justify-end gap-2">
             <Dialog.Close asChild>
               <button type="button" className="btn" disabled={busy}>
                 Cancel
@@ -127,7 +127,7 @@ export default function EnforcementConfirmDialog({
             </Dialog.Close>
             <button
               type="button"
-              className={clsx('btn btn-danger inline-flex items-center gap-1.5')}
+              className={clsx('btn btn-danger inline-flex items-center gap-2')}
               onClick={handleConfirm}
               disabled={busy}
             >
@@ -144,15 +144,15 @@ export default function EnforcementConfirmDialog({
 function PathRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-sentinel-text-tertiary mb-1 text-[11px] uppercase tracking-wide">
+      <dt className="section-heading mb-1">
         {label}
       </dt>
       <dd
         className={clsx(
-          'font-mono break-all rounded-md border px-2.5 py-1.5 text-[12px]',
+          'font-mono break-all rounded-lg border px-3 py-2 text-caption',
           value
-            ? 'bg-black/30 border-white/10 text-sentinel-text-primary'
-            : 'bg-white/[0.03] border-dashed border-white/10 text-sentinel-text-tertiary',
+            ? 'bg-sentinel-inset border-sentinel-border text-sentinel-text-primary'
+            : 'bg-sentinel-inset border-dashed border-sentinel-border text-sentinel-text-faint',
         )}
       >
         {value ?? '(detected on confirm)'}

@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Sentinel MCP — « Console calme »
+   Surfaces opaques froides, bordures hairline, accents sémantiques contenus.
+   Voir tailwind.config.ts pour les tokens et l'échelle d'espacement.
+   ───────────────────────────────────────────────────────────────────────── */
+
 @layer base {
   html,
   body,
@@ -10,198 +16,282 @@
   }
   body {
     color: theme('colors.sentinel.text-primary');
-    background: #070a14;
+    background: theme('colors.sentinel.deep');
     font-feature-settings: 'ss01', 'cv01', 'cv11';
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
   ::selection {
-    background: rgba(34, 211, 238, 0.40);
+    background: rgba(122, 165, 255, 0.30);
     color: #fff;
+  }
+  /* Chiffres tabulaires partout où des métriques s'alignent. */
+  td,
+  .metric,
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
 
 @layer components {
-  /* App background — warm aurora (teal → violet → coral) over deep navy */
+  /* App background — fond mat + wash unique ultra-subtil en haut de page */
   .app-bg {
-    background-color: #070a14;
+    background-color: theme('colors.sentinel.ink');
     background-image: theme('backgroundImage.aurora-1');
     background-attachment: fixed;
     background-size: 100% 100%;
   }
 
-  /* Glass surfaces — more opaque than before, CleanMyMac feel */
+  /* ── Surfaces — opaques, hairline. `.glass*` conservés en alias. ── */
+  .surface,
   .glass {
-    background: theme('colors.sentinel.glass-strong');
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid theme('colors.sentinel.glass-border');
-    box-shadow: theme('boxShadow.glass');
+    background: theme('colors.sentinel.surface');
+    border: 1px solid theme('colors.sentinel.border');
   }
+  .surface-raised,
   .glass-strong {
-    background: rgba(20, 27, 49, 0.78);
-    backdrop-filter: blur(32px) saturate(180%);
-    -webkit-backdrop-filter: blur(32px) saturate(180%);
-    border: 1px solid theme('colors.sentinel.glass-border');
-    box-shadow: theme('boxShadow.glass');
+    background: theme('colors.sentinel.raised');
+    border: 1px solid theme('colors.sentinel.border');
+    box-shadow: theme('boxShadow.raised');
   }
   .glass-soft {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(12px) saturate(150%);
-    -webkit-backdrop-filter: blur(12px) saturate(150%);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: theme('boxShadow.glass-soft');
+    background: theme('colors.sentinel.glass');
+    border: 1px solid theme('colors.sentinel.border-soft');
   }
 
-  /* Status pills */
-  .pill {
-    @apply inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-[11px] font-semibold tracking-wide uppercase;
-  }
-  .pill-green {
-    color: #d1fae5;
-    background: rgba(52, 211, 153, 0.18);
-    border: 1px solid rgba(52, 211, 153, 0.38);
-  }
-  .pill-orange,
-  .pill-amber {
-    color: #fef3c7;
-    background: rgba(251, 191, 36, 0.18);
-    border: 1px solid rgba(251, 191, 36, 0.40);
-  }
-  .pill-red,
-  .pill-coral {
-    color: #ffe4e6;
-    background: rgba(239, 68, 68, 0.20);
-    border: 1px solid rgba(239, 68, 68, 0.48);
-    box-shadow: 0 0 18px rgba(239, 68, 68, 0.22);
-  }
-  .pill-blue,
-  .pill-cyan {
-    color: #cffafe;
-    background: rgba(34, 211, 238, 0.18);
-    border: 1px solid rgba(34, 211, 238, 0.38);
-  }
-  .pill-violet {
-    color: #e9d5ff;
-    background: rgba(167, 139, 250, 0.18);
-    border: 1px solid rgba(167, 139, 250, 0.40);
-  }
-
-  /* Status dots */
-  .dot {
-    @apply inline-block h-2 w-2 rounded-full;
-  }
-  .dot-green {
-    background: theme('colors.sentinel.green');
-    box-shadow: theme('boxShadow.glow-green');
-  }
-  .dot-orange,
-  .dot-amber {
-    background: theme('colors.sentinel.amber');
-    box-shadow: theme('boxShadow.glow-amber');
-  }
-  .dot-red {
-    background: theme('colors.sentinel.red');
-    box-shadow: theme('boxShadow.glow-red');
-  }
-
-  /* Buttons */
-  .btn {
-    @apply inline-flex items-center gap-1.5 rounded-pill px-3.5 py-2 text-sm font-medium transition-all duration-150;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-  }
-  .btn:hover {
-    background: rgba(255, 255, 255, 0.14);
-  }
-  .btn:active {
-    transform: translateY(0.5px) scale(0.99);
-  }
-  .btn:disabled,
-  .btn[disabled] {
-    opacity: 0.45;
-    cursor: not-allowed;
-    filter: saturate(0.6);
-  }
-  .btn:disabled:hover,
-  .btn[disabled]:hover {
-    background: rgba(255, 255, 255, 0.08);
-    transform: none;
-  }
-  .btn-primary {
-    background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
-    color: #042f1c;
-    border-color: rgba(52, 211, 153, 0.7);
-    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
-    font-weight: 600;
-  }
-  .btn-primary:hover {
-    background: linear-gradient(180deg, #4ade80 0%, #22c55e 100%);
-  }
-  .btn-danger {
-    background: linear-gradient(180deg, #fb7185 0%, #f43f5e 100%);
-    color: #ffffff;
-    border-color: rgba(251, 113, 133, 0.7);
-    box-shadow: 0 6px 20px rgba(244, 63, 94, 0.40);
-  }
-  .btn-amber {
-    background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%);
-    color: #422006;
-    border-color: rgba(251, 191, 36, 0.7);
-    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.40);
-  }
-
-  /* Card */
+  /* ── Card ── */
   .card {
-    @apply glass rounded-glass p-5;
+    @apply surface rounded-glass p-6;
   }
   .card-hover {
     @apply card;
-    transition: transform 220ms cubic-bezier(0.2, 0, 0, 1), box-shadow 220ms;
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
   }
   .card-hover:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.14) inset,
-      0 0 0 1px rgba(255, 255, 255, 0.10),
-      0 24px 60px rgba(0, 0, 0, 0.45);
+    background: theme('colors.sentinel.raised');
+    border-color: theme('colors.sentinel.border-strong');
   }
 
-  /* Inputs */
-  .input {
-    @apply w-full rounded-pill px-3.5 py-2 text-sm;
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+  /* ── Badges de sévérité (canon) ──
+     La couleur de sévérité n'apparaît que sur : badge, dot, barre latérale
+     de row, point de chart. Jamais en fond de carte entier, jamais en
+     gradient. */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-caption font-medium;
+    border: 1px solid transparent;
+  }
+  .badge-info {
+    color: theme('colors.sentinel.info');
+    background: theme('colors.sentinel.info-bg');
+    border-color: theme('colors.sentinel.info-border');
+  }
+  .badge-medium {
+    color: theme('colors.sentinel.medium');
+    background: theme('colors.sentinel.medium-bg');
+    border-color: theme('colors.sentinel.medium-border');
+  }
+  .badge-high {
+    color: theme('colors.sentinel.high');
+    background: theme('colors.sentinel.high-bg');
+    border-color: theme('colors.sentinel.high-border');
+  }
+  .badge-critical {
+    color: theme('colors.sentinel.critical');
+    background: theme('colors.sentinel.critical-bg');
+    border-color: theme('colors.sentinel.critical-border');
+  }
+  .badge-ok {
+    color: theme('colors.sentinel.ok');
+    background: theme('colors.sentinel.ok-bg');
+    border-color: theme('colors.sentinel.ok-border');
+  }
+  .badge-accent {
+    color: theme('colors.sentinel.accent');
+    background: theme('colors.sentinel.accent-dim');
+    border-color: rgba(122, 165, 255, 0.30);
+  }
+  .badge-neutral {
+    color: theme('colors.sentinel.text-secondary');
+    background: rgba(255, 255, 255, 0.05);
+    border-color: theme('colors.sentinel.border');
+  }
+
+  /* ── Pills (alias back-compat → badges) ── */
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-medium tracking-normal;
+    border: 1px solid transparent;
+  }
+  .pill-green {
+    color: theme('colors.sentinel.ok');
+    background: theme('colors.sentinel.ok-bg');
+    border-color: theme('colors.sentinel.ok-border');
+  }
+  .pill-orange,
+  .pill-amber {
+    color: theme('colors.sentinel.medium');
+    background: theme('colors.sentinel.medium-bg');
+    border-color: theme('colors.sentinel.medium-border');
+  }
+  .pill-red,
+  .pill-coral {
+    color: theme('colors.sentinel.critical');
+    background: theme('colors.sentinel.critical-bg');
+    border-color: theme('colors.sentinel.critical-border');
+  }
+  .pill-blue,
+  .pill-cyan {
+    color: theme('colors.sentinel.accent');
+    background: theme('colors.sentinel.accent-dim');
+    border-color: rgba(122, 165, 255, 0.30);
+  }
+  .pill-violet {
+    color: theme('colors.sentinel.violet');
+    background: rgba(157, 140, 240, 0.10);
+    border-color: rgba(157, 140, 240, 0.30);
+  }
+  .pill-tertiary {
+    color: theme('colors.sentinel.text-tertiary');
+    background: rgba(255, 255, 255, 0.04);
+    border-color: theme('colors.sentinel.border-soft');
+  }
+
+  /* ── Status dots — point plein + ring discret (plus de halo) ── */
+  .dot {
+    @apply inline-block h-2 w-2 rounded-full;
+  }
+  .dot-green,
+  .dot-ok {
+    background: theme('colors.sentinel.ok');
+    box-shadow: 0 0 0 3px theme('colors.sentinel.ok-bg');
+  }
+  .dot-orange,
+  .dot-amber,
+  .dot-medium {
+    background: theme('colors.sentinel.medium');
+    box-shadow: 0 0 0 3px theme('colors.sentinel.medium-bg');
+  }
+  .dot-high {
+    background: theme('colors.sentinel.high');
+    box-shadow: 0 0 0 3px theme('colors.sentinel.high-bg');
+  }
+  .dot-red,
+  .dot-critical {
+    background: theme('colors.sentinel.critical');
+    box-shadow: 0 0 0 3px theme('colors.sentinel.critical-bg');
+  }
+  .dot-info {
+    background: theme('colors.sentinel.info');
+    box-shadow: 0 0 0 3px theme('colors.sentinel.info-bg');
+  }
+  .dot-accent,
+  .dot-blue {
+    background: theme('colors.sentinel.accent');
+    box-shadow: 0 0 0 3px theme('colors.sentinel.accent-dim');
+  }
+
+  /* ── Boutons — plats, hauteur 36px alignée sur les inputs ── */
+  .btn {
+    @apply inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid theme('colors.sentinel.border');
     color: theme('colors.sentinel.text-primary');
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
+  }
+  .btn:hover {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: theme('colors.sentinel.border-strong');
+  }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: theme('boxShadow.focus');
+  }
+  .btn:disabled,
+  .btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn:disabled:hover,
+  .btn[disabled]:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: theme('colors.sentinel.border');
+  }
+  .btn-sm {
+    @apply h-8 px-3 text-caption;
+  }
+  .btn-primary {
+    background: theme('colors.sentinel.accent');
+    color: #08090c;
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    background: #8fb3ff;
+    border-color: transparent;
+  }
+  .btn-danger {
+    background: theme('colors.sentinel.critical');
+    color: #ffffff;
+    border-color: transparent;
+  }
+  .btn-danger:hover {
+    background: #ec6b64;
+    border-color: transparent;
+  }
+  .btn-amber {
+    color: theme('colors.sentinel.medium');
+    background: theme('colors.sentinel.medium-bg');
+    border-color: theme('colors.sentinel.medium-border');
+  }
+  .btn-amber:hover {
+    background: rgba(217, 168, 60, 0.16);
+    border-color: theme('colors.sentinel.medium-border');
+  }
+
+  /* ── Inputs — même hauteur que .btn, focus accent unique ── */
+  .input {
+    @apply h-9 w-full rounded-lg px-3 text-sm;
+    background: theme('colors.sentinel.inset');
+    border: 1px solid theme('colors.sentinel.border');
+    color: theme('colors.sentinel.text-primary');
+    transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+  .input::placeholder {
+    color: theme('colors.sentinel.text-faint');
   }
   .input:focus {
     outline: none;
-    border-color: rgba(34, 211, 238, 0.6);
-    box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.20);
+    border-color: theme('colors.sentinel.accent');
+    box-shadow: 0 0 0 2px theme('colors.sentinel.accent-dim');
   }
 
-  /* Section headings */
+  /* ── Section headings — overline calme ── */
   .section-heading {
-    @apply text-[10px] font-semibold uppercase tracking-[0.16em];
+    @apply text-overline font-medium uppercase;
     color: theme('colors.sentinel.text-tertiary');
   }
 
-  /* Shimmer used for skeletons */
+  /* ── Métriques — chiffres tabulaires + tracking serré ── */
+  .metric-value {
+    @apply text-metric-lg tabular-nums;
+    color: theme('colors.sentinel.text-primary');
+  }
+
+  /* ── Skeletons ── */
   .skeleton {
     background: linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.05) 0%,
-      rgba(255, 255, 255, 0.12) 50%,
-      rgba(255, 255, 255, 0.05) 100%
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.04) 100%
     );
     background-size: 200% 100%;
-    @apply animate-shimmer rounded-md;
+    @apply animate-shimmer rounded-lg;
   }
 
   /* Traffic-light area: extra space at the top of the sidebar */
   .titlebar {
     -webkit-app-region: drag;
-    padding-top: 18px;
+    padding-top: 16px;
   }
   .no-drag {
     -webkit-app-region: no-drag;

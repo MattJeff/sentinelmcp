@@ -37,6 +37,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { api } from '../api/tauri';
 import { COMMANDS, type LiveStatus } from '../api/contract';
 import { useSidebar } from '../hooks/useSidebar';
+import Logo from './Logo';
 
 import OverviewPage from '../pages/OverviewPage';
 import InventoryPage from '../pages/InventoryPage';
@@ -122,7 +123,7 @@ export default function DashboardLayout({
             type="button"
             aria-label="Close navigation"
             onClick={() => setMobileOpen(false)}
-            className="md:hidden fixed inset-0 z-30 bg-black/50 backdrop-blur-sm animate-fade-in"
+            className="md:hidden fixed inset-0 z-30 bg-black/50 backdrop-blur-xs animate-fade-in"
           />
         )}
 
@@ -145,46 +146,48 @@ export default function DashboardLayout({
         <main className="flex-1 min-w-0 p-3 md:pl-0 overflow-hidden flex flex-col">
           <div className="glass-strong rounded-glass flex-1 overflow-hidden flex flex-col">
             {/* Titlebar */}
-            <div className="titlebar flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-white/8 gap-3" data-tauri-drag-region>
-              <div className="no-drag flex items-center gap-2 min-w-0">
+            <div className="titlebar flex items-center justify-between gap-4 px-4 sm:px-8 py-4 border-b border-sentinel-border-soft" data-tauri-drag-region>
+              <div className="no-drag flex items-center gap-3 min-w-0">
                 {/* Hamburger — only < md. */}
                 <button
                   type="button"
                   onClick={() => setMobileOpen(true)}
                   aria-label="Open navigation"
-                  className="md:hidden inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-white/8 text-sentinel-text-secondary hover:text-white transition-colors"
+                  className="md:hidden inline-flex items-center justify-center h-9 w-9 rounded-lg text-sentinel-text-secondary hover:bg-sentinel-raised hover:text-sentinel-text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus"
                 >
                   <Menu className="h-4 w-4" />
                 </button>
                 <div className="min-w-0">
-                  <h1 className="text-[15px] font-semibold tracking-tight truncate">
+                  <h1 className="text-title truncate">
                     {NAV.find((n) => n.id === active)?.label}
                   </h1>
-                  <div className="text-[11px] text-sentinel-text-tertiary mt-0.5 truncate">
+                  <p className="text-caption text-sentinel-text-tertiary mt-1 truncate">
                     {labelSubtitle(active)}
-                  </div>
+                  </p>
                 </div>
               </div>
               <div className="no-drag flex items-center gap-2 shrink-0">
-                <span className="pill pill-green">
-                  <span className="dot dot-green" /> Monitoring
+                <span className="badge badge-ok">
+                  <span className="dot dot-ok" /> Monitoring
                 </span>
               </div>
             </div>
 
             {/* Page content */}
-            <div className="flex-1 overflow-auto p-4 sm:p-6 animate-fade-up">
-              {active === 'overview' && <OverviewPage />}
-              {active === 'inventory' && <InventoryPage />}
-              {active === 'discovery' && <DiscoveryPage />}
-              {active === 'scan' && <ScanPage />}
-              {active === 'alerts' && <AlertsPage />}
-              {active === 'approvals' && <ApprovalsPage />}
-              {active === 'trust-graph' && <TrustGraphPage />}
-              {active === 'timeline' && <TimelinePage />}
-              {active === 'compliance' && <CompliancePage />}
-              {active === 'report' && <ReportPage />}
-              {active === 'settings' && <SettingsPage />}
+            <div className="flex-1 overflow-auto px-4 sm:px-8 pt-6 pb-12 animate-fade-up">
+              <div className="mx-auto max-w-[1400px]">
+                {active === 'overview' && <OverviewPage />}
+                {active === 'inventory' && <InventoryPage />}
+                {active === 'discovery' && <DiscoveryPage />}
+                {active === 'scan' && <ScanPage />}
+                {active === 'alerts' && <AlertsPage />}
+                {active === 'approvals' && <ApprovalsPage />}
+                {active === 'trust-graph' && <TrustGraphPage />}
+                {active === 'timeline' && <TimelinePage />}
+                {active === 'compliance' && <CompliancePage />}
+                {active === 'report' && <ReportPage />}
+                {active === 'settings' && <SettingsPage />}
+              </div>
             </div>
           </div>
         </main>
@@ -254,20 +257,18 @@ function Sidebar({
         {/* Header: brand + close-on-mobile button. */}
         <div
           className={clsx(
-            'titlebar px-1 pt-1 pb-3 flex items-center gap-2',
+            'titlebar px-1 pt-1 pb-4 flex items-center gap-2',
             compact ? 'md:justify-center lg:justify-center' : '',
           )}
           data-tauri-drag-region
         >
           <div
             className={clsx(
-              'flex items-center gap-2.5 no-drag min-w-0',
+              'flex items-center gap-3 no-drag min-w-0',
               compact ? 'md:flex-none lg:flex-none md:justify-center lg:justify-center' : 'flex-1',
             )}
           >
-            <div className="h-7 w-7 shrink-0 rounded-lg bg-gradient-to-br from-sentinel-blue to-sentinel-purple shadow-glow-blue flex items-center justify-center">
-              <ShieldCheck className="h-4 w-4 text-white" />
-            </div>
+            <Logo size={28} className="shrink-0" />
             {/* Brand text: hidden when compact at ≥lg, hidden md…lg,
                 but always shown on the < md drawer. */}
             <div
@@ -277,11 +278,11 @@ function Sidebar({
                 compact ? 'lg:hidden' : 'lg:block',
               )}
             >
-              <div className="text-[13px] font-semibold leading-tight truncate">
+              <div className="text-body font-semibold leading-tight truncate">
                 Sentinel MCP
               </div>
-              <div className="text-[10px] text-sentinel-text-tertiary leading-tight flex items-center gap-1.5">
-                <span>v0.2.1</span>
+              <div className="text-[11px] text-sentinel-text-tertiary leading-tight flex items-center gap-2">
+                <span className="tabular-nums">v0.2.1</span>
                 <LiveBadge compact={false} />
               </div>
             </div>
@@ -303,7 +304,7 @@ function Sidebar({
             type="button"
             onClick={() => setMobileOpen(false)}
             aria-label="Close navigation"
-            className="md:hidden inline-flex items-center justify-center h-7 w-7 rounded-lg hover:bg-white/8 text-sentinel-text-secondary hover:text-white transition-colors"
+            className="md:hidden inline-flex items-center justify-center h-8 w-8 rounded-lg text-sentinel-text-secondary hover:bg-sentinel-raised hover:text-sentinel-text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus"
           >
             <X className="h-4 w-4" />
           </button>
@@ -330,10 +331,10 @@ function Sidebar({
             aria-label="Open command palette"
           >
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-sentinel-text-tertiary" />
-            <span className="input flex items-center pl-8 pr-14 text-[12px] text-sentinel-text-tertiary group-hover:text-sentinel-text-secondary transition-colors">
+            <span className="input flex items-center pl-8 pr-14 text-caption text-sentinel-text-tertiary group-hover:text-sentinel-text-secondary transition-colors duration-150">
               Search servers, tools…
             </span>
-            <kbd className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-white/12 bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-sentinel-text-tertiary">
+            <kbd className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded border border-sentinel-border bg-white/4 px-1.5 py-0.5 text-[10px] font-medium text-sentinel-text-tertiary">
               {shortcutLabel}
             </kbd>
           </button>
@@ -346,7 +347,7 @@ function Sidebar({
                 onClick={() => onOpenCommandPalette?.()}
                 aria-label="Open command palette"
                 className={clsx(
-                  'hidden items-center justify-center w-full h-9 rounded-lg text-sentinel-text-secondary hover:bg-white/8 hover:text-white transition-colors',
+                  'hidden items-center justify-center w-full h-9 rounded-lg text-sentinel-text-secondary hover:bg-sentinel-raised hover:text-sentinel-text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus',
                   'md:inline-flex',
                   compact ? 'lg:inline-flex' : 'lg:hidden',
                 )}
@@ -356,7 +357,7 @@ function Sidebar({
             </Tooltip.Trigger>
             <TooltipContent>
               Search{' '}
-              <kbd className="ml-1 rounded border border-white/15 bg-white/5 px-1 py-px text-[9px]">
+              <kbd className="ml-1 rounded border border-sentinel-border bg-white/4 px-1 py-px text-[10px]">
                 {shortcutLabel}
               </kbd>
             </TooltipContent>
@@ -366,7 +367,7 @@ function Sidebar({
         {/* Section heading — hidden when compact (md…lg, and ≥lg if collapsed). */}
         <div
           className={clsx(
-            'section-heading mt-2 mb-1 px-2',
+            'section-heading mt-4 mb-2 px-3',
             'md:hidden',
             compact ? 'lg:hidden' : 'lg:block',
           )}
@@ -375,7 +376,7 @@ function Sidebar({
         </div>
 
         {/* Nav */}
-        <nav className="no-drag flex flex-col gap-0.5 overflow-y-auto pr-0.5">
+        <nav className="no-drag flex flex-col gap-1 overflow-y-auto pr-1">
           {NAV.map((item) => {
             const Icon = item.icon;
             const isActive = active === item.id;
@@ -385,17 +386,18 @@ function Sidebar({
                   <button
                     onClick={() => setActive(item.id)}
                     className={clsx(
-                      'group flex items-center gap-2.5 rounded-lg text-[13px] text-left transition-all',
+                      'group flex items-center gap-3 rounded-lg text-body text-left transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:shadow-focus',
                       // Padding shrinks in compact: keep the icon centered in a
                       // square hit-target instead of left-padded row.
-                      'px-3 py-2',
-                      'md:px-0 md:py-2 md:justify-center',
+                      'px-3 py-2.5',
+                      'md:px-0 md:py-2.5 md:justify-center',
                       compact
-                        ? 'lg:px-0 lg:py-2 lg:justify-center'
-                        : 'lg:px-3 lg:py-2 lg:justify-start',
+                        ? 'lg:px-0 lg:py-2.5 lg:justify-center'
+                        : 'lg:px-3 lg:py-2.5 lg:justify-start',
                       isActive
-                        ? 'bg-white/12 text-white shadow-glass-soft'
-                        : 'text-sentinel-text-secondary hover:bg-white/6 hover:text-white',
+                        ? 'bg-sentinel-accent-dim text-sentinel-text-primary'
+                        : 'text-sentinel-text-secondary hover:bg-sentinel-raised hover:text-sentinel-text-primary',
                     )}
                     aria-label={item.label}
                     aria-current={isActive ? 'page' : undefined}
@@ -403,7 +405,7 @@ function Sidebar({
                     <Icon
                       className={clsx(
                         'h-4 w-4 shrink-0',
-                        isActive ? 'text-sentinel-blue-glow' : 'opacity-80',
+                        isActive ? 'text-sentinel-accent' : 'opacity-80',
                       )}
                     />
                     {/* Label — hidden when compact. */}
@@ -419,7 +421,7 @@ function Sidebar({
                     {item.badge && (
                       <span
                         className={clsx(
-                          'pill pill-red text-[9px] px-1.5 py-0.5',
+                          'badge badge-critical tabular-nums',
                           'md:hidden',
                           compact ? 'lg:hidden' : 'lg:inline-flex',
                         )}
@@ -442,7 +444,7 @@ function Sidebar({
         </nav>
 
         {/* Footer: collapse toggle + meta. */}
-        <div className="mt-auto pt-3 border-t border-white/8 flex flex-col gap-2">
+        <div className="mt-auto pt-3 border-t border-sentinel-border-soft flex flex-col gap-2">
           {/* Chevron toggle — only at ≥ lg, where the user can actually flip
               between expanded and rail. Hidden on the mobile drawer and on
               md…lg (where it is forced compact). */}
@@ -452,8 +454,8 @@ function Sidebar({
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-pressed={collapsed}
             className={clsx(
-              'hidden lg:inline-flex items-center gap-2 rounded-lg text-[11px] text-sentinel-text-secondary hover:bg-white/8 hover:text-white transition-colors',
-              compact ? 'justify-center w-full h-8 px-0' : 'justify-end px-2 py-1.5',
+              'hidden lg:inline-flex items-center gap-2 rounded-lg text-caption text-sentinel-text-secondary hover:bg-sentinel-raised hover:text-sentinel-text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus',
+              compact ? 'justify-center w-full h-8 px-0' : 'justify-end px-3 py-2',
             )}
           >
             {collapsed ? (
@@ -469,7 +471,7 @@ function Sidebar({
           {/* Meta line — hidden when compact. */}
           <div
             className={clsx(
-              'text-[10px] text-sentinel-text-tertiary px-2',
+              'text-[11px] text-sentinel-text-tertiary px-3',
               'md:hidden',
               compact ? 'lg:hidden' : 'lg:block',
             )}
@@ -489,10 +491,10 @@ function TooltipContent({ children }: { children: React.ReactNode }) {
       <Tooltip.Content
         side="right"
         sideOffset={8}
-        className="z-50 rounded-md bg-black/80 backdrop-blur px-2 py-1 text-[11px] text-white shadow-lg ring-1 ring-white/10 data-[state=delayed-open]:animate-fade-in"
+        className="z-50 rounded-lg bg-sentinel-raised px-2 py-1 text-caption text-sentinel-text-primary shadow-raised data-[state=delayed-open]:animate-fade-in"
       >
         {children}
-        <Tooltip.Arrow className="fill-black/80" />
+        <Tooltip.Arrow className="fill-sentinel-raised" />
       </Tooltip.Content>
     </Tooltip.Portal>
   );
@@ -527,8 +529,8 @@ function LiveBadge({ compact = false }: { compact?: boolean } = {}) {
         aria-label={ariaLabel}
         className="relative inline-flex h-1.5 w-1.5"
       >
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70 opacity-75" />
-        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sentinel-ok/70 opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sentinel-ok" />
       </span>
     );
   }
@@ -536,12 +538,12 @@ function LiveBadge({ compact = false }: { compact?: boolean } = {}) {
   return (
     <span
       title={`Last refresh ${lastLabel}`}
-      className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-1.5 py-[1px] text-[9px] font-medium text-emerald-300 ring-1 ring-emerald-400/20"
+      className="inline-flex items-center gap-1 rounded-pill bg-sentinel-ok-bg px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-sentinel-ok ring-1 ring-inset ring-sentinel-ok-border"
       aria-label={ariaLabel}
     >
       <span className="relative flex h-1.5 w-1.5">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70 opacity-75" />
-        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sentinel-ok/70 opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sentinel-ok" />
       </span>
       Live · {intervalSecs}s
     </span>

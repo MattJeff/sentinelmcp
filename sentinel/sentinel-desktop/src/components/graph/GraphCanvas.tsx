@@ -195,30 +195,7 @@ export default function GraphCanvas({
       aria-label="Trust graph"
       onMouseLeave={() => setHoverId(null)}
     >
-      <defs>
-        <radialGradient id="grad-client" cx="35%" cy="30%" r="80%">
-          <stop offset="0%" stopColor="#5e9eff" />
-          <stop offset="100%" stopColor="#0a84ff" />
-        </radialGradient>
-        <radialGradient id="grad-server" cx="35%" cy="30%" r="80%">
-          <stop offset="0%" stopColor="#d39bff" />
-          <stop offset="100%" stopColor="#bf5af2" />
-        </radialGradient>
-        <radialGradient id="grad-scope-green" cx="35%" cy="30%" r="80%">
-          <stop offset="0%" stopColor="#7fe48b" />
-          <stop offset="100%" stopColor="#34c759" />
-        </radialGradient>
-        <radialGradient id="grad-scope-orange" cx="35%" cy="30%" r="80%">
-          <stop offset="0%" stopColor="#ffd28a" />
-          <stop offset="100%" stopColor="#ff9f0a" />
-        </radialGradient>
-        <radialGradient id="grad-scope-red" cx="35%" cy="30%" r="80%">
-          <stop offset="0%" stopColor="#ff8a82" />
-          <stop offset="100%" stopColor="#ff453a" />
-        </radialGradient>
-      </defs>
-
-      {/* Column hints (very subtle frosted lanes). */}
+      {/* Column hints (very subtle hairline lanes). */}
       {(['client', 'server', 'scope'] as TrustNodeKind[]).map((k) => (
         <line
           key={k}
@@ -247,7 +224,7 @@ export default function GraphCanvas({
               y1={a.y}
               x2={b.x}
               y2={b.y}
-              stroke={isFocus ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.08)'}
+              stroke={isFocus ? 'rgba(255,255,255,0.38)' : 'rgba(255,255,255,0.06)'}
               strokeWidth={isFocus ? 1.4 : 1}
               style={{ transition: 'stroke 180ms ease, stroke-width 180ms ease' }}
             />
@@ -274,26 +251,29 @@ export default function GraphCanvas({
               onMouseEnter={() => setHoverId(n.id)}
               onMouseLeave={() => setHoverId((cur) => (cur === n.id ? null : cur))}
               onClick={() => onSelect?.(n.id === selectedId ? null : n.id)}
+              aria-label={n.label}
             >
-              {/* Halo. */}
+              {/* Halo ring. */}
               <circle
-                r={isSelected ? 18 : 14}
+                r={isSelected ? 17 : 14}
                 fill={fill}
-                opacity={0.18}
+                opacity={isSelected ? 0.16 : 0.1}
                 className={clsx(isPulse && 'animate-pulse-glow')}
               />
               <circle
-                r={12}
+                r={isSelected ? 7 : 6}
                 fill={fill}
-                stroke="rgba(255,255,255,0.35)"
-                strokeWidth={isSelected ? 1.6 : 0.8}
+                stroke={isSelected ? 'rgba(245,247,251,0.5)' : 'rgba(245,247,251,0.18)'}
+                strokeWidth={isSelected ? 1.4 : 1}
+                style={{ transition: 'stroke 150ms ease' }}
               />
               <text
-                x={n.kind === 'scope' ? 18 : n.kind === 'client' ? -18 : 18}
+                x={n.kind === 'scope' ? 16 : n.kind === 'client' ? -16 : 16}
                 y={4}
                 textAnchor={n.kind === 'client' ? 'end' : 'start'}
                 fontSize={11}
-                fill={dim ? 'rgba(245,247,251,0.45)' : 'rgba(245,247,251,0.92)'}
+                fontWeight={n.kind === 'scope' ? 400 : 500}
+                fill={dim ? 'rgba(245,247,251,0.45)' : 'rgba(245,247,251,0.88)'}
                 style={{ pointerEvents: 'none' }}
               >
                 {n.label}
@@ -307,11 +287,11 @@ export default function GraphCanvas({
 }
 
 function nodeFill(n: TrustNode): string {
-  if (n.kind === 'client') return 'url(#grad-client)';
-  if (n.kind === 'server') return 'url(#grad-server)';
-  // scope — color by risk.
+  if (n.kind === 'client') return '#7aa5ff'; // sentinel-accent
+  if (n.kind === 'server') return '#9d8cf0'; // sentinel-violet
+  // scope — color by risk (severity tokens: critical / high / ok).
   const r = n.risk ?? 0;
-  if (r >= 0.66) return 'url(#grad-scope-red)';
-  if (r >= 0.33) return 'url(#grad-scope-orange)';
-  return 'url(#grad-scope-green)';
+  if (r >= 0.66) return '#e5534b';
+  if (r >= 0.33) return '#e8804f';
+  return '#4cc38a';
 }

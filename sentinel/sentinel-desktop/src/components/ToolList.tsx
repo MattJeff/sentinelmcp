@@ -33,7 +33,7 @@ export default function ToolList({ tools }: ToolListProps) {
 
   if (tools.length === 0) {
     return (
-      <div className="text-[12px] text-sentinel-text-tertiary py-2">
+      <div className="text-caption text-sentinel-text-tertiary py-2">
         No tools advertised by this server.
       </div>
     );
@@ -48,8 +48,10 @@ export default function ToolList({ tools }: ToolListProps) {
           <div
             key={tool.name}
             className={clsx(
-              'glass-soft rounded-glass overflow-hidden',
-              suspect && 'shadow-glow-red',
+              'rounded-lg border bg-sentinel-inset overflow-hidden',
+              suspect
+                ? 'border-sentinel-critical-border border-l-2 border-l-sentinel-critical'
+                : 'border-sentinel-border-soft',
             )}
           >
             <button
@@ -57,7 +59,7 @@ export default function ToolList({ tools }: ToolListProps) {
               onClick={() =>
                 setOpen((prev) => ({ ...prev, [tool.name]: !prev[tool.name] }))
               }
-              className="no-drag w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+              className="no-drag w-full flex items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-sentinel-raised focus-visible:outline-none focus-visible:shadow-focus"
               aria-expanded={isOpen}
             >
               <ChevronRight
@@ -66,17 +68,18 @@ export default function ToolList({ tools }: ToolListProps) {
                   'shrink-0 transition-transform duration-200 text-sentinel-text-tertiary',
                   isOpen && 'rotate-90',
                 )}
+                aria-hidden
               />
               <div className="flex-1 min-w-0 flex items-center gap-2">
-                <span className="font-mono text-[13px] font-semibold text-sentinel-text-primary truncate">
+                <span className="font-mono text-body font-semibold text-sentinel-text-primary truncate">
                   {tool.name}
                 </span>
                 {suspect && (
                   <span
-                    className="pill pill-red shrink-0"
+                    className="badge badge-critical shrink-0"
                     title="Description contains poisoning indicators"
                   >
-                    <AlertTriangle size={11} />
+                    <AlertTriangle size={11} aria-hidden />
                     Poisoning suspect
                   </span>
                 )}
@@ -85,13 +88,13 @@ export default function ToolList({ tools }: ToolListProps) {
             {isOpen && (
               <div className="px-4 pb-4 pt-1 animate-fade-up flex flex-col gap-3">
                 {tool.description && (
-                  <p className="text-[12px] leading-relaxed text-sentinel-text-secondary whitespace-pre-wrap">
+                  <p className="text-caption leading-relaxed text-sentinel-text-secondary whitespace-pre-wrap">
                     {tool.description}
                   </p>
                 )}
                 <div>
-                  <div className="section-heading mb-1.5">Input schema</div>
-                  <pre className="font-mono text-[11px] leading-relaxed text-sentinel-text-secondary bg-black/30 rounded-glass p-3 overflow-x-auto max-h-72">
+                  <div className="section-heading mb-2">Input schema</div>
+                  <pre className="font-mono text-[11px] leading-relaxed text-sentinel-text-secondary bg-black/30 border border-sentinel-border-soft rounded-lg p-3 overflow-x-auto max-h-72">
                     {formatJson(tool.input_schema)}
                   </pre>
                 </div>

@@ -301,20 +301,20 @@ export default function InventoryPage({ onNavigate }: InventoryPageProps = {}) {
       : `Last refreshed ${secondsAgo} second${secondsAgo === 1 ? '' : 's'} ago`;
 
   return (
-    <div className="animate-fade-up w-full max-w-[1600px] mx-auto">
+    <div className="animate-fade-up w-full max-w-[1400px] mx-auto">
       <sub-header
         // Custom element name kept lowercased with a dash so React treats it
         // as a host element (declared in JSX intrinsics above).
-        className="flex items-center justify-between mb-3 text-[12px] text-sentinel-text-tertiary"
+        className="flex items-center justify-between mb-4 text-caption text-sentinel-text-tertiary"
       >
-        <span aria-live="polite">{refreshedLabel}</span>
+        <span aria-live="polite" className="tabular-nums">{refreshedLabel}</span>
         <button
           type="button"
           onClick={handleManualRefresh}
-          className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-sentinel-text-secondary hover:text-white hover:bg-white/10 transition-colors"
+          className="btn btn-sm"
           aria-label="Refresh inventory"
         >
-          <RefreshCw className="h-3 w-3" />
+          <RefreshCw className="h-3 w-3" aria-hidden />
           Refresh
         </button>
       </sub-header>
@@ -350,15 +350,15 @@ export default function InventoryPage({ onNavigate }: InventoryPageProps = {}) {
           ))}
         </div>
       ) : servers.length === 0 ? (
-        <div className="glass rounded-glass p-10 text-center flex flex-col items-center gap-4">
-          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-sentinel-blue/30 to-sentinel-purple/30 flex items-center justify-center">
-            <Telescope className="h-6 w-6 text-sentinel-blue-glow" />
+        <div className="surface rounded-glass px-8 py-12 text-center flex flex-col items-center gap-6">
+          <div className="h-12 w-12 rounded-full bg-sentinel-accent-dim flex items-center justify-center">
+            <Telescope className="h-6 w-6 text-sentinel-accent" aria-hidden />
           </div>
-          <div>
-            <div className="text-[15px] font-semibold mb-1">
+          <div className="flex flex-col gap-2">
+            <div className="text-title text-sentinel-text-primary">
               No MCP servers in your inventory yet.
             </div>
-            <div className="text-[13px] text-sentinel-text-secondary max-w-md mx-auto">
+            <div className="text-body text-sentinel-text-secondary max-w-md mx-auto">
               Sentinel hasn’t observed any MCP traffic on this Mac. Run a
               discovery scan to enumerate every AI client and the servers it
               declares — they’ll show up here as soon as they’re seen.
@@ -367,18 +367,18 @@ export default function InventoryPage({ onNavigate }: InventoryPageProps = {}) {
           <button
             type="button"
             onClick={handleDiscoveryCta}
-            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-sentinel-blue to-sentinel-purple px-4 py-2 text-[13px] font-medium text-white shadow-glow-blue hover:opacity-90 transition-opacity"
+            className="btn btn-primary"
           >
-            <Telescope className="h-4 w-4" />
+            <Telescope className="h-4 w-4" aria-hidden />
             Run a discovery scan
           </button>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="glass rounded-glass p-10 text-center">
-          <div className="text-[15px] font-semibold mb-1">
+        <div className="surface rounded-glass px-8 py-12 text-center flex flex-col gap-2">
+          <div className="text-title text-sentinel-text-primary">
             No servers match these filters.
           </div>
-          <div className="text-[13px] text-sentinel-text-secondary">
+          <div className="text-body text-sentinel-text-secondary">
             Try widening the colour, status, or transport filters.
           </div>
         </div>

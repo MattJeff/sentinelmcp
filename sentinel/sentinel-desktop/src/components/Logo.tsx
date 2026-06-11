@@ -2,8 +2,9 @@
  * Sentinel MCP logo.
  *
  * An inline SVG mirroring the macOS app icon: a rounded shield filled with
- * the Sentinel gradient (blue -> indigo -> purple), an inner highlight for a
- * frosted-glass feel, and a central MCP "lens" (concentric rings + dot).
+ * the Sentinel gradient (accent blue -> violet, calm console palette), an
+ * inner highlight for depth, and a central MCP "lens" (concentric rings +
+ * dot).
  *
  * Scalable via the `size` prop (defaults to 32). Pass `title` to set the
  * accessible label; omit it for a purely decorative mark (it becomes
@@ -13,9 +14,8 @@
  *   import { Logo } from "@/components/Logo";
  *   <Logo size={28} title="Sentinel MCP" />
  *
- * NOTE: This component is intentionally NOT wired into DashboardLayout.tsx —
- * the sidebar wiring is left for a later UI pass to avoid touching files
- * outside this agent's scope.
+ * Wired into the DashboardLayout sidebar brand mark (decorative — the brand
+ * text next to it carries the accessible name).
  */
 
 import * as React from "react";
@@ -57,14 +57,14 @@ export const Logo: React.FC<LogoProps> = ({
       {title ? <title>{title}</title> : null}
 
       <defs>
-        {/* Sentinel gradient: blue -> indigo -> purple */}
+        {/* Sentinel gradient: accent blue -> violet (calm console palette) */}
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3B82F6" />
-          <stop offset="50%" stopColor="#6366F1" />
-          <stop offset="100%" stopColor="#A855F7" />
+          <stop offset="0%" stopColor="#7aa5ff" />
+          <stop offset="50%" stopColor="#8c99f8" />
+          <stop offset="100%" stopColor="#9d8cf0" />
         </linearGradient>
 
-        {/* Frosted-glass top highlight */}
+        {/* Subtle top highlight */}
         <radialGradient
           id={highlightId}
           cx="0.35"
@@ -73,8 +73,8 @@ export const Logo: React.FC<LogoProps> = ({
           fx="0.3"
           fy="0.15"
         >
-          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.55" />
-          <stop offset="60%" stopColor="#FFFFFF" stopOpacity="0.05" />
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.40" />
+          <stop offset="60%" stopColor="#FFFFFF" stopOpacity="0.04" />
           <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
         </radialGradient>
 
@@ -104,7 +104,7 @@ export const Logo: React.FC<LogoProps> = ({
              C 310 836, 204 718, 156 562
              C 118 426, 118 270, 156 192
              C 272 114, 396 76, 512 56 Z"
-          fill="#0B0A1F"
+          fill="#08090c"
           transform="translate(0,14)"
         />
       </g>
@@ -126,7 +126,7 @@ export const Logo: React.FC<LogoProps> = ({
              C 104 420, 104 260, 144 180
              C 264 100, 392 60, 512 40 Z"
           fill="none"
-          stroke="#0B0A1F"
+          stroke="#08090c"
           strokeWidth="14"
           opacity="0.35"
         />

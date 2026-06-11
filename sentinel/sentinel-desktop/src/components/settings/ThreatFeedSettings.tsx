@@ -147,30 +147,30 @@ export default function ThreatFeedSettings({
         description="Where the active feed came from and how old it is. Updated whenever the cache is refreshed."
         last
       >
-        <div className="flex flex-col gap-1 text-[12px] text-sentinel-text-secondary">
-          <div>
-            <span className="text-sentinel-text-tertiary">Source:</span>{' '}
+        <div className="flex flex-col gap-2 text-caption text-sentinel-text-secondary">
+          <div className="flex items-center gap-2">
+            <span className="text-sentinel-text-tertiary">Source:</span>
             <span
               className={clsx(
-                'pill',
+                'badge',
                 status?.source === 'remote'
-                  ? 'pill-green'
+                  ? 'badge-ok'
                   : status?.source === 'cache'
-                    ? 'pill-blue'
-                    : 'pill-amber',
+                    ? 'badge-accent'
+                    : 'badge-medium',
               )}
             >
               {status?.source ?? 'unknown'}
             </span>
           </div>
-          <div>
+          <div className="tabular-nums">
             <span className="text-sentinel-text-tertiary">Last refresh:</span>{' '}
             {formatTimestamp(status?.last_refresh ?? null)}
             {status?.age_seconds !== null && status?.age_seconds !== undefined
               ? ` · ${formatAge(status.age_seconds)}`
               : ''}
           </div>
-          <div>
+          <div className="tabular-nums">
             <span className="text-sentinel-text-tertiary">Entries:</span>{' '}
             {status?.entries_count ?? 0}
             {status?.version ? ` · v${status.version}` : ''}
@@ -178,14 +178,10 @@ export default function ThreatFeedSettings({
         </div>
       </SettingRow>
 
-      <div className="flex items-center justify-end gap-2 pt-4">
+      <div className="flex items-center justify-end gap-2 border-t border-sentinel-border-soft pt-4">
         <button
           type="button"
-          className={clsx(
-            'btn',
-            refreshing &&
-              'animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-sentinel-blue/30 via-sentinel-purple/30 to-sentinel-blue/30',
-          )}
+          className="btn"
           onClick={handleRefresh}
           disabled={refreshing || !outboundEnabled}
           title={
@@ -222,10 +218,11 @@ function Toggle({ checked, onChange, disabled, ariaLabel }: ToggleProps) {
       onClick={() => onChange(!checked)}
       className={clsx(
         'relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-pill transition-colors duration-200',
+        'focus-visible:outline-none focus-visible:shadow-focus',
         checked
-          ? 'bg-sentinel-blue shadow-glow-blue'
-          : 'bg-white/10 border border-white/15',
-        disabled && 'opacity-70 cursor-not-allowed',
+          ? 'bg-sentinel-accent'
+          : 'bg-white/10 border border-sentinel-border-strong',
+        disabled && 'opacity-40 cursor-not-allowed',
       )}
     >
       <span

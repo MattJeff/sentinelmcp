@@ -1,4 +1,4 @@
-// MetricCard — glass card with a label, value, optional trend + sparkline.
+// MetricCard — calm surface card with a label, value, optional trend + sparkline.
 // Implemented by Agent UI-10.
 
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
@@ -19,28 +19,28 @@ export interface MetricCardProps {
 
 const ACCENT: Record<MetricTone, string> = {
   green:
-    'linear-gradient(90deg, transparent, rgba(52,199,89,0.85), transparent)',
+    'linear-gradient(90deg, transparent, rgba(76,195,138,0.55), transparent)',
   orange:
-    'linear-gradient(90deg, transparent, rgba(255,159,10,0.85), transparent)',
+    'linear-gradient(90deg, transparent, rgba(232,128,79,0.55), transparent)',
   red:
-    'linear-gradient(90deg, transparent, rgba(255,69,58,0.90), transparent)',
+    'linear-gradient(90deg, transparent, rgba(229,83,75,0.60), transparent)',
   blue:
-    'linear-gradient(90deg, transparent, rgba(10,132,255,0.85), transparent)',
+    'linear-gradient(90deg, transparent, rgba(122,165,255,0.55), transparent)',
   neutral:
-    'linear-gradient(90deg, transparent, rgba(255,255,255,0.30), transparent)',
+    'linear-gradient(90deg, transparent, rgba(255,255,255,0.20), transparent)',
 };
 
 const TONE_TEXT: Record<MetricTone, string> = {
-  green: 'text-sentinel-green-glow',
-  orange: 'text-sentinel-orange-glow',
-  red: 'text-sentinel-red-glow',
-  blue: 'text-sentinel-blue-glow',
+  green: 'text-sentinel-ok',
+  orange: 'text-sentinel-high',
+  red: 'text-sentinel-critical',
+  blue: 'text-sentinel-accent',
   neutral: 'text-sentinel-text-secondary',
 };
 
 const TREND_TONE: Record<'up' | 'down' | 'flat', string> = {
-  up: 'text-sentinel-green-glow',
-  down: 'text-sentinel-red-glow',
+  up: 'text-sentinel-ok',
+  down: 'text-sentinel-critical',
   flat: 'text-sentinel-text-tertiary',
 };
 
@@ -64,7 +64,7 @@ export default function MetricCard({
     trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus;
 
   return (
-    <div className="card relative overflow-hidden">
+    <div className="card card-hover relative overflow-hidden">
       {/* Top accent bar (1 px gradient) */}
       <div
         className="absolute inset-x-0 top-0 h-px pointer-events-none"
@@ -77,7 +77,7 @@ export default function MetricCard({
         {trend && (
           <div
             className={clsx(
-              'inline-flex items-center gap-1 text-[11px] font-medium',
+              'inline-flex items-center gap-1 text-caption font-medium tabular-nums',
               TREND_TONE[trend],
             )}
           >
@@ -89,7 +89,7 @@ export default function MetricCard({
 
       <div
         className={clsx(
-          'mt-2 text-[28px] font-semibold leading-none tracking-tight',
+          'mt-3 text-metric-lg tabular-nums',
           tone === 'neutral'
             ? 'text-sentinel-text-primary'
             : TONE_TEXT[tone],
@@ -99,7 +99,7 @@ export default function MetricCard({
       </div>
 
       {sparkline && sparkline.length > 1 && (
-        <div className="mt-4 -mb-1">
+        <div className="mt-4">
           <Sparkline
             values={sparkline}
             color={SPARK_COLOR[tone]}

@@ -16,17 +16,18 @@ import DiffViewer from './DiffViewer';
 const MAX_VISIBLE = 5;
 
 const SEVERITY_DOT: Record<Severity, string> = {
-  critical: 'dot-red',
-  high: 'dot-red',
-  medium: 'dot-orange',
-  info: 'dot-green',
+  critical: 'dot-critical',
+  high: 'dot-high',
+  medium: 'dot-medium',
+  info: 'dot-info',
 };
 
-const SEVERITY_GLOW: Record<Severity, string> = {
-  critical: 'shadow-glow-red',
-  high: 'shadow-glow-orange',
-  medium: '',
-  info: '',
+// Severity reads via a discreet 2px left edge — no glow halos.
+const SEVERITY_EDGE: Record<Severity, string> = {
+  critical: 'border-l-2 border-l-sentinel-critical',
+  high: 'border-l-2 border-l-sentinel-high',
+  medium: 'border-l-2 border-l-sentinel-medium',
+  info: 'border-l-2 border-l-sentinel-info',
 };
 
 export default function Toaster() {
@@ -201,7 +202,7 @@ export default function Toaster() {
           <button
             type="button"
             onClick={clear}
-            className="text-[11px] font-medium text-sentinel-text-tertiary hover:text-sentinel-text-primary transition-colors underline-offset-2 hover:underline"
+            className="text-caption font-medium text-sentinel-text-tertiary hover:text-sentinel-text-primary transition-colors duration-150 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
           >
             Clear all
           </button>
@@ -220,7 +221,7 @@ interface ToastCardProps {
 
 function ToastCard({ toast, onClose, onMouseEnter, onMouseLeave }: ToastCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const glow = SEVERITY_GLOW[toast.severity];
+  const edge = SEVERITY_EDGE[toast.severity];
 
   return (
     <div
@@ -228,15 +229,14 @@ function ToastCard({ toast, onClose, onMouseEnter, onMouseLeave }: ToastCardProp
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={clsx(
-        'glass-strong rounded-glass pointer-events-auto p-4 animate-fade-up relative',
-        'translate-x-0 transition-transform duration-200',
-        glow,
+        'surface-raised shadow-raised rounded-glass pointer-events-auto p-4 animate-fade-up relative',
+        edge,
       )}
       style={{ animationName: 'fadeUp' }}
     >
       {toast.count > 1 ? (
         <span
-          className="absolute top-2 right-9 inline-flex items-center justify-center rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-sentinel-text-primary tabular-nums"
+          className="absolute top-2 right-9 inline-flex items-center justify-center rounded-pill bg-white/12 px-2 py-0.5 text-overline text-sentinel-text-primary tabular-nums"
           aria-label={`${toast.count} occurrences`}
         >
           × {toast.count}
@@ -248,11 +248,11 @@ function ToastCard({ toast, onClose, onMouseEnter, onMouseLeave }: ToastCardProp
           aria-hidden
         />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-sentinel-text-primary leading-tight">
+          <div className="text-body font-semibold text-sentinel-text-primary leading-tight">
             {toast.title}
           </div>
           {toast.description ? (
-            <div className="mt-1 text-[12px] text-sentinel-text-secondary leading-snug">
+            <div className="mt-1 text-caption text-sentinel-text-secondary">
               {toast.description}
             </div>
           ) : null}
@@ -260,7 +260,7 @@ function ToastCard({ toast, onClose, onMouseEnter, onMouseLeave }: ToastCardProp
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-sentinel-blue-glow hover:text-sentinel-blue transition-colors"
+              className="mt-2 inline-flex items-center gap-1 rounded-lg text-caption font-medium text-sentinel-accent hover:text-sentinel-text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus"
               aria-expanded={expanded}
             >
               <ChevronDown
@@ -268,6 +268,7 @@ function ToastCard({ toast, onClose, onMouseEnter, onMouseLeave }: ToastCardProp
                   'h-3 w-3 transition-transform duration-200',
                   expanded && 'rotate-180',
                 )}
+                aria-hidden
               />
               {expanded ? 'Hide diff' : 'View diff'}
             </button>
@@ -277,9 +278,9 @@ function ToastCard({ toast, onClose, onMouseEnter, onMouseLeave }: ToastCardProp
           type="button"
           onClick={onClose}
           aria-label="Dismiss notification"
-          className="shrink-0 rounded-full p-1 text-sentinel-text-tertiary hover:text-sentinel-text-primary hover:bg-white/10 transition-colors"
+          className="shrink-0 rounded-lg p-1 text-sentinel-text-tertiary hover:text-sentinel-text-primary hover:bg-white/8 transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-3.5 w-3.5" aria-hidden />
         </button>
       </div>
 

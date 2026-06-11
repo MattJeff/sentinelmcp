@@ -23,10 +23,10 @@ const MAX_VISIBLE_TAGS = 5;
 export default function ServerCard({ server, onSelect }: ServerCardProps) {
   const dotClass =
     server.color === 'green'
-      ? 'dot-green'
+      ? 'dot-ok'
       : server.color === 'orange'
-        ? 'dot-orange'
-        : 'dot-red';
+        ? 'dot-high'
+        : 'dot-critical';
 
   const isRed = server.color === 'red';
 
@@ -39,8 +39,9 @@ export default function ServerCard({ server, onSelect }: ServerCardProps) {
       type="button"
       onClick={() => onSelect(server)}
       className={clsx(
-        'card-hover text-left flex flex-col gap-3 w-full min-w-[280px]',
-        isRed && 'shadow-glow-red',
+        'card-hover text-left flex flex-col gap-4 w-full min-w-[280px]',
+        'focus-visible:outline-none focus-visible:shadow-focus',
+        isRed && 'border-l-2 border-l-sentinel-critical',
       )}
     >
       {/* Top row: dot + endpoint + transport pill */}
@@ -51,30 +52,23 @@ export default function ServerCard({ server, onSelect }: ServerCardProps) {
         />
         <div className="flex-1 min-w-0">
           <div
-            className="font-mono text-[14px] font-semibold truncate text-sentinel-text-primary"
+            className="font-mono text-body font-semibold truncate text-sentinel-text-primary"
             title={server.endpoint}
           >
             {server.endpoint}
           </div>
-          <div className="text-[11px] text-sentinel-text-tertiary mt-0.5 truncate">
+          <div className="text-caption text-sentinel-text-tertiary mt-1 truncate">
             {STATUS_LABEL[server.status]}
           </div>
         </div>
-        <span
-          className={clsx(
-            'pill shrink-0',
-            server.transport === 'http' ? 'pill-blue' : 'pill-green',
-          )}
-        >
+        <span className="badge badge-neutral shrink-0">
           {server.transport}
         </span>
         {server.scope && (
           <span
             className={clsx(
-              'pill shrink-0 max-w-[140px] truncate',
-              server.scope.kind === 'user'
-                ? 'bg-white/6 text-sentinel-text-secondary border border-white/10'
-                : 'bg-teal-500/15 text-teal-200 border border-teal-400/30',
+              'badge shrink-0 max-w-[140px] truncate',
+              server.scope.kind === 'user' ? 'badge-neutral' : 'badge-accent',
             )}
             title={scopeTooltip(server.scope)}
           >
@@ -85,11 +79,11 @@ export default function ServerCard({ server, onSelect }: ServerCardProps) {
 
       {/* Middle: scopes */}
       {server.scopes.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 min-w-0">
+        <div className="flex flex-wrap gap-2 min-w-0">
           {server.scopes.map((s) => (
             <span
               key={s}
-              className="rounded-pill px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase bg-white/6 text-sentinel-text-secondary border border-white/10 truncate max-w-full"
+              className="rounded-pill px-2 py-0.5 text-[11px] font-medium bg-sentinel-inset text-sentinel-text-tertiary border border-sentinel-border-soft truncate max-w-full"
             >
               {s}
             </span>
@@ -98,7 +92,7 @@ export default function ServerCard({ server, onSelect }: ServerCardProps) {
       )}
 
       {/* Bottom: tools + last seen */}
-      <div className="text-[11px] text-sentinel-text-tertiary truncate">
+      <div className="text-caption text-sentinel-text-tertiary tabular-nums truncate">
         {server.tool_count} {server.tool_count === 1 ? 'tool' : 'tools'} ·{' '}
         Last seen {formatAppleDate(server.last_seen)}
       </div>
@@ -112,7 +106,7 @@ export default function ServerCard({ server, onSelect }: ServerCardProps) {
           {visibleTags.map((tag) => (
             <span
               key={tag}
-              className="rounded-pill px-2 py-0.5 text-[10px] font-medium bg-blue-500/15 text-blue-200 border border-blue-400/20 truncate max-w-full"
+              className="rounded-pill px-2 py-0.5 text-[11px] font-medium bg-sentinel-accent-dim text-sentinel-accent border border-sentinel-accent/20 truncate max-w-full"
               title={tag}
             >
               {tag}
@@ -120,7 +114,7 @@ export default function ServerCard({ server, onSelect }: ServerCardProps) {
           ))}
           {overflow > 0 && (
             <span
-              className="rounded-pill px-2 py-0.5 text-[10px] font-medium bg-blue-500/10 text-blue-300/80 border border-blue-400/15"
+              className="rounded-pill px-2 py-0.5 text-[11px] font-medium bg-sentinel-inset text-sentinel-text-tertiary border border-sentinel-border tabular-nums"
               title={tags.slice(MAX_VISIBLE_TAGS).join(', ')}
             >
               +{overflow}

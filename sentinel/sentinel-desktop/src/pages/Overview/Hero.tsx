@@ -23,31 +23,25 @@ export default function Hero({
   timeToFirstRedMs,
   isLoading,
 }: HeroProps) {
-  const atRiskGlow = (atRisk ?? 0) > 0;
+  const atRiskEmphasised = (atRisk ?? 0) > 0;
 
   return (
     <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       <KpiTile
         label="Servers detected"
         value={isLoading ? null : serversDetected}
-        accent={<span className="dot dot-green" />}
+        accent={<span className="dot dot-ok" aria-hidden="true" />}
       />
       <KpiTile
         label="At risk"
         value={isLoading ? null : atRisk}
-        accent={
-          <span
-            className={clsx('dot dot-red', atRiskGlow && 'animate-pulse-glow')}
-          />
-        }
-        emphasised={atRiskGlow}
+        accent={<span className="dot dot-critical" aria-hidden="true" />}
+        emphasised={atRiskEmphasised}
       />
       <KpiTile
         label="Critical findings"
         value={isLoading ? null : critical}
-        accent={
-          <span className="pill pill-red text-[9px] px-1.5 py-0.5">Critical</span>
-        }
+        accent={<span className="badge badge-critical">Critical</span>}
       />
       <KpiTile
         label="Time to first red"
@@ -93,8 +87,9 @@ function KpiTile({
   return (
     <div
       className={clsx(
-        'card flex flex-col gap-3 min-w-0',
-        emphasised && 'shadow-glow-red',
+        'card flex flex-col gap-4 min-w-0',
+        // Severity reads through a discrete left rule, not a glow.
+        emphasised && 'border-l-2 border-l-sentinel-critical',
       )}
     >
       <div className="flex items-center justify-between gap-2 min-w-0">
@@ -104,12 +99,12 @@ function KpiTile({
       {value === null ? (
         <div className="skeleton h-8 w-20" />
       ) : (
-        <div className="text-[28px] font-semibold leading-none tracking-tight text-sentinel-text-primary truncate">
+        <div className="text-metric-lg tabular-nums text-sentinel-text-primary truncate">
           {displayValue}
         </div>
       )}
       {value !== null && isEmpty && !suppressEmptyHint && (
-        <div className="text-[11px] text-sentinel-text-tertiary">
+        <div className="text-caption text-sentinel-text-tertiary">
           {EMPTY_HINT}
         </div>
       )}

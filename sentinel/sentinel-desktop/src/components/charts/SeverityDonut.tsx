@@ -1,4 +1,4 @@
-// SeverityDonut — frosted-glass donut for finding severity breakdown.
+// SeverityDonut — calm-surface donut for finding severity breakdown.
 // Implemented by Agent UI-10.
 
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
@@ -11,11 +11,12 @@ export interface SeverityDonutProps {
   size?: number;
 }
 
+// Canonical severity mapping (design system): critical / high / medium / info.
 const COLORS = {
-  critical: '#ff453a', // sentinel-red
-  high: '#ff9f0a', // sentinel-orange
-  medium: '#0a84ff', // sentinel-blue
-  info: '#34c759', // sentinel-green
+  critical: '#e5534b', // sentinel-critical
+  high: '#e8804f', // sentinel-high
+  medium: '#d9a83c', // sentinel-medium
+  info: '#8ea3c0', // sentinel-info
 };
 
 export default function SeverityDonut({
@@ -29,7 +30,7 @@ export default function SeverityDonut({
 
   const data =
     total === 0
-      ? [{ name: 'empty', value: 1, color: 'rgba(255,255,255,0.06)' }]
+      ? [{ name: 'empty', value: 1, color: 'rgba(255,255,255,0.05)' }]
       : [
           { name: 'Critical', value: critical, color: COLORS.critical },
           { name: 'High', value: high, color: COLORS.high },
@@ -44,6 +45,7 @@ export default function SeverityDonut({
     <div
       className="relative"
       style={{ width: size, height: size }}
+      role="img"
       aria-label={`${total} findings`}
     >
       <ResponsiveContainer width="100%" height="100%">
@@ -57,7 +59,7 @@ export default function SeverityDonut({
             innerRadius={innerRadius}
             outerRadius={outerRadius}
             paddingAngle={total === 0 ? 0 : 2}
-            stroke="rgba(255,255,255,0.14)"
+            stroke="rgba(255,255,255,0.08)"
             strokeWidth={1}
             isAnimationActive={false}
           >
@@ -70,10 +72,10 @@ export default function SeverityDonut({
 
       {/* Center label */}
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <div className="text-[24px] font-semibold text-sentinel-text-primary leading-none">
+        <div className="text-metric-lg tabular-nums text-sentinel-text-primary">
           {total}
         </div>
-        <div className="section-heading mt-1.5">findings</div>
+        <div className="section-heading mt-1">findings</div>
       </div>
     </div>
   );

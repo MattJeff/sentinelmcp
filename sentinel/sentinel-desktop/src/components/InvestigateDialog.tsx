@@ -126,10 +126,10 @@ export default function InvestigateDialog({
     >
       <Dialog.Portal>
         <Dialog.Overlay
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm data-[state=open]:animate-fade-up"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs data-[state=open]:animate-fade-up"
         />
         <Dialog.Content
-          className="glass-strong fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-glass p-6 data-[state=open]:animate-fade-up"
+          className="surface-raised fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl p-6 shadow-overlay data-[state=open]:animate-fade-up"
           onOpenAutoFocus={(evt) => {
             // Keep focus on the textarea rather than the close button.
             evt.preventDefault();
@@ -139,18 +139,18 @@ export default function InvestigateDialog({
             el?.focus();
           }}
         >
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-4">
             <span
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-sentinel-text-primary"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sentinel-accent-dim text-sentinel-accent"
               aria-hidden
             >
               <Search size={16} />
             </span>
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-[17px] font-semibold text-sentinel-text-primary">
+              <Dialog.Title className="text-title text-sentinel-text-primary">
                 Open an investigation
               </Dialog.Title>
-              <Dialog.Description className="mt-1 text-[13px] text-sentinel-text-secondary">
+              <Dialog.Description className="mt-2 text-body text-sentinel-text-secondary">
                 Tags the server <strong>to investigate</strong> (moves it out of
                 the Approvals queue), saves your note in the audit log, and
                 attaches it to the signed compliance bundle. You can still
@@ -160,22 +160,22 @@ export default function InvestigateDialog({
           </div>
 
           {endpoint && (
-            <div className="mt-4 truncate rounded-pill px-3 py-1.5 font-mono text-[12px] text-sentinel-text-secondary bg-white/5 border border-white/10">
+            <div className="mt-4 truncate rounded-lg px-3 py-2 font-mono text-caption text-sentinel-text-tertiary bg-sentinel-inset border border-sentinel-border">
               {endpoint}
             </div>
           )}
 
-          <form className="mt-5 flex flex-col gap-4" onSubmit={handleSubmit}>
-            <div className="flex flex-col gap-1.5">
+          <form className="mt-6 flex flex-col gap-4" onSubmit={handleSubmit}>
+            <div className="flex flex-col gap-2">
               <label
                 htmlFor="investigate-dialog-note"
-                className="text-[12px] font-medium text-sentinel-text-secondary"
+                className="text-caption font-medium text-sentinel-text-secondary"
               >
                 Note <span className="text-sentinel-text-tertiary">(required)</span>
               </label>
               <textarea
                 id="investigate-dialog-note"
-                className="min-h-[96px] resize-y rounded-glass border border-white/10 bg-black/30 px-3 py-2 text-[13px] text-sentinel-text-primary placeholder:text-sentinel-text-tertiary focus:border-sentinel-blue-glow/70 focus:outline-none focus:ring-1 focus:ring-sentinel-blue-glow/60"
+                className="input h-auto min-h-[96px] resize-y py-2"
                 placeholder="What looked off? Link any captured traces."
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -183,27 +183,27 @@ export default function InvestigateDialog({
                 required
                 disabled={submitting}
               />
-              <div className="flex items-center justify-between text-[11px] text-sentinel-text-tertiary">
+              <div className="flex items-center justify-between text-caption text-sentinel-text-tertiary">
                 <span>
                   {noteValid
                     ? 'Looks good.'
                     : `At least ${MIN_NOTE_LENGTH} characters.`}
                 </span>
-                <span>{trimmedNote.length} chars</span>
+                <span className="tabular-nums">{trimmedNote.length} chars</span>
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
               <label
                 htmlFor="investigate-dialog-operator"
-                className="text-[12px] font-medium text-sentinel-text-secondary"
+                className="text-caption font-medium text-sentinel-text-secondary"
               >
                 Tagged by
               </label>
               <input
                 id="investigate-dialog-operator"
                 type="text"
-                className="rounded-glass border border-white/10 bg-black/30 px-3 py-2 text-[13px] text-sentinel-text-primary placeholder:text-sentinel-text-tertiary focus:border-sentinel-blue-glow/70 focus:outline-none focus:ring-1 focus:ring-sentinel-blue-glow/60"
+                className="input"
                 value={operator}
                 onChange={(e) => setOperator(e.target.value)}
                 placeholder="operator@local"
@@ -215,7 +215,7 @@ export default function InvestigateDialog({
             {error && (
               <div
                 role="alert"
-                className="rounded-glass border border-sentinel-red/60 bg-sentinel-red/10 px-3 py-2 text-[12px] text-sentinel-red"
+                className="rounded-lg border border-sentinel-critical-border bg-sentinel-critical-bg px-3 py-2 text-caption text-sentinel-critical"
               >
                 {error}
               </div>

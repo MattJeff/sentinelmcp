@@ -41,30 +41,30 @@ export default function AuthorizationGate({ open, onCancel }: AuthorizationGateP
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm animate-fade-up" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs data-[state=open]:animate-fade-up" />
         <Dialog.Content
-          className="glass-strong fixed left-1/2 top-1/2 z-50 w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-glass p-7 animate-fade-up shadow-glass"
+          className="surface-raised fixed left-1/2 top-1/2 z-50 w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-xl p-8 data-[state=open]:animate-fade-up shadow-overlay"
         >
           <div className="flex items-start gap-4">
-            <div className="h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br from-sentinel-blue to-sentinel-purple shadow-glow-blue flex items-center justify-center">
-              <ShieldCheck className="h-5 w-5 text-white" aria-hidden />
+            <div className="h-10 w-10 shrink-0 rounded-lg bg-sentinel-accent-dim border border-sentinel-border flex items-center justify-center">
+              <ShieldCheck className="h-5 w-5 text-sentinel-accent" aria-hidden />
             </div>
             <div className="flex-1 min-w-0">
-              <Dialog.Title className="text-[17px] font-semibold tracking-tight">
+              <Dialog.Title className="text-title">
                 Allow Sentinel to discover your AI clients?
               </Dialog.Title>
-              <Dialog.Description className="mt-1.5 text-[13px] leading-relaxed text-sentinel-text-secondary">
+              <Dialog.Description className="mt-2 text-body leading-relaxed text-sentinel-text-secondary">
                 Sentinel will read configuration files of AI clients installed on
                 this Mac (Claude Desktop, Claude Code, Cursor, Windsurf, …) to
                 surface their MCP servers.
               </Dialog.Description>
-              <div className="mt-2 inline-flex items-center gap-1.5 pill pill-green">
+              <div className="mt-3 badge badge-ok">
                 <Lock className="h-3 w-3" aria-hidden />
                 Nothing leaves your Mac
               </div>
             </div>
             <Dialog.Close
-              className="no-drag -mr-2 -mt-2 rounded-full p-1.5 text-sentinel-text-tertiary hover:bg-white/8 hover:text-white transition-colors"
+              className="no-drag -mr-2 -mt-2 rounded-full p-2 text-sentinel-text-tertiary hover:bg-sentinel-raised hover:text-sentinel-text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus"
               aria-label="Cancel"
               onClick={() => onCancel?.()}
             >
@@ -73,16 +73,16 @@ export default function AuthorizationGate({ open, onCancel }: AuthorizationGateP
           </div>
 
           {/* Paths list */}
-          <div className="section-heading mt-6 mb-2 flex items-center gap-1.5">
+          <div className="section-heading mt-6 mb-2 flex items-center gap-2">
             <FileText className="h-3 w-3" aria-hidden />
             Files Sentinel will read
           </div>
-          <div className="glass-soft max-h-[200px] overflow-auto rounded-glass p-3">
+          <div className="glass-soft max-h-[200px] overflow-auto rounded-lg p-4">
             <ul className="flex flex-col gap-1">
               {INSPECTED_PATHS.map((p) => (
                 <li
                   key={p}
-                  className="font-mono text-[11.5px] text-sentinel-text-secondary leading-relaxed truncate"
+                  className="font-mono text-caption text-sentinel-text-secondary leading-relaxed truncate"
                   title={p}
                 >
                   {p}
@@ -92,7 +92,7 @@ export default function AuthorizationGate({ open, onCancel }: AuthorizationGateP
           </div>
 
           {/* Actions */}
-          <div className="mt-6 flex items-center justify-end gap-2">
+          <div className="mt-8 flex items-center justify-end gap-2">
             <button
               type="button"
               className="btn"

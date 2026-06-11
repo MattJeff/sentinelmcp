@@ -106,36 +106,37 @@ export default function DiscoveryPage() {
   );
 
   return (
-    <div className="relative mx-auto w-full max-w-[1600px] flex flex-col gap-6 pb-16 px-4 sm:px-6">
+    <div className="relative mx-auto w-full max-w-[1400px] space-y-8">
       {/* Hero */}
       <section
         className={clsx(
-          'card flex flex-col gap-4 md:flex-row md:items-center md:justify-between',
+          'card flex flex-col gap-6 md:flex-row md:items-center md:justify-between',
           flash && 'animate-pulse-glow',
         )}
+        aria-label="Discovery overview"
       >
-        <div className="flex items-start gap-4 min-w-0">
-          <div className="h-11 w-11 shrink-0 rounded-xl bg-gradient-to-br from-sentinel-blue to-sentinel-purple shadow-glow-blue flex items-center justify-center">
-            <Telescope className="h-5 w-5 text-white" aria-hidden />
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-sentinel-border bg-sentinel-accent-dim">
+            <Telescope className="h-5 w-5 text-sentinel-accent" aria-hidden />
           </div>
           <div className="min-w-0">
-            <h2 className="text-[18px] sm:text-[20px] font-semibold tracking-tight">
+            <h2 className="text-title text-sentinel-text-primary">
               Discover every MCP server your Mac can reach
             </h2>
-            <p className="mt-1 text-[13px] text-sentinel-text-secondary max-w-prose">
+            <p className="mt-1 max-w-prose text-body text-sentinel-text-secondary">
               Sentinel reads the config of each known AI client locally and lists
               the MCP servers they declare. Nothing leaves your Mac.
             </p>
             {data && (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="pill pill-blue">
-                  <span className="dot dot-orange" />
-                  <strong className="font-semibold">{totalClients}</strong>
-                  &nbsp;clients · <strong className="font-semibold">{totalServers}</strong>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="badge badge-neutral">
+                  <span className="dot dot-accent" />
+                  <strong className="font-semibold tabular-nums">{totalClients}</strong>
+                  &nbsp;clients · <strong className="font-semibold tabular-nums">{totalServers}</strong>
                   &nbsp;servers
                 </span>
                 {lastScan && (
-                  <span className="text-[12px] text-sentinel-text-secondary">
+                  <span className="text-caption text-sentinel-text-tertiary tabular-nums">
                     Last scan: {lastScan}
                   </span>
                 )}
@@ -143,10 +144,10 @@ export default function DiscoveryPage() {
             )}
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row shrink-0 items-stretch sm:items-center gap-2 w-full md:w-auto">
+        <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center md:w-auto">
           <button
             type="button"
-            className="btn btn-primary min-h-[44px] w-full sm:w-auto justify-center"
+            className="btn btn-primary w-full justify-center sm:w-auto"
             onClick={handleScan}
             disabled={!authorized || isValidating}
           >
@@ -162,9 +163,9 @@ export default function DiscoveryPage() {
 
       {/* Body */}
       {!authorized ? (
-        <div className="card text-center py-16">
+        <div className="card py-12 text-center">
           <div className="section-heading mb-2">Authorization required</div>
-          <p className="text-[13px] text-sentinel-text-secondary max-w-prose mx-auto">
+          <p className="mx-auto max-w-prose text-body text-sentinel-text-secondary">
             Allow Sentinel to read AI-client configuration files to surface their
             MCP servers. Nothing leaves your Mac.
           </p>
@@ -173,21 +174,21 @@ export default function DiscoveryPage() {
         isValidating ? (
           <DiscoverySkeleton />
         ) : (
-          <div className="card text-center py-16">
-            <p className="text-[13px] text-sentinel-text-secondary">
+          <div className="card py-12 text-center">
+            <p className="text-body text-sentinel-text-secondary">
               Click <span className="font-semibold text-sentinel-text-primary">Scan now</span> to start.
             </p>
           </div>
         )
       ) : clients.length === 0 ? (
-        <div className="card text-center py-16">
-          <p className="text-[13px] text-sentinel-text-secondary">
+        <div className="card py-12 text-center">
+          <p className="text-body text-sentinel-text-secondary">
             No AI clients detected. Click{' '}
             <span className="font-semibold text-sentinel-text-primary">Scan now</span>.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {clients.map((c) => (
             <ClientCard key={c.kind} client={c} probes={data.probes ?? []} />
           ))}
@@ -196,10 +197,18 @@ export default function DiscoveryPage() {
 
       {authorized && (
         <>
-          <div className="section-heading mt-4">Threat intel</div>
-          <ThreatPanel />
-          <div className="section-heading mt-4">Lookalike scan</div>
-          <LookalikePanel />
+          <section className="space-y-4" aria-labelledby="discovery-threat-intel">
+            <h3 id="discovery-threat-intel" className="section-heading">
+              Threat intel
+            </h3>
+            <ThreatPanel />
+          </section>
+          <section className="space-y-4" aria-labelledby="discovery-lookalike-scan">
+            <h3 id="discovery-lookalike-scan" className="section-heading">
+              Lookalike scan
+            </h3>
+            <LookalikePanel />
+          </section>
         </>
       )}
 
@@ -213,7 +222,7 @@ export default function DiscoveryPage() {
 
 function DiscoverySkeleton() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-hidden>
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className="card flex flex-col gap-3">
           <div className="skeleton h-5 w-1/2" />

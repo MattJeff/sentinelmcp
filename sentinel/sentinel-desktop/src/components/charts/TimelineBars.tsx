@@ -1,4 +1,4 @@
-// TimelineBars — stacked frosted bars over time.
+// TimelineBars — stacked severity bars over time on a calm surface.
 // Implemented by Agent UI-10.
 
 import {
@@ -23,13 +23,14 @@ export interface TimelineBarsProps {
   height?: number;
 }
 
+// Canonical severity mapping (design system).
 const COLORS = {
-  critical: '#ff453a',
-  high: '#ff9f0a',
-  medium: '#0a84ff',
+  critical: '#e5534b', // sentinel-critical
+  high: '#e8804f', // sentinel-high
+  medium: '#d9a83c', // sentinel-medium
 };
 
-const TICK_COLOR = 'rgba(245, 247, 251, 0.48)';
+const TICK_COLOR = 'rgba(245, 247, 251, 0.45)';
 
 function formatShortDate(value: string): string {
   const d = new Date(value);
@@ -57,8 +58,8 @@ function GlassTooltip({
   if (!active || !payload || payload.length === 0) return null;
   const total = payload.reduce((sum, p) => sum + (p.value ?? 0), 0);
   return (
-    <div className="glass-soft rounded-glass px-3 py-2 text-[12px] shadow-glass-soft">
-      <div className="section-heading mb-1.5">
+    <div className="surface-raised rounded-lg px-3 py-2 text-caption shadow-raised">
+      <div className="section-heading mb-2">
         {label ? formatShortDate(label) : ''}
       </div>
       <div className="flex flex-col gap-1">
@@ -76,14 +77,14 @@ function GlassTooltip({
                 aria-hidden
               />
               <span className="capitalize">{p.name}</span>
-              <span className="ml-auto font-mono text-sentinel-text-primary">
+              <span className="ml-auto tabular-nums text-sentinel-text-primary">
                 {p.value}
               </span>
             </div>
           ))}
-        <div className="mt-1 pt-1 border-t border-white/10 flex items-center gap-2 text-sentinel-text-tertiary">
+        <div className="mt-2 pt-2 border-t border-sentinel-border-soft flex items-center gap-2 text-sentinel-text-tertiary">
           <span>Total</span>
-          <span className="ml-auto font-mono text-sentinel-text-primary">
+          <span className="ml-auto tabular-nums text-sentinel-text-primary">
             {total}
           </span>
         </div>
@@ -105,7 +106,7 @@ export default function TimelineBars({
           barCategoryGap="22%"
         >
           <CartesianGrid
-            stroke="rgba(255,255,255,0.06)"
+            stroke="rgba(255,255,255,0.05)"
             strokeDasharray="2 4"
             vertical={false}
           />
@@ -125,7 +126,7 @@ export default function TimelineBars({
             width={32}
           />
           <Tooltip
-            cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+            cursor={{ fill: 'rgba(255,255,255,0.03)' }}
             content={<GlassTooltip />}
           />
           <Bar
@@ -149,7 +150,7 @@ export default function TimelineBars({
             name="Critical"
             stackId="sev"
             fill={COLORS.critical}
-            radius={[6, 6, 0, 0]}
+            radius={[2, 2, 0, 0]}
             isAnimationActive={false}
           />
         </BarChart>

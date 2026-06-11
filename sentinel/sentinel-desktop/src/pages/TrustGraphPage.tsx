@@ -160,20 +160,20 @@ export default function TrustGraphPage() {
   }, [selected, serverById]);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-6 animate-fade-up">
+      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 sm:gap-6 animate-fade-up">
         <div className="min-w-0">
-          <h1 className="text-[28px] font-semibold tracking-tight text-sentinel-text-primary">
+          <h1 className="text-metric-lg text-sentinel-text-primary">
             Trust graph
           </h1>
-          <p className="text-[13px] text-sentinel-text-secondary mt-1 max-w-[640px]">
+          <p className="text-body text-sentinel-text-secondary mt-2 max-w-[640px]">
             Who can reach what on this Mac — and how badly it bleeds if compromised.
           </p>
         </div>
         <button
           type="button"
-          className="pill pill-blue self-start shrink-0 transition-colors hover:bg-sentinel-blue/20 disabled:opacity-60 disabled:cursor-not-allowed"
+          className="btn btn-sm gap-2 self-start shrink-0"
           onClick={() => void mutate(COMMANDS.computeTrustGraph)}
           disabled={isValidating}
           title="Recompute the trust graph from the latest discovered topology"
@@ -189,9 +189,9 @@ export default function TrustGraphPage() {
       </header>
 
       {error && (
-        <div className="animate-fade-up">
-          <span className="pill pill-red">
-            <span className="dot dot-red" />
+        <div className="animate-fade-up" role="alert">
+          <span className="badge badge-critical gap-2">
+            <span className="dot dot-critical" aria-hidden />
             {String((error as Error)?.message ?? error)}
           </span>
         </div>
@@ -216,14 +216,14 @@ export default function TrustGraphPage() {
 
       {/* Graph + blast list */}
       <section className="grid gap-4 grid-cols-1 lg:grid-cols-3 animate-fade-up">
-        <div className="card min-w-0 lg:col-span-2 flex flex-col gap-3 min-h-[40vh] lg:min-h-[560px]">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold tracking-tight text-sentinel-text-primary">
+        <div className="card min-w-0 lg:col-span-2 flex flex-col gap-4 min-h-[40vh] lg:min-h-[560px]">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-title text-sentinel-text-primary">
               Reachability
             </h2>
             <div className="section-heading">clients · servers · scopes</div>
           </div>
-          <div className="flex-1 min-h-[40vh] lg:min-h-[60vh] rounded-glass overflow-hidden bg-white/3">
+          <div className="flex-1 min-h-[40vh] lg:min-h-[60vh] rounded-glass overflow-hidden bg-sentinel-inset border border-sentinel-border-soft">
             {isLoading ? (
               <div className="h-full w-full skeleton" />
             ) : (
@@ -236,14 +236,14 @@ export default function TrustGraphPage() {
               />
             )}
           </div>
-          <div className="text-[11px] text-sentinel-text-tertiary">
+          <div className="text-caption text-sentinel-text-tertiary">
             Hover a node to focus its paths. Click an AI client for its blast-radius breakdown.
           </div>
         </div>
 
-        <aside className="card min-w-0 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold tracking-tight text-sentinel-text-primary">
+        <aside className="card min-w-0 flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-title text-sentinel-text-primary">
               Blast radius
             </h2>
             <div className="section-heading">Sorted</div>
@@ -256,7 +256,7 @@ export default function TrustGraphPage() {
               ))}
             </div>
           ) : ranked.length === 0 ? (
-            <div className="text-[12px] text-sentinel-text-tertiary px-1">
+            <div className="rounded-lg border border-dashed border-sentinel-border px-4 py-8 text-center text-caption text-sentinel-text-tertiary">
               No AI clients discovered yet.
             </div>
           ) : (
@@ -268,7 +268,8 @@ export default function TrustGraphPage() {
                     onClick={() =>
                       setSelectedId((cur) => (cur === client.id ? null : client.id))
                     }
-                    className="w-full text-left"
+                    className="w-full text-left rounded-lg focus-visible:outline-none focus-visible:shadow-focus"
+                    aria-pressed={selectedId === client.id}
                   >
                     <BlastRadiusBar
                       label={client.label}
@@ -283,24 +284,24 @@ export default function TrustGraphPage() {
           )}
 
           {selected && (
-            <div className="glass-soft rounded-lg p-3 flex flex-col gap-2 animate-fade-up">
+            <div className="glass-soft rounded-lg p-4 flex flex-col gap-3 animate-fade-up">
               <div className="section-heading">{selected.client.label} · breakdown</div>
               {selectedBreakdown.length === 0 ? (
-                <div className="text-[12px] text-sentinel-text-tertiary">
+                <div className="text-caption text-sentinel-text-tertiary">
                   No reachable servers.
                 </div>
               ) : (
-                <ul className="flex flex-col gap-1.5">
+                <ul className="flex flex-col gap-2">
                   {selectedBreakdown.map((row) => (
                     <li
                       key={row.name}
                       className="flex items-center justify-between gap-2"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="text-[12px] text-sentinel-text-primary truncate">
+                        <div className="text-body text-sentinel-text-primary truncate">
                           {row.name}
                         </div>
-                        <div className="text-[10px] text-sentinel-text-tertiary truncate">
+                        <div className="text-caption text-sentinel-text-tertiary truncate">
                           {row.scopes.join(' · ') || 'no declared scopes'}
                         </div>
                       </div>
@@ -332,19 +333,20 @@ function Kpi({ label, value, emphasised }: KpiProps) {
   return (
     <div
       className={
-        'card min-w-0 flex flex-col gap-3' + (emphasised ? ' shadow-glow-red' : '')
+        'card min-w-0 flex flex-col gap-3' +
+        (emphasised ? ' border-sentinel-critical-border' : '')
       }
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div className="section-heading">{label}</div>
         {emphasised && (
-          <span className="dot dot-red animate-pulse-glow" />
+          <span className="dot dot-critical" aria-hidden />
         )}
       </div>
       {value === null ? (
         <div className="skeleton h-8 w-20" />
       ) : (
-        <div className="text-[28px] font-semibold leading-none tracking-tight text-sentinel-text-primary">
+        <div className="text-metric-lg tabular-nums text-sentinel-text-primary">
           {value}
         </div>
       )}

@@ -295,26 +295,24 @@ export default function CommandPalette({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay
-          className="fixed inset-0 z-40 bg-black/55 backdrop-blur-md data-[state=open]:animate-fade-up"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs data-[state=open]:animate-fade-up"
         />
         <Dialog.Content
           aria-describedby={undefined}
           onKeyDown={onKeyDown}
           className={clsx(
-            'glass-strong fixed left-1/2 z-50 -translate-x-1/2 rounded-glass overflow-hidden',
+            'surface-raised shadow-overlay fixed left-1/2 z-50 -translate-x-1/2 rounded-glass overflow-hidden',
             'data-[state=open]:animate-fade-up',
           )}
           style={{
             top: '18vh',
             width: 'min(640px, calc(100vw - 2rem))',
-            boxShadow:
-              '0 1px 0 rgba(255,255,255,0.10) inset, 0 0 0 1px rgba(255,255,255,0.10), 0 40px 120px rgba(0,0,0,0.55)',
           }}
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
 
           {/* Input */}
-          <div className="flex items-center gap-3 px-5 py-4 border-b border-white/8">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-sentinel-border-soft">
             <Search
               className="h-4 w-4 shrink-0 text-sentinel-text-tertiary"
               aria-hidden
@@ -326,13 +324,13 @@ export default function CommandPalette({
               placeholder="Search servers, tools, findings…"
               className={clsx(
                 'flex-1 bg-transparent border-0 outline-none',
-                'text-[16px] text-sentinel-text-primary',
-                'placeholder:text-sentinel-text-tertiary',
+                'text-[15px] leading-5 text-sentinel-text-primary',
+                'placeholder:text-sentinel-text-faint',
               )}
               spellCheck={false}
               autoComplete="off"
             />
-            <kbd className="hidden sm:inline-flex items-center gap-1 rounded-pill border border-white/12 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sentinel-text-tertiary">
+            <kbd className="hidden sm:inline-flex items-center rounded-pill border border-sentinel-border bg-white/4 px-2 py-1 text-overline text-sentinel-text-tertiary">
               Esc
             </kbd>
           </div>
@@ -350,8 +348,8 @@ export default function CommandPalette({
                 const rows = grouped[section];
                 if (!rows || rows.length === 0) return null;
                 return (
-                  <div key={section} className="mb-1">
-                    <div className="section-heading px-5 pt-3 pb-1.5">
+                  <div key={section} className="mb-2">
+                    <div className="section-heading px-6 pt-3 pb-2">
                       {SECTION_LABEL[section]}
                     </div>
                     <div className="px-2">
@@ -373,9 +371,11 @@ export default function CommandPalette({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between gap-3 border-t border-white/8 px-5 py-2.5 text-[10px] uppercase tracking-[0.16em] text-sentinel-text-tertiary">
-            <span>Sentinel command palette</span>
-            <span className="text-sentinel-text-tertiary normal-case tracking-normal">
+          <div className="flex items-center justify-between gap-3 border-t border-sentinel-border-soft px-6 py-3">
+            <span className="text-overline text-sentinel-text-tertiary">
+              Sentinel command palette
+            </span>
+            <span className="text-caption text-sentinel-text-faint tabular-nums">
               ↑↓ navigate · ↵ select · esc close
             </span>
           </div>
@@ -406,24 +406,25 @@ function Row({ item, active, flatIndex, onSelect, onHover }: RowProps) {
       onClick={onSelect}
       onMouseMove={onHover}
       className={clsx(
-        'group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors',
+        'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-150',
+        'focus-visible:outline-none focus-visible:shadow-focus',
         active
-          ? 'bg-white/12 text-white'
-          : 'text-sentinel-text-secondary hover:bg-white/6 hover:text-white',
+          ? 'bg-sentinel-raised text-sentinel-text-primary'
+          : 'text-sentinel-text-secondary hover:bg-sentinel-raised hover:text-sentinel-text-primary',
       )}
     >
       <Icon
         className={clsx(
           'h-4 w-4 shrink-0',
-          active ? 'text-sentinel-blue-glow' : 'opacity-80',
+          active ? 'text-sentinel-accent' : 'text-sentinel-text-tertiary',
         )}
         aria-hidden
       />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium text-sentinel-text-primary">
+        <div className="truncate text-body font-medium text-sentinel-text-primary">
           {item.label}
         </div>
-        <div className="truncate text-[11px] text-sentinel-text-tertiary">
+        <div className="truncate text-caption text-sentinel-text-tertiary">
           {item.caption}
         </div>
       </div>
@@ -442,13 +443,13 @@ function Row({ item, active, flatIndex, onSelect, onHover }: RowProps) {
 
 function EmptyState() {
   return (
-    <div className="px-5 py-10 text-center">
-      <div className="text-[13px] text-sentinel-text-secondary">
+    <div className="px-6 py-12 text-center">
+      <div className="text-body text-sentinel-text-secondary">
         No matches. Try a different word.
       </div>
-      <div className="mt-2 text-[11px] text-sentinel-text-tertiary">
+      <div className="mt-2 text-caption text-sentinel-text-tertiary">
         Press{' '}
-        <kbd className="inline-flex items-center rounded-pill border border-white/12 bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-sentinel-text-tertiary">
+        <kbd className="inline-flex items-center rounded-pill border border-sentinel-border bg-white/4 px-2 py-1 text-overline text-sentinel-text-tertiary">
           ⌘K
         </kbd>{' '}
         anywhere to open this palette.

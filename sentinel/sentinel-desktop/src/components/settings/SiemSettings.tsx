@@ -232,7 +232,7 @@ export default function SiemSettings({ outboundEnabled }: SiemSettingsProps) {
       <div
         role="tablist"
         aria-label="SIEM sink"
-        className="mb-4 inline-flex items-center rounded-pill p-0.5 bg-white/5 border border-white/10"
+        className="mb-4 inline-flex items-center gap-1 rounded-lg p-1 bg-sentinel-inset border border-sentinel-border"
       >
         {TABS.map((t) => {
           const isActive = t.value === active;
@@ -244,10 +244,11 @@ export default function SiemSettings({ outboundEnabled }: SiemSettingsProps) {
               aria-selected={isActive}
               onClick={() => setActive(t.value)}
               className={clsx(
-                'rounded-pill px-3 py-1 text-[12px] font-medium transition-all duration-150',
+                'rounded-lg px-3 py-1.5 text-caption font-medium transition-colors duration-150',
+                'focus-visible:outline-none focus-visible:shadow-focus',
                 isActive
-                  ? 'bg-white/15 text-white shadow-glass-soft'
-                  : 'text-sentinel-text-secondary hover:text-white',
+                  ? 'bg-sentinel-raised text-sentinel-text-primary border border-sentinel-border-strong'
+                  : 'border border-transparent text-sentinel-text-secondary hover:text-sentinel-text-primary hover:bg-sentinel-raised',
               )}
             >
               {t.label}
@@ -273,14 +274,10 @@ export default function SiemSettings({ outboundEnabled }: SiemSettingsProps) {
         />
       )}
 
-      <div className="flex items-center justify-end gap-2 pt-4">
+      <div className="flex items-center justify-end gap-2 border-t border-sentinel-border-soft pt-4">
         <button
           type="button"
-          className={clsx(
-            'btn',
-            testing &&
-              'animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-sentinel-blue/30 via-sentinel-purple/30 to-sentinel-blue/30',
-          )}
+          className="btn"
           onClick={handleTest}
           disabled={testing || saving || !outboundEnabled}
           title={

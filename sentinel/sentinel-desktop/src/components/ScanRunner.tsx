@@ -72,10 +72,14 @@ export default function ScanRunner({
   return (
     <section className="card animate-fade-up">
       {/* Mode selector + action */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
         <div>
           <div className="section-heading mb-2">Scan mode</div>
-          <div className="glass-soft inline-flex rounded-pill p-1">
+          <div
+            role="group"
+            aria-label="Scan mode"
+            className="inline-flex gap-1 rounded-lg border border-sentinel-border bg-sentinel-inset p-1"
+          >
             {MODES.map((m) => {
               const isActive = mode === m.id;
               return (
@@ -83,12 +87,13 @@ export default function ScanRunner({
                   key={m.id}
                   type="button"
                   disabled={running}
+                  aria-pressed={isActive}
                   onClick={() => onModeChange(m.id)}
                   className={clsx(
-                    'px-4 py-1.5 text-[13px] font-medium rounded-pill transition-all duration-150',
+                    'rounded-lg px-4 py-1.5 text-body font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus',
                     isActive
-                      ? 'bg-white/15 text-white shadow-glass-soft'
-                      : 'text-sentinel-text-secondary hover:text-white',
+                      ? 'bg-sentinel-raised text-sentinel-text-primary shadow-surface'
+                      : 'text-sentinel-text-secondary hover:text-sentinel-text-primary',
                     running && !isActive && 'opacity-40 cursor-not-allowed',
                   )}
                   title={m.hint}
@@ -98,7 +103,7 @@ export default function ScanRunner({
               );
             })}
           </div>
-          <div className="mt-2 text-[11px] text-sentinel-text-tertiary">
+          <div className="mt-2 text-caption text-sentinel-text-tertiary">
             {MODES.find((m) => m.id === mode)?.hint}
           </div>
         </div>
@@ -110,8 +115,8 @@ export default function ScanRunner({
           className={clsx(
             'btn',
             running ? 'btn-danger' : 'btn-primary',
-            'px-5 py-2.5 text-[13px] min-h-[44px] w-full md:w-auto justify-center',
-            !running && startDisabled && 'opacity-50 cursor-not-allowed',
+            'w-full justify-center md:w-auto',
+            !running && startDisabled && 'opacity-40 cursor-not-allowed',
           )}
         >
           {running ? (
@@ -129,10 +134,10 @@ export default function ScanRunner({
       </div>
 
       {mode === 'http' && (
-        <div className="mt-4">
+        <div className="mt-6">
           <label
             htmlFor="scan-http-endpoint"
-            className="section-heading mb-1.5 block"
+            className="section-heading mb-2 block"
           >
             HTTP endpoint
           </label>
@@ -148,14 +153,18 @@ export default function ScanRunner({
             placeholder="https://localhost:8765/mcp"
             aria-invalid={httpUrlInvalid}
             className={clsx(
-              'glass-soft w-full rounded-glass px-3 py-2 text-[13px] text-white placeholder:text-sentinel-text-tertiary outline-none transition-colors',
-              httpUrlInvalid
-                ? 'ring-1 ring-sentinel-red/60 focus:ring-sentinel-red'
-                : 'focus:ring-1 focus:ring-sentinel-blue-glow',
-              running && 'opacity-60 cursor-not-allowed',
+              'input w-full',
+              httpUrlInvalid &&
+                'border-sentinel-critical-border ring-1 ring-sentinel-critical/40 focus:border-sentinel-critical focus:ring-sentinel-critical/40',
+              running && 'opacity-40 cursor-not-allowed',
             )}
           />
-          <div className="mt-1 text-[11px] text-sentinel-text-tertiary">
+          <div
+            className={clsx(
+              'mt-2 text-caption',
+              httpUrlInvalid ? 'text-sentinel-critical' : 'text-sentinel-text-tertiary',
+            )}
+          >
             {httpUrlInvalid
               ? 'Enter a valid http(s) URL, e.g. https://localhost:8765/mcp'
               : 'Streamable HTTP MCP endpoint that exposes a tools/list method.'}
@@ -164,19 +173,19 @@ export default function ScanRunner({
       )}
 
       {/* KPI tiles */}
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Kpi
-          icon={<Server className="h-4 w-4 text-sentinel-blue-glow" />}
+          icon={<Server className="h-4 w-4 text-sentinel-accent" />}
           label="Servers found"
           value={String(progress.servers_discovered)}
         />
         <Kpi
-          icon={<Wrench className="h-4 w-4 text-sentinel-blue-glow" />}
+          icon={<Wrench className="h-4 w-4 text-sentinel-accent" />}
           label="Tools found"
           value={String(progress.tools_discovered)}
         />
         <Kpi
-          icon={<Timer className="h-4 w-4 text-sentinel-red-glow" />}
+          icon={<Timer className="h-4 w-4 text-sentinel-critical" />}
           label="Time to first red"
           value={
             progress.time_to_first_red_ms == null
@@ -188,24 +197,30 @@ export default function ScanRunner({
       </div>
 
       {/* Progress bar */}
-      <div className="mt-5">
-        <div className="flex items-center justify-between mb-1.5">
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-2">
           <span className="section-heading">Progress</span>
-          <span className="text-[11px] text-sentinel-text-tertiary capitalize">
+          <span className="text-caption text-sentinel-text-tertiary capitalize tabular-nums">
             {progress.stage}
           </span>
         </div>
-        <div className="h-2 w-full rounded-pill bg-white/5 overflow-hidden">
+        <div
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(pct)}
+          className="h-2 w-full rounded-pill bg-white/6 overflow-hidden"
+        >
           <div
             className={clsx(
               'h-full rounded-pill transition-[width] duration-500 ease-out',
               running
-                ? 'animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-sentinel-blue via-sentinel-purple to-sentinel-blue'
+                ? 'animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-sentinel-accent via-sentinel-violet to-sentinel-accent'
                 : progress.stage === 'error'
-                  ? 'bg-sentinel-red'
+                  ? 'bg-sentinel-critical'
                   : progress.stage === 'finished'
-                    ? 'bg-sentinel-green'
-                    : 'bg-white/20',
+                    ? 'bg-sentinel-ok'
+                    : 'bg-white/12',
             )}
             style={{ width: `${pct}%` }}
           />
@@ -231,8 +246,8 @@ function Kpi({ icon, label, value, accent }: KpiProps) {
       </div>
       <div
         className={clsx(
-          'mt-2 text-[28px] font-semibold tracking-tight tabular-nums',
-          accent ? 'text-sentinel-red-glow' : 'text-sentinel-text-primary',
+          'mt-2 text-metric-lg tabular-nums',
+          accent ? 'text-sentinel-critical' : 'text-sentinel-text-primary',
         )}
       >
         {value}

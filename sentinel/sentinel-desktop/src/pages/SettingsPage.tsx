@@ -368,19 +368,23 @@ export default function SettingsPage() {
   }, [compliance]);
 
   return (
-    <div className="animate-fade-up pb-28">
-      <header className="mb-6">
-        <h1 className="text-[28px] font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-[13px] text-sentinel-text-secondary">
+    <div className="animate-fade-up mx-auto w-full max-w-[1400px] pb-24">
+      <header className="mb-8">
+        <h1 className="text-metric-lg text-sentinel-text-primary">Settings</h1>
+        <p className="mt-2 text-body text-sentinel-text-secondary">
           Configure capture, alert channels, retention windows and privacy
           posture.
         </p>
-        <p className="mt-1 text-[11px] text-sentinel-text-tertiary">
-          Persisted to <span className="font-mono">settings.toml</span> on save.
+        <p className="mt-1 text-caption text-sentinel-text-tertiary">
+          Persisted to{' '}
+          <span className="font-mono text-caption text-sentinel-text-tertiary">
+            settings.toml
+          </span>{' '}
+          on save.
         </p>
       </header>
 
-      <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4">
         {/* ── General ── */}
         <section
           className="card min-w-0 min-[1100px]:col-span-2"
@@ -621,11 +625,7 @@ export default function SettingsPage() {
                 />
                 <button
                   type="button"
-                  className={clsx(
-                    'btn',
-                    webhookTesting &&
-                      'animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-sentinel-blue/30 via-sentinel-purple/30 to-sentinel-blue/30',
-                  )}
+                  className={clsx('btn', webhookTesting && 'opacity-40')}
                   onClick={handleTestWebhook}
                   disabled={
                     !draft.alerts.webhook.url.trim() ||
@@ -649,8 +649,8 @@ export default function SettingsPage() {
                   role="status"
                   aria-live="polite"
                   className={clsx(
-                    'pill',
-                    webhookResult.ok ? 'pill-green' : 'pill-red',
+                    'badge',
+                    webhookResult.ok ? 'badge-ok' : 'badge-critical',
                   )}
                 >
                   {webhookResult.ok
@@ -693,7 +693,7 @@ export default function SettingsPage() {
           aria-labelledby="settings-taxii"
         >
           <SectionHeading id="settings-taxii" title="STIX / TAXII" />
-          <p className="mb-2 text-[12px] text-sentinel-text-tertiary">
+          <p className="mb-4 max-w-prose text-caption text-sentinel-text-tertiary">
             Export findings as STIX 2.1 and push to a TAXII 2.1 collection
             (SOC/GRC integration).
           </p>
@@ -709,7 +709,7 @@ export default function SettingsPage() {
             id="settings-threat-feed"
             title="Threat Intel Feed"
           />
-          <p className="mb-2 text-[12px] text-sentinel-text-tertiary">
+          <p className="mb-4 max-w-prose text-caption text-sentinel-text-tertiary">
             Auto-refresh the known-bad MCP package list from a remote URL.
             Falls back to the on-disk cache, then to the bundled feed,
             whenever the remote is unreachable.
@@ -784,9 +784,9 @@ export default function SettingsPage() {
           <SectionHeading id="settings-privacy" title="Privacy" />
           <SettingRow
             label={
-              <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-2">
                 Inspection-in-flight only
-                <Lock className="h-3 w-3 text-sentinel-text-tertiary" />
+                <Lock className="h-3 w-3 text-sentinel-text-tertiary" aria-hidden="true" />
               </span>
             }
             description="Sentinel inspects MCP traffic in transit and never persists payload bodies."
@@ -828,9 +828,9 @@ export default function SettingsPage() {
           />
           <SettingRow
             label={
-              <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-2">
                 Allow Sentinel to remove blocked servers from your AI client configs
-                <AlertTriangle className="h-3 w-3 text-sentinel-orange" />
+                <AlertTriangle className="h-3 w-3 text-sentinel-high" aria-hidden="true" />
               </span>
             }
             description="When enabled, the Block action in the Approvals queue and the server detail drawer will rewrite the declaring config file on disk and write a timestamped backup next to it. Off by default — Sentinel stays advisory until you opt in."
@@ -855,7 +855,7 @@ export default function SettingsPage() {
         >
           <SectionHeading id="settings-about" title="About" />
           <SettingRow label="App version" description="Sentinel MCP Desktop">
-            <span className="font-mono text-[12px] text-sentinel-text-secondary">
+            <span className="font-mono text-caption tabular-nums text-sentinel-text-secondary">
               {appVersion ?? '…'}
             </span>
           </SettingRow>
@@ -863,14 +863,14 @@ export default function SettingsPage() {
             label="Compliance frameworks supported"
             description="Findings are mapped to identifiers from these frameworks."
           >
-            <div className="flex flex-wrap gap-1.5 max-w-md justify-end">
+            <div className="flex flex-wrap gap-2 max-w-md justify-end">
               {frameworks.length === 0 ? (
-                <span className="text-[12px] text-sentinel-text-tertiary">
+                <span className="text-caption text-sentinel-text-tertiary">
                   Loading…
                 </span>
               ) : (
                 frameworks.map((f) => (
-                  <span key={f} className="pill pill-blue">
+                  <span key={f} className="badge badge-neutral">
                     {f}
                   </span>
                 ))
@@ -879,15 +879,15 @@ export default function SettingsPage() {
           </SettingRow>
           <SettingRow
             label={
-              <span className="inline-flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5 text-sentinel-green" />
+              <span className="inline-flex items-center gap-2">
+                <ShieldCheck className="h-3.5 w-3.5 text-sentinel-ok" aria-hidden="true" />
                 Read-only by default
               </span>
             }
             description="Sentinel never blocks or rewrites MCP traffic. Approvals are advisory and require operator action."
             last
           >
-            <span className="pill pill-green">Safe</span>
+            <span className="badge badge-ok">Safe</span>
           </SettingRow>
         </section>
       </div>
@@ -916,8 +916,8 @@ function SaveToast({
     >
       <div
         className={clsx(
-          'glass-soft rounded-pill px-3 py-1.5 text-[12px]',
-          error ? 'text-sentinel-red' : 'text-sentinel-text-secondary',
+          'surface-raised shadow-raised rounded-pill px-4 py-2 text-caption',
+          error ? 'text-sentinel-critical' : 'text-sentinel-text-secondary',
         )}
       >
         {message ?? ''}
@@ -958,8 +958,8 @@ function Segmented<T extends string>({
     <div
       role="radiogroup"
       className={clsx(
-        'inline-flex items-center rounded-pill p-0.5 bg-white/5 border border-white/10',
-        disabled && 'opacity-50',
+        'inline-flex items-center rounded-pill p-0.5 bg-sentinel-inset border border-sentinel-border',
+        disabled && 'opacity-40',
       )}
     >
       {options.map((opt) => {
@@ -973,10 +973,11 @@ function Segmented<T extends string>({
             disabled={disabled}
             onClick={() => onChange(opt.value)}
             className={clsx(
-              'rounded-pill px-3 py-1 text-[12px] font-medium transition-all duration-150',
+              'rounded-pill px-3 py-1 text-caption font-medium transition-colors duration-150',
+              'focus-visible:outline-none focus-visible:shadow-focus',
               active
-                ? 'bg-white/15 text-white shadow-glass-soft'
-                : 'text-sentinel-text-secondary hover:text-white',
+                ? 'bg-white/12 text-sentinel-text-primary'
+                : 'text-sentinel-text-secondary hover:text-sentinel-text-primary',
             )}
           >
             {opt.label}
@@ -1005,10 +1006,11 @@ function Toggle({ checked, onChange, disabled, ariaLabel }: ToggleProps) {
       onClick={() => onChange(!checked)}
       className={clsx(
         'relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-pill transition-colors duration-200',
+        'focus-visible:outline-none focus-visible:shadow-focus',
         checked
-          ? 'bg-sentinel-blue shadow-glow-blue'
-          : 'bg-white/10 border border-white/15',
-        disabled && 'opacity-70 cursor-not-allowed',
+          ? 'bg-sentinel-accent'
+          : 'bg-white/10 border border-sentinel-border-strong',
+        disabled && 'opacity-40 cursor-not-allowed',
       )}
     >
       <span
@@ -1030,7 +1032,7 @@ interface DaysSliderProps {
 function DaysSlider({ value, options, onChange }: DaysSliderProps) {
   return (
     <div className="flex items-center gap-3">
-      <div className="inline-flex rounded-pill p-0.5 bg-white/5 border border-white/10">
+      <div className="inline-flex rounded-pill p-0.5 bg-sentinel-inset border border-sentinel-border">
         {options.map((opt) => {
           const active = opt === value;
           return (
@@ -1039,10 +1041,11 @@ function DaysSlider({ value, options, onChange }: DaysSliderProps) {
               type="button"
               onClick={() => onChange(opt)}
               className={clsx(
-                'rounded-pill px-3 py-1 text-[12px] font-medium tabular-nums transition-all duration-150',
+                'rounded-pill px-3 py-1 text-caption font-medium tabular-nums transition-colors duration-150',
+                'focus-visible:outline-none focus-visible:shadow-focus',
                 active
-                  ? 'bg-white/15 text-white shadow-glass-soft'
-                  : 'text-sentinel-text-secondary hover:text-white',
+                  ? 'bg-white/12 text-sentinel-text-primary'
+                  : 'text-sentinel-text-secondary hover:text-sentinel-text-primary',
               )}
             >
               {opt}d
@@ -1085,7 +1088,7 @@ function LockedTooltip({ text, children }: LockedTooltipProps) {
         role="tooltip"
         className={clsx(
           'pointer-events-none absolute right-0 top-full mt-2 z-20 whitespace-nowrap',
-          'glass-soft rounded-md px-2 py-1 text-[11px] text-sentinel-text-secondary',
+          'surface-raised shadow-raised rounded-lg px-2 py-1 text-caption text-sentinel-text-secondary',
           'inline-flex items-center gap-1 transition-opacity duration-150',
           open ? 'opacity-100' : 'opacity-0',
         )}
@@ -1140,7 +1143,7 @@ function LiveIntervalRow() {
       description="How often Sentinel re-scans the local MCP surface for new servers, findings and alerts. Updates the sidebar Live badge."
       last
     >
-      <div className="flex flex-col items-end gap-1.5">
+      <div className="flex flex-col items-end gap-2">
         <Segmented
           value={String(current) as '10' | '30' | '60' | '300'}
           onChange={(v) => handleChange(Number(v) as 10 | 30 | 60 | 300)}
@@ -1151,9 +1154,9 @@ function LiveIntervalRow() {
           disabled={pending !== null}
         />
         {error ? (
-          <span className="pill pill-red text-[11px]">Error: {error}</span>
+          <span className="badge badge-critical">Error: {error}</span>
         ) : pending !== null ? (
-          <span className="text-[11px] text-sentinel-text-tertiary">
+          <span className="text-caption text-sentinel-text-tertiary">
             Updating…
           </span>
         ) : null}
@@ -1282,12 +1285,12 @@ function ProxyCaptureRows() {
       >
         <div className="flex items-center gap-3">
           <span
-            className={clsx('pill', running ? 'pill-green' : 'pill-orange')}
+            className={clsx('badge', running ? 'badge-ok' : 'badge-neutral')}
             role="status"
             aria-live="polite"
           >
             <span
-              className={clsx('dot', running ? 'dot-green' : 'dot-orange')}
+              className={clsx('dot', running ? 'dot-ok' : 'dot-medium')}
             />
             {running
               ? `Running on :${livePort ?? port}`
@@ -1366,7 +1369,7 @@ function ProxyCaptureRows() {
         label="Events captured"
         description="Total MCP requests/responses observed by the proxy since it started."
       >
-        <span className="font-mono text-[12px] tabular-nums text-sentinel-text-secondary">
+        <span className="font-mono text-caption tabular-nums text-sentinel-text-secondary">
           {eventsSeen.toLocaleString()}
         </span>
       </SettingRow>
@@ -1376,9 +1379,9 @@ function ProxyCaptureRows() {
         description="Point your MCP client to this URL instead of the upstream directly."
         last
       >
-        <div className="flex flex-col items-end gap-1.5">
+        <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
-            <code className="font-mono text-[12px] text-sentinel-text-secondary glass-soft rounded-md px-2 py-1">
+            <code className="font-mono text-caption text-sentinel-text-secondary bg-sentinel-inset border border-sentinel-border rounded-lg px-2 py-1">
               {proxyUrl}
             </code>
             <button
@@ -1391,7 +1394,7 @@ function ProxyCaptureRows() {
             </button>
           </div>
           {error ? (
-            <span className="pill pill-red text-[11px]">Error: {error}</span>
+            <span className="badge badge-critical">Error: {error}</span>
           ) : null}
         </div>
       </SettingRow>
@@ -1483,7 +1486,7 @@ function TestEmailButton({
   };
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className="flex flex-col items-end gap-2">
       <button
         type="button"
         className="btn"
@@ -1500,20 +1503,20 @@ function TestEmailButton({
         {pending ? 'Sending…' : 'Send test email'}
       </button>
       {feedback && feedback.ok && feedback.filePath ? (
-        <div className="flex items-center gap-2 text-[11px] text-sentinel-text-secondary">
-          <span className="pill pill-green">
+        <div className="flex items-center gap-2 text-caption text-sentinel-text-secondary">
+          <span className="badge badge-ok">
             Wrote {feedback.filePath}
           </span>
           <button
             type="button"
-            className="text-sentinel-blue hover:underline"
+            className="text-sentinel-accent hover:underline focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
             onClick={handleReveal}
           >
             Reveal in Finder
           </button>
         </div>
       ) : feedback && !feedback.ok ? (
-        <span className="pill pill-red text-[11px]">
+        <span className="badge badge-critical">
           Error: {feedback.error ?? 'unknown'}
         </span>
       ) : null}
@@ -1540,11 +1543,11 @@ function FloatingActions({ visible, onCancel, onSave }: FloatingActionsProps) {
     >
       <div
         className={clsx(
-          'glass-strong px-3 py-2 flex items-center gap-3 w-full sm:w-auto rounded-none sm:rounded-pill justify-between sm:justify-center',
+          'surface-raised shadow-raised px-4 py-2 flex items-center gap-4 w-full sm:w-auto rounded-none sm:rounded-pill justify-between sm:justify-center',
           visible && 'pointer-events-auto',
         )}
       >
-        <span className="text-[12px] text-sentinel-text-secondary pl-2">
+        <span className="text-caption text-sentinel-text-secondary pl-2">
           Unsaved changes
         </span>
         <div className="flex items-center gap-2">

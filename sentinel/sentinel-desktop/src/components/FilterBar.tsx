@@ -90,26 +90,26 @@ export default function FilterBar({
   visibleCount,
 }: FilterBarProps) {
   return (
-    <div className="sticky top-0 z-10 -mx-6 px-6 pb-4 pt-1 mb-4 bg-gradient-to-b from-black/30 to-transparent backdrop-blur-sm">
-      <div className="glass rounded-glass p-4 flex flex-col gap-3">
+    <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 pb-4 pt-1 mb-4 bg-gradient-to-b from-sentinel-ink via-sentinel-ink/80 to-transparent">
+      <div className="surface rounded-glass p-4 flex flex-col gap-4">
         {/* Search + count */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-sentinel-text-tertiary" />
             <input
-              className="input pl-9 text-[13px] w-full"
+              className="input pl-9 text-body w-full"
               placeholder="Search by endpoint, transport, scope…"
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
             />
           </div>
-          <div className="text-[12px] text-sentinel-text-tertiary shrink-0 tabular-nums">
+          <div className="text-caption text-sentinel-text-tertiary shrink-0 tabular-nums">
             {visibleCount} {visibleCount === 1 ? 'server' : 'servers'}
           </div>
         </div>
 
         {/* Filter rows — horizontal scroll on mobile, wrapping on sm+ */}
-        <div className="flex sm:flex-wrap items-center gap-x-6 gap-y-2 overflow-x-auto sm:overflow-visible -mx-1 px-1 sm:mx-0 sm:px-0">
+        <div className="flex sm:flex-wrap items-center gap-x-6 gap-y-3 overflow-x-auto sm:overflow-visible -mx-1 px-1 sm:mx-0 sm:px-0">
           <FilterGroup
             label="Color"
             options={COLOR_OPTIONS}
@@ -155,9 +155,9 @@ export default function FilterBar({
               onChange={onScopeChange}
               getPillClass={(v) =>
                 v === 'project'
-                  ? 'bg-teal-500/15 text-teal-100 border border-teal-400/30'
+                  ? 'bg-sentinel-accent-dim text-sentinel-accent border border-sentinel-accent/30'
                   : v === 'user'
-                    ? 'bg-white/10 text-sentinel-text-primary border border-white/15'
+                    ? 'bg-white/10 text-sentinel-text-primary border border-white/14'
                     : 'pill-blue'
               }
             />
@@ -231,10 +231,10 @@ function TagsFilter({ available, selected, onChange }: TagsFilterProps) {
           type="button"
           onClick={() => setOpen((v) => !v)}
           className={clsx(
-            'pill inline-flex items-center gap-1.5 transition-all',
+            'pill inline-flex items-center gap-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus',
             selected.length > 0
-              ? 'bg-blue-500/15 text-blue-200 border border-blue-400/30'
-              : 'text-sentinel-text-secondary bg-white/4 border border-white/10 hover:bg-white/8 hover:text-white',
+              ? 'bg-sentinel-accent-dim text-sentinel-accent border border-sentinel-accent/30'
+              : 'text-sentinel-text-secondary bg-white/4 border border-white/8 hover:bg-white/8 hover:border-sentinel-border-strong hover:text-sentinel-text-primary',
           )}
           aria-haspopup="listbox"
           aria-expanded={open}
@@ -254,7 +254,7 @@ function TagsFilter({ available, selected, onChange }: TagsFilterProps) {
           <button
             type="button"
             onClick={() => onChange([])}
-            className="ml-1.5 inline-flex items-center justify-center rounded-full p-0.5 text-sentinel-text-tertiary hover:text-white hover:bg-white/10"
+            className="ml-2 inline-flex items-center justify-center rounded-full p-1 text-sentinel-text-tertiary transition-colors duration-150 hover:text-sentinel-text-primary hover:bg-white/10 focus-visible:outline-none focus-visible:shadow-focus"
             aria-label="Clear tag filter"
             title="Clear tag filter"
           >
@@ -265,7 +265,7 @@ function TagsFilter({ available, selected, onChange }: TagsFilterProps) {
           <div
             role="listbox"
             aria-multiselectable
-            className="absolute left-0 top-full mt-1 z-20 w-64 rounded-md border border-white/10 bg-slate-900/95 backdrop-blur shadow-lg p-2 flex flex-col gap-1.5"
+            className="absolute left-0 top-full mt-2 z-20 w-64 rounded-lg border border-sentinel-border bg-sentinel-raised shadow-raised p-2 flex flex-col gap-2"
           >
             <input
               autoFocus
@@ -273,11 +273,11 @@ function TagsFilter({ available, selected, onChange }: TagsFilterProps) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search tags…"
-              className="w-full rounded bg-white/5 border border-white/10 px-2 py-1 text-[12px] text-sentinel-text-primary placeholder:text-sentinel-text-tertiary outline-none focus:border-blue-400/40"
+              className="w-full rounded-lg bg-sentinel-inset border border-sentinel-border px-2 py-1 text-caption text-sentinel-text-primary placeholder:text-sentinel-text-faint outline-none focus:border-sentinel-accent"
             />
             <div className="max-h-56 overflow-y-auto flex flex-col">
               {filtered.length === 0 && orphans.length === 0 ? (
-                <div className="px-2 py-2 text-[11px] text-sentinel-text-tertiary">
+                <div className="px-2 py-2 text-caption text-sentinel-text-tertiary">
                   No tags found.
                 </div>
               ) : (
@@ -287,29 +287,29 @@ function TagsFilter({ available, selected, onChange }: TagsFilterProps) {
                     return (
                       <label
                         key={tag}
-                        className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/5 cursor-pointer text-[12px] text-sentinel-text-secondary"
+                        className="flex items-center gap-2 px-2 py-1 rounded transition-colors duration-150 hover:bg-white/6 cursor-pointer text-caption text-sentinel-text-secondary"
                       >
                         <input
                           type="checkbox"
                           checked={active}
                           onChange={() => toggleTag(tag)}
-                          className="accent-blue-400"
+                          className="accent-sentinel-accent"
                         />
-                        <span className={active ? 'text-white' : ''}>{tag}</span>
+                        <span className={active ? 'text-sentinel-text-primary' : ''}>{tag}</span>
                       </label>
                     );
                   })}
                   {orphans.map((tag) => (
                     <label
                       key={`orphan-${tag}`}
-                      className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/5 cursor-pointer text-[12px] text-sentinel-text-tertiary italic"
+                      className="flex items-center gap-2 px-2 py-1 rounded transition-colors duration-150 hover:bg-white/6 cursor-pointer text-caption text-sentinel-text-tertiary italic"
                       title="Selected but no longer present in any server"
                     >
                       <input
                         type="checkbox"
                         checked
                         onChange={() => toggleTag(tag)}
-                        className="accent-blue-400"
+                        className="accent-sentinel-accent"
                       />
                       <span>{tag}</span>
                     </label>
@@ -317,7 +317,7 @@ function TagsFilter({ available, selected, onChange }: TagsFilterProps) {
                 </>
               )}
             </div>
-            <div className="flex items-center justify-between border-t border-white/10 pt-1.5 text-[11px]">
+            <div className="flex items-center justify-between border-t border-sentinel-border-soft pt-2 text-caption">
               <span className="text-sentinel-text-tertiary">
                 Match all selected
               </span>
@@ -325,7 +325,7 @@ function TagsFilter({ available, selected, onChange }: TagsFilterProps) {
                 type="button"
                 onClick={() => onChange([])}
                 disabled={selected.length === 0}
-                className="text-sentinel-blue-glow hover:underline disabled:opacity-50 disabled:no-underline"
+                className="text-sentinel-accent hover:underline disabled:opacity-40 disabled:no-underline focus-visible:outline-none focus-visible:shadow-focus"
               >
                 Clear
               </button>
@@ -392,10 +392,10 @@ function ProjectPathFilter({
           type="button"
           onClick={() => setOpen((v) => !v)}
           className={clsx(
-            'pill inline-flex items-center gap-1.5 transition-all',
+            'pill inline-flex items-center gap-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus',
             selected.length > 0
-              ? 'bg-teal-500/15 text-teal-100 border border-teal-400/30'
-              : 'text-sentinel-text-secondary bg-white/4 border border-white/10 hover:bg-white/8 hover:text-white',
+              ? 'bg-sentinel-accent-dim text-sentinel-accent border border-sentinel-accent/30'
+              : 'text-sentinel-text-secondary bg-white/4 border border-white/8 hover:bg-white/8 hover:border-sentinel-border-strong hover:text-sentinel-text-primary',
           )}
           aria-haspopup="listbox"
           aria-expanded={open}
@@ -413,7 +413,7 @@ function ProjectPathFilter({
           <button
             type="button"
             onClick={() => onChange([])}
-            className="ml-1.5 inline-flex items-center justify-center rounded-full p-0.5 text-sentinel-text-tertiary hover:text-white hover:bg-white/10"
+            className="ml-2 inline-flex items-center justify-center rounded-full p-1 text-sentinel-text-tertiary transition-colors duration-150 hover:text-sentinel-text-primary hover:bg-white/10 focus-visible:outline-none focus-visible:shadow-focus"
             aria-label="Clear project path filter"
             title="Clear project path filter"
           >
@@ -424,7 +424,7 @@ function ProjectPathFilter({
           <div
             role="listbox"
             aria-multiselectable
-            className="absolute left-0 top-full mt-1 z-20 w-80 rounded-md border border-white/10 bg-slate-900/95 backdrop-blur shadow-lg p-2 flex flex-col gap-1.5"
+            className="absolute left-0 top-full mt-2 z-20 w-80 rounded-lg border border-sentinel-border bg-sentinel-raised shadow-raised p-2 flex flex-col gap-2"
           >
             <input
               autoFocus
@@ -432,11 +432,11 @@ function ProjectPathFilter({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search project paths…"
-              className="w-full rounded bg-white/5 border border-white/10 px-2 py-1 text-[12px] text-sentinel-text-primary placeholder:text-sentinel-text-tertiary outline-none focus:border-teal-400/40"
+              className="w-full rounded-lg bg-sentinel-inset border border-sentinel-border px-2 py-1 text-caption text-sentinel-text-primary placeholder:text-sentinel-text-faint outline-none focus:border-sentinel-accent"
             />
             <div className="max-h-56 overflow-y-auto flex flex-col">
               {filtered.length === 0 && orphans.length === 0 ? (
-                <div className="px-2 py-2 text-[11px] text-sentinel-text-tertiary">
+                <div className="px-2 py-2 text-caption text-sentinel-text-tertiary">
                   No project paths in the current inventory.
                 </div>
               ) : (
@@ -446,25 +446,25 @@ function ProjectPathFilter({
                     return (
                       <label
                         key={path}
-                        className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/5 cursor-pointer text-[12px] text-sentinel-text-secondary"
+                        className="flex items-center gap-2 px-2 py-1 rounded transition-colors duration-150 hover:bg-white/6 cursor-pointer text-caption text-sentinel-text-secondary"
                         title={path}
                       >
                         <input
                           type="checkbox"
                           checked={active}
                           onChange={() => togglePath(path)}
-                          className="accent-teal-400"
+                          className="accent-sentinel-accent"
                         />
                         <span
                           className={clsx(
                             'truncate flex-1 min-w-0',
-                            active && 'text-white',
+                            active && 'text-sentinel-text-primary',
                           )}
                         >
                           <span className="text-sentinel-text-primary">
                             {basename(path) || path}
                           </span>
-                          <span className="ml-1.5 text-sentinel-text-tertiary text-[10px]">
+                          <span className="ml-2 font-mono text-caption text-sentinel-text-tertiary">
                             {path}
                           </span>
                         </span>
@@ -474,14 +474,14 @@ function ProjectPathFilter({
                   {orphans.map((path) => (
                     <label
                       key={`orphan-${path}`}
-                      className="flex items-center gap-2 px-2 py-1 rounded hover:bg-white/5 cursor-pointer text-[12px] text-sentinel-text-tertiary italic"
+                      className="flex items-center gap-2 px-2 py-1 rounded transition-colors duration-150 hover:bg-white/6 cursor-pointer text-caption text-sentinel-text-tertiary italic"
                       title={`Selected but no longer present: ${path}`}
                     >
                       <input
                         type="checkbox"
                         checked
                         onChange={() => togglePath(path)}
-                        className="accent-teal-400"
+                        className="accent-sentinel-accent"
                       />
                       <span className="truncate">{path}</span>
                     </label>
@@ -489,7 +489,7 @@ function ProjectPathFilter({
                 </>
               )}
             </div>
-            <div className="flex items-center justify-between border-t border-white/10 pt-1.5 text-[11px]">
+            <div className="flex items-center justify-between border-t border-sentinel-border-soft pt-2 text-caption">
               <span className="text-sentinel-text-tertiary">
                 Match any selected
               </span>
@@ -497,7 +497,7 @@ function ProjectPathFilter({
                 type="button"
                 onClick={() => onChange([])}
                 disabled={selected.length === 0}
-                className="text-sentinel-blue-glow hover:underline disabled:opacity-50 disabled:no-underline"
+                className="text-sentinel-accent hover:underline disabled:opacity-40 disabled:no-underline focus-visible:outline-none focus-visible:shadow-focus"
               >
                 Clear
               </button>
@@ -527,7 +527,7 @@ function FilterGroup<T extends string>({
   return (
     <div className="flex items-center gap-2 shrink-0">
       <span className="section-heading shrink-0">{label}</span>
-      <div className="flex sm:flex-wrap items-center gap-1.5">
+      <div className="flex sm:flex-wrap items-center gap-2">
         {options.map((opt) => {
           const active = opt.value === value;
           return (
@@ -535,11 +535,12 @@ function FilterGroup<T extends string>({
               key={opt.value}
               type="button"
               onClick={() => onChange(opt.value)}
+              aria-pressed={active}
               className={clsx(
-                'pill transition-all shrink-0',
+                'pill transition-colors duration-150 shrink-0 focus-visible:outline-none focus-visible:shadow-focus',
                 active
                   ? getPillClass(opt.value)
-                  : 'text-sentinel-text-secondary bg-white/4 border border-white/10 hover:bg-white/8 hover:text-white',
+                  : 'text-sentinel-text-secondary bg-white/4 border border-white/8 hover:bg-white/8 hover:border-sentinel-border-strong hover:text-sentinel-text-primary',
               )}
             >
               {opt.label}

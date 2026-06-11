@@ -50,13 +50,13 @@ function ScoreBar({ label, value }: ScoreBarProps) {
   const has = value !== undefined && !Number.isNaN(value);
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between text-[11.5px]">
+      <div className="flex items-center justify-between text-caption">
         <span className="text-sentinel-text-secondary">{label}</span>
         <span
           className={
             has
-              ? 'font-mono text-sentinel-text-primary'
-              : 'font-mono text-sentinel-text-tertiary'
+              ? 'font-mono tabular-nums text-sentinel-text-primary'
+              : 'font-mono tabular-nums text-sentinel-text-tertiary'
           }
         >
           {pct(value)}
@@ -64,7 +64,7 @@ function ScoreBar({ label, value }: ScoreBarProps) {
       </div>
       <div className="h-1.5 w-full rounded-full bg-white/6 overflow-hidden">
         <div
-          className="h-full rounded-full bg-sentinel-blue-glow/80"
+          className="h-full rounded-full bg-sentinel-accent"
           style={{ width: clampWidth(value) }}
           aria-hidden
         />
@@ -89,23 +89,23 @@ export default function LookalikeDetailDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm data-[state=open]:animate-fade-up"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs data-[state=open]:animate-fade-up"
         />
         <Dialog.Content
-          className="glass-strong fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-glass p-6 data-[state=open]:animate-fade-up"
+          className="surface-raised shadow-overlay fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl p-6 data-[state=open]:animate-fade-up"
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-[17px] font-semibold text-sentinel-text-primary">
+              <Dialog.Title className="text-title text-sentinel-text-primary">
                 Match details
               </Dialog.Title>
-              <Dialog.Description className="mt-1 text-[13px] text-sentinel-text-secondary">
+              <Dialog.Description className="mt-1 text-body text-sentinel-text-secondary">
                 Per-feature similarity scores that produced this lookalike
                 flag.
               </Dialog.Description>
             </div>
             <Dialog.Close
-              className="rounded-glass border border-white/10 bg-white/4 p-1.5 text-sentinel-text-secondary hover:bg-white/8 hover:text-sentinel-text-primary"
+              className="shrink-0 rounded-lg border border-sentinel-border bg-sentinel-inset p-2 text-sentinel-text-secondary transition-colors duration-150 hover:bg-sentinel-raised hover:border-sentinel-border-strong hover:text-sentinel-text-primary focus-visible:outline-none focus-visible:shadow-focus"
               aria-label="Close match details"
             >
               <X className="h-4 w-4" aria-hidden />
@@ -113,19 +113,19 @@ export default function LookalikeDetailDialog({
           </div>
 
           {row && (
-            <div className="mt-5 flex flex-col gap-4">
+            <div className="mt-6 flex flex-col gap-4">
               {/* Identity block */}
-              <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 text-[12px]">
+              <dl className="grid grid-cols-[110px_1fr] gap-x-4 gap-y-2 text-caption">
                 <dt className="section-heading">Declared</dt>
                 <dd
-                  className="font-mono text-[12px] text-sentinel-text-primary break-all"
+                  className="font-mono text-caption text-sentinel-text-primary break-all"
                   title={row.declared_package}
                 >
                   {row.declared_package}
                 </dd>
                 <dt className="section-heading">Candidate</dt>
                 <dd
-                  className="font-mono text-[12px] text-sentinel-text-primary break-all"
+                  className="font-mono text-caption text-sentinel-text-primary break-all"
                   title={row.candidate_name}
                 >
                   <span className="text-sentinel-text-tertiary">
@@ -134,13 +134,13 @@ export default function LookalikeDetailDialog({
                   {row.candidate_name}
                 </dd>
                 <dt className="section-heading">Score</dt>
-                <dd className="font-mono text-[12px] text-sentinel-text-primary">
+                <dd className="font-mono tabular-nums text-caption text-sentinel-text-primary">
                   {pct(row.similarity_score)}
                 </dd>
               </dl>
 
               {/* Breakdown bars */}
-              <div className="rounded-glass border border-white/10 bg-black/20 p-4 flex flex-col gap-3">
+              <div className="rounded-lg border border-sentinel-border bg-sentinel-inset p-4 flex flex-col gap-3">
                 <div className="section-heading">Score breakdown</div>
                 <ScoreBar label="Name" value={breakdown.name} />
                 <ScoreBar label="Description" value={breakdown.description} />
@@ -149,7 +149,7 @@ export default function LookalikeDetailDialog({
               </div>
 
               {/* Weighting footnote */}
-              <p className="text-[11.5px] leading-relaxed text-sentinel-text-tertiary">
+              <p className="text-caption leading-relaxed text-sentinel-text-tertiary">
                 Weights: name 30%, description 25%, tools 30%, enums 15%
                 (renormalized when tool signatures are unavailable).
               </p>

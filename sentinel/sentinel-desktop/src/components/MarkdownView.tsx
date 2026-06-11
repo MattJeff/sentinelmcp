@@ -37,7 +37,7 @@ function renderInline(rawText: string): string {
 
   // Inline code spans `…`
   text = text.replace(/`([^`]+)`/g, (_m, code) => {
-    return `<code class="rounded bg-white/10 px-1.5 py-0.5 text-[12px] font-mono text-sentinel-text-primary">${code}</code>`;
+    return `<code class="rounded bg-white/8 px-1.5 py-0.5 text-caption font-mono text-sentinel-text-primary">${code}</code>`;
   });
 
   // Bold **…**
@@ -185,7 +185,7 @@ function renderBlock(block: Block, key: number): JSX.Element {
       return (
         <h1
           key={key}
-          className="text-[22px] font-semibold tracking-tight text-sentinel-text-primary mt-6 mb-3 first:mt-0"
+          className="text-metric font-semibold tracking-tight text-sentinel-text-primary mt-8 mb-3 first:mt-0"
           dangerouslySetInnerHTML={{ __html: renderInline(block.text) }}
         />
       );
@@ -193,7 +193,7 @@ function renderBlock(block: Block, key: number): JSX.Element {
       return (
         <h2
           key={key}
-          className="text-[17px] font-semibold tracking-tight text-sentinel-text-primary mt-6 mb-2 first:mt-0"
+          className="text-title text-sentinel-text-primary mt-8 mb-2 first:mt-0"
           dangerouslySetInnerHTML={{ __html: renderInline(block.text) }}
         />
       );
@@ -201,7 +201,7 @@ function renderBlock(block: Block, key: number): JSX.Element {
       return (
         <h3
           key={key}
-          className="text-[14px] font-semibold uppercase tracking-[0.08em] text-sentinel-text-secondary mt-5 mb-2 first:mt-0"
+          className="text-overline uppercase text-sentinel-text-secondary mt-6 mb-2 first:mt-0"
           dangerouslySetInnerHTML={{ __html: renderInline(block.text) }}
         />
       );
@@ -209,17 +209,17 @@ function renderBlock(block: Block, key: number): JSX.Element {
       return (
         <p
           key={key}
-          className="text-[13px] leading-relaxed text-sentinel-text-secondary my-3"
+          className="text-body leading-relaxed text-sentinel-text-secondary my-3 max-w-prose"
           dangerouslySetInnerHTML={{ __html: renderInline(block.text) }}
         />
       );
     case 'ul':
       return (
-        <ul key={key} className="my-3 space-y-1.5 pl-5 list-disc marker:text-sentinel-text-tertiary">
+        <ul key={key} className="my-3 space-y-2 pl-6 list-disc marker:text-sentinel-text-tertiary">
           {block.items.map((item, idx) => (
             <li
               key={idx}
-              className="text-[13px] leading-relaxed text-sentinel-text-secondary"
+              className="text-body leading-relaxed text-sentinel-text-secondary"
               dangerouslySetInnerHTML={{ __html: renderInline(item) }}
             />
           ))}
@@ -227,11 +227,11 @@ function renderBlock(block: Block, key: number): JSX.Element {
       );
     case 'ol':
       return (
-        <ol key={key} className="my-3 space-y-1.5 pl-5 list-decimal marker:text-sentinel-text-tertiary">
+        <ol key={key} className="my-3 space-y-2 pl-6 list-decimal marker:text-sentinel-text-tertiary tabular-nums">
           {block.items.map((item, idx) => (
             <li
               key={idx}
-              className="text-[13px] leading-relaxed text-sentinel-text-secondary"
+              className="text-body leading-relaxed text-sentinel-text-secondary"
               dangerouslySetInnerHTML={{ __html: renderInline(item) }}
             />
           ))}
@@ -241,7 +241,7 @@ function renderBlock(block: Block, key: number): JSX.Element {
       return (
         <blockquote
           key={key}
-          className="my-4 pl-4 border-l-2 border-sentinel-blue/60 text-[13px] italic text-sentinel-text-secondary"
+          className="my-4 pl-4 border-l-2 border-sentinel-accent text-body italic text-sentinel-text-secondary"
           dangerouslySetInnerHTML={{ __html: renderInline(block.text) }}
         />
       );
@@ -249,7 +249,7 @@ function renderBlock(block: Block, key: number): JSX.Element {
       return (
         <pre
           key={key}
-          className="glass-soft rounded-xl my-4 px-4 py-3 overflow-x-auto text-[12px] font-mono leading-relaxed text-sentinel-text-primary"
+          className="bg-sentinel-inset border border-sentinel-border-soft rounded-lg my-4 p-4 overflow-x-auto text-caption font-mono leading-relaxed text-sentinel-text-primary"
         >
           {block.lang && (
             <div className="section-heading mb-2">{block.lang}</div>
@@ -259,14 +259,14 @@ function renderBlock(block: Block, key: number): JSX.Element {
       );
     case 'table':
       return (
-        <div key={key} className="my-4 overflow-x-auto rounded-xl glass-soft">
-          <table className="w-full text-[12px]">
+        <div key={key} className="my-4 overflow-x-auto rounded-lg border border-sentinel-border-soft bg-sentinel-inset">
+          <table className="w-full text-caption">
             <thead>
-              <tr className="border-b border-sentinel-glass-border">
+              <tr className="border-b border-sentinel-border">
                 {block.head.map((cell, idx) => (
                   <th
                     key={idx}
-                    className="px-3 py-2 text-left font-semibold uppercase tracking-[0.08em] text-[10px] text-sentinel-text-tertiary"
+                    className="px-4 py-2 text-left text-overline uppercase text-sentinel-text-tertiary"
                     dangerouslySetInnerHTML={{ __html: renderInline(cell) }}
                   />
                 ))}
@@ -276,12 +276,12 @@ function renderBlock(block: Block, key: number): JSX.Element {
               {block.rows.map((row, rIdx) => (
                 <tr
                   key={rIdx}
-                  className="border-b border-white/5 last:border-0"
+                  className="border-b border-sentinel-border-soft last:border-0 transition-colors duration-150 hover:bg-white/3"
                 >
                   {row.map((cell, cIdx) => (
                     <td
                       key={cIdx}
-                      className="px-3 py-2 text-sentinel-text-secondary align-top"
+                      className="px-4 py-2 text-sentinel-text-secondary align-top"
                       dangerouslySetInnerHTML={{ __html: renderInline(cell) }}
                     />
                   ))}

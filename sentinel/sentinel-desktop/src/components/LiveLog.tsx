@@ -31,27 +31,29 @@ export default function LiveLog({ entries }: LiveLogProps) {
 
   return (
     <section className="card animate-fade-up w-full">
-      <header className="flex items-center justify-between mb-3">
+      <header className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Terminal className="h-4 w-4 text-sentinel-blue-glow" />
-          <h2 className="text-[15px] font-semibold tracking-tight">Activity log</h2>
+          <Terminal className="h-4 w-4 text-sentinel-accent" aria-hidden="true" />
+          <h2 className="text-title text-sentinel-text-primary">Activity log</h2>
         </div>
-        <span className="section-heading">{entries.length} lines</span>
+        <span className="section-heading tabular-nums">{entries.length} lines</span>
       </header>
 
       <div
         ref={scrollRef}
-        className="bg-black/30 rounded-glass p-4 max-h-96 md:max-h-[28rem] overflow-y-auto font-mono text-[12px] leading-relaxed border border-white/5 w-full"
+        role="log"
+        aria-label="Activity log"
+        className="w-full max-h-96 md:max-h-[28rem] overflow-y-auto rounded-glass border border-sentinel-border-soft bg-sentinel-deep p-4 font-mono text-caption leading-relaxed"
       >
         {entries.length === 0 ? (
-          <div className="flex h-72 items-center justify-center text-sentinel-text-tertiary text-[12px] font-sans">
+          <div className="flex h-72 items-center justify-center font-sans text-caption text-sentinel-text-tertiary">
             No activity yet. Start a scan.
           </div>
         ) : (
           <ul className="space-y-1">
             {entries.map((entry, i) => (
               <li key={i} className="flex flex-col sm:flex-row gap-1 sm:gap-3 animate-fade-up">
-                <span className="text-sentinel-text-tertiary shrink-0 select-none">
+                <span className="shrink-0 select-none text-sentinel-text-tertiary tabular-nums">
                   {formatTs(entry.ts)}
                 </span>
                 <span className="text-sentinel-text-primary break-words whitespace-pre-wrap min-w-0">

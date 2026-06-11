@@ -18,14 +18,13 @@ export interface ComplianceFrameworkProps {
   hasCritical?: boolean;
 }
 
+// Framework accents mapped onto the calm design tokens — severity colors stay
+// reserved for findings; these are identity tints only.
 const BADGE_CLASSES: Record<ComplianceBadgeColor, string> = {
-  purple:
-    'text-[#e0c4ff] bg-[rgba(191,90,242,0.16)] border-[rgba(191,90,242,0.36)]',
-  blue: 'text-[#bcdcff] bg-[rgba(10,132,255,0.16)] border-[rgba(10,132,255,0.30)]',
-  green:
-    'text-[#b8f5c8] bg-[rgba(52,199,89,0.16)] border-[rgba(52,199,89,0.30)]',
-  orange:
-    'text-[#ffd8a0] bg-[rgba(255,159,10,0.16)] border-[rgba(255,159,10,0.30)]',
+  purple: 'text-sentinel-violet bg-sentinel-violet/10 border-sentinel-violet/25',
+  blue: 'badge-accent',
+  green: 'badge-ok',
+  orange: 'badge-high',
 };
 
 // Open an external reference in the system browser. In Tauri this delegates
@@ -55,11 +54,11 @@ export default function ComplianceFramework({
   findingsCount,
   hasCritical = false,
 }: ComplianceFrameworkProps) {
-  const pillClass = hasCritical
-    ? 'pill-red'
+  const badgeClass = hasCritical
+    ? 'badge-critical'
     : findingsCount === 0
-      ? 'pill-green'
-      : 'pill-orange';
+      ? 'badge-ok'
+      : 'badge-medium';
 
   return (
     <div className="card min-w-0 flex flex-col gap-4 h-full">
@@ -67,19 +66,14 @@ export default function ComplianceFramework({
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-[15px] font-semibold text-sentinel-text-primary">
+            <h3 className="text-title text-sentinel-text-primary">
               {frameworkLabel}
             </h3>
-            <span
-              className={clsx(
-                'rounded-pill px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase border',
-                BADGE_CLASSES[badgeColor],
-              )}
-            >
+            <span className={clsx('badge', BADGE_CLASSES[badgeColor])}>
               {badgeColor}
             </span>
           </div>
-          <p className="text-[12px] text-sentinel-text-secondary mt-1 leading-snug">
+          <p className="text-caption text-sentinel-text-secondary mt-2">
             {description}
           </p>
         </div>
@@ -93,25 +87,25 @@ export default function ComplianceFramework({
             const row = (
               <div
                 className={clsx(
-                  'flex items-start gap-3 py-2.5',
-                  !isLast && 'border-b border-white/[0.08]',
+                  'flex items-start gap-3 py-3',
+                  !isLast && 'border-b border-sentinel-border-soft',
                 )}
               >
-                <span className="text-[10px] font-mono text-sentinel-text-tertiary mt-1 w-5 shrink-0 tabular-nums">
+                <span className="font-mono text-caption text-sentinel-text-faint mt-px w-5 shrink-0 tabular-nums">
                   {String(idx + 1).padStart(2, '0')}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] font-semibold text-sentinel-text-primary truncate">
+                  <div className="font-mono text-caption font-semibold text-sentinel-text-primary truncate">
                     {ref.identifier}
                   </div>
-                  <div className="text-[12px] text-sentinel-text-secondary mt-0.5 leading-snug">
+                  <div className="text-caption text-sentinel-text-secondary mt-1">
                     {ref.title}
                   </div>
                 </div>
                 {ref.url && (
                   <ExternalLink
                     size={12}
-                    className="mt-1 shrink-0 text-sentinel-text-tertiary group-hover:text-sentinel-text-primary transition-colors"
+                    className="mt-1 shrink-0 text-sentinel-text-tertiary group-hover:text-sentinel-text-primary transition-colors duration-150"
                     aria-hidden
                   />
                 )}
@@ -126,7 +120,7 @@ export default function ComplianceFramework({
                     onClick={() => {
                       void openExternal(ref.url as string);
                     }}
-                    className="w-full text-left transition-colors cursor-pointer hover:bg-white/5 rounded-md -mx-2 px-2 group"
+                    className="w-full text-left cursor-pointer rounded-lg -mx-3 px-3 group transition-colors duration-150 hover:bg-sentinel-raised focus-visible:outline-none focus-visible:shadow-focus"
                     aria-label={`Open reference ${ref.identifier} in browser`}
                     title={ref.url}
                   >
@@ -140,15 +134,15 @@ export default function ComplianceFramework({
           })}
         </ol>
       ) : (
-        <div className="text-[12px] text-sentinel-text-tertiary py-2">
+        <div className="rounded-lg border border-dashed border-sentinel-border-soft px-4 py-4 text-center text-caption text-sentinel-text-tertiary">
           No controls mapped yet.
         </div>
       )}
 
-      {/* Footer: findings counter pill */}
-      <div className="mt-auto pt-1 flex items-center justify-between">
+      {/* Footer: findings counter badge */}
+      <div className="mt-auto border-t border-sentinel-border-soft pt-4 flex items-center justify-between gap-3">
         <span className="section-heading">Coverage</span>
-        <span className={clsx('pill', pillClass)}>
+        <span className={clsx('badge tabular-nums', badgeClass)}>
           {findingsCount} {findingsCount === 1 ? 'finding mapped' : 'findings mapped'}
         </span>
       </div>

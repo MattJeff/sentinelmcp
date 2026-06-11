@@ -113,27 +113,28 @@ export default function OverviewPage() {
   }, [mutate]);
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-[1600px] mx-auto">
-      <div className="flex items-center justify-between animate-fade-up">
-        <h1 className="text-[18px] font-semibold tracking-tight text-sentinel-text-primary">
-          Overview
-        </h1>
+    <div className="w-full max-w-[1400px] mx-auto space-y-8">
+      {/* Page actions — the layout titlebar already carries the page title. */}
+      <div className="flex items-center justify-end">
         <button type="button" className="btn" onClick={refreshAll}>
           Refresh
         </button>
       </div>
 
       {firstError && (
-        <div className="animate-fade-up">
-          <span className="pill pill-red">
-            <span className="dot dot-red" />
+        <div
+          role="alert"
+          className="flex items-center gap-3 rounded-lg border border-sentinel-critical-border bg-sentinel-critical-bg px-4 py-3 text-body text-sentinel-critical"
+        >
+          <span className="dot dot-critical" aria-hidden="true" />
+          <span className="min-w-0 truncate">
             {String((firstError as Error)?.message ?? firstError)}
           </span>
         </div>
       )}
 
       {/* Row 1 — Hero KPIs */}
-      <section className="animate-fade-up">
+      <section aria-label="Key metrics">
         <Hero
           serversDetected={serversDetected}
           atRisk={atRisk}
@@ -144,13 +145,13 @@ export default function OverviewPage() {
       </section>
 
       {/* Row 2 — Activity (2/3) + Compliance (1/3) */}
-      <section className="grid gap-4 grid-cols-1 lg:grid-cols-3 animate-fade-up">
-        <div className="card lg:col-span-2 flex flex-col gap-4 min-w-0">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold tracking-tight text-sentinel-text-primary">
+      <section className="grid gap-4 grid-cols-1 lg:grid-cols-3">
+        <div className="card lg:col-span-2 flex flex-col gap-6 min-w-0">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-title text-sentinel-text-primary">
               Recent findings
             </h2>
-            <div className="section-heading">Last 5</div>
+            <div className="section-heading shrink-0">Last 5</div>
           </div>
           <RecentFindings
             findings={recent}
@@ -159,12 +160,12 @@ export default function OverviewPage() {
           />
         </div>
 
-        <div className="card flex flex-col gap-4 min-w-0">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold tracking-tight text-sentinel-text-primary">
+        <div className="card flex flex-col gap-6 min-w-0">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-title text-sentinel-text-primary">
               Compliance snapshot
             </h2>
-            <div className="section-heading">Coverage</div>
+            <div className="section-heading shrink-0">Coverage</div>
           </div>
           <ComplianceSnapshot
             references={compliance.data}
@@ -215,16 +216,16 @@ function ComplianceSnapshot({ references, isLoading }: ComplianceSnapshotProps) 
       {unique.map((r) => (
         <li
           key={`${r.framework}-${r.identifier}`}
-          className="flex items-center gap-3 rounded-lg px-3 py-2 bg-white/5"
+          className="flex items-center gap-3 rounded-lg border border-sentinel-border-soft bg-white/3 px-3 py-2 transition-colors duration-150 hover:bg-sentinel-raised hover:border-sentinel-border-strong"
         >
-          <span className="pill pill-blue font-mono text-[10px]">
+          <span className="badge badge-accent font-mono shrink-0">
             {r.identifier}
           </span>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium text-sentinel-text-primary truncate">
+            <div className="text-body font-medium text-sentinel-text-primary truncate">
               {r.title}
             </div>
-            <div className="text-[10px] text-sentinel-text-tertiary truncate">
+            <div className="text-caption text-sentinel-text-tertiary truncate">
               {r.framework}
             </div>
           </div>

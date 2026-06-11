@@ -179,15 +179,15 @@ export default function CompliancePage({
   }, [tiles, query]);
 
   return (
-    <div className="animate-fade-up flex flex-col gap-6">
-      {/* Hero glass panel */}
-      <section className="glass rounded-glass p-6 flex flex-col gap-4 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
+    <div className="animate-fade-up mx-auto w-full max-w-[1400px] flex flex-col gap-8">
+      {/* Hero panel */}
+      <section className="surface rounded-glass p-8 flex flex-col gap-6 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
         <div className="flex-1 min-w-0">
           <div className="section-heading mb-2">Compliance</div>
-          <h1 className="text-[28px] font-semibold leading-tight">
+          <h1 className="text-metric-lg text-sentinel-text-primary">
             Audit-ready compliance map
           </h1>
-          <p className="text-[13px] text-sentinel-text-secondary mt-2 max-w-2xl">
+          <p className="text-body text-sentinel-text-secondary mt-2 max-w-2xl">
             Every MCP finding is mapped to recognised frameworks so you can hand
             auditors a signed report instead of a screenshot.
           </p>
@@ -210,13 +210,16 @@ export default function CompliancePage({
             {generating ? 'Generating…' : 'Generate signed report'}
           </button>
           {genSuccess && !genError && (
-            <div className="flex items-center gap-1.5 text-[12px] text-[#b8f5c8]">
+            <div
+              role="status"
+              className="flex items-center gap-2 text-caption text-sentinel-ok"
+            >
               <CheckCircle2 size={12} aria-hidden />
               <span>
                 Report ready —{' '}
                 <button
                   type="button"
-                  className="underline underline-offset-2 hover:text-white"
+                  className="underline underline-offset-2 transition-colors duration-150 hover:text-sentinel-text-primary focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
                   onClick={() => onGenerateReport?.()}
                 >
                   open Report page
@@ -225,7 +228,10 @@ export default function CompliancePage({
             </div>
           )}
           {genError && (
-            <div className="flex items-center gap-1.5 text-[12px] text-[#ff9aa2]">
+            <div
+              role="alert"
+              className="flex items-center gap-2 text-caption text-sentinel-critical"
+            >
               <AlertCircle size={12} aria-hidden />
               <span>{genError}</span>
             </div>
@@ -254,20 +260,20 @@ export default function CompliancePage({
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="card">
+            <div key={i} className="card" aria-hidden>
               <div className="skeleton h-4 w-2/3 mb-3" />
               <div className="skeleton h-3 w-1/2 mb-2" />
               <div className="skeleton h-3 w-1/3 mb-4" />
-              <div className="skeleton h-3 w-full mb-1.5" />
-              <div className="skeleton h-3 w-5/6 mb-1.5" />
+              <div className="skeleton h-3 w-full mb-2" />
+              <div className="skeleton h-3 w-5/6 mb-2" />
               <div className="skeleton h-3 w-4/6" />
             </div>
           ))}
         </div>
       ) : filteredTiles.length === 0 ? (
-        <div className="glass rounded-glass p-6 text-[13px] text-sentinel-text-secondary">
+        <div className="surface rounded-glass px-8 py-12 text-center text-body text-sentinel-text-secondary">
           No framework or control matches{' '}
-          <span className="font-mono text-sentinel-text-primary">
+          <span className="font-mono text-caption text-sentinel-text-primary">
             “{query}”
           </span>
           .
@@ -291,27 +297,27 @@ export default function CompliancePage({
       )}
 
       {/* "How we map" disclosure */}
-      <details className="glass rounded-glass p-5 group">
-        <summary className="flex items-center justify-between cursor-pointer list-none">
+      <details className="surface rounded-glass p-6 group">
+        <summary className="flex items-center justify-between gap-4 cursor-pointer list-none rounded-lg focus-visible:outline-none focus-visible:shadow-focus">
           <div>
             <div className="section-heading mb-1">Methodology</div>
-            <div className="text-[14px] font-semibold text-sentinel-text-primary">
+            <div className="text-title text-sentinel-text-primary">
               How we map findings to controls
             </div>
           </div>
           <ChevronDown
             size={16}
             aria-hidden
-            className="text-sentinel-text-tertiary transition-transform duration-200 group-open:rotate-180"
+            className="shrink-0 text-sentinel-text-tertiary transition-transform duration-200 group-open:rotate-180"
           />
         </summary>
-        <p className="text-[13px] text-sentinel-text-secondary leading-relaxed mt-3">
+        <p className="text-body text-sentinel-text-secondary leading-relaxed mt-4 max-w-3xl">
           Every detector emits a finding with one or more{' '}
-          <span className="font-mono text-[12px] text-sentinel-text-primary">
+          <span className="font-mono text-caption text-sentinel-text-primary">
             compliance_refs
           </span>{' '}
-          such as <span className="font-mono text-[12px]">MCP09</span> or{' '}
-          <span className="font-mono text-[12px]">SAFE-T1201</span>. Each
+          such as <span className="font-mono text-caption">MCP09</span> or{' '}
+          <span className="font-mono text-caption">SAFE-T1201</span>. Each
           identifier is matched against the canonical control catalogue shipped
           with Sentinel, then grouped under its framework. SOC 2 and ISO 27001
           mappings are derived from the underlying MCP / SAFE-MCP control so a

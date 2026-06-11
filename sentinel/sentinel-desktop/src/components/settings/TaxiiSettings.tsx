@@ -322,31 +322,36 @@ export default function TaxiiSettings({ outboundEnabled }: TaxiiSettingsProps) {
         />
       </SettingRow>
 
-      <div className="flex items-center justify-between gap-3 pt-4">
-        <div className="min-h-[20px] flex-1">
+      <div className="flex items-center justify-between gap-4 border-t border-sentinel-border-soft pt-4">
+        <div className="min-h-[20px] min-w-0 flex-1">
           {lastResult ? (
             <span
               role="status"
               aria-live="polite"
               className={clsx(
-                'pill',
-                lastResult.ok ? 'pill-green' : 'pill-red',
+                'inline-flex items-center gap-2 text-caption',
+                lastResult.ok
+                  ? 'text-sentinel-ok'
+                  : 'text-sentinel-critical',
               )}
             >
+              <span
+                aria-hidden="true"
+                className={clsx(
+                  'dot shrink-0',
+                  lastResult.ok ? 'dot-ok' : 'dot-critical',
+                )}
+              />
               {lastResult.ok
                 ? `Test OK${lastResult.status !== null ? ` · HTTP ${lastResult.status}` : ''} — ${lastResult.message}`
                 : `Test failed${lastResult.status !== null ? ` · HTTP ${lastResult.status}` : ''} — ${lastResult.message}`}
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            className={clsx(
-              'btn',
-              testing &&
-                'animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-sentinel-blue/30 via-sentinel-purple/30 to-sentinel-blue/30',
-            )}
+            className="btn"
             onClick={handleTest}
             disabled={testing || saving || !outboundEnabled || disabled}
             title={
@@ -395,10 +400,11 @@ function Toggle({ checked, onChange, disabled, ariaLabel }: ToggleProps) {
       onClick={() => onChange(!checked)}
       className={clsx(
         'relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-pill transition-colors duration-200',
+        'focus-visible:outline-none focus-visible:shadow-focus',
         checked
-          ? 'bg-sentinel-blue shadow-glow-blue'
-          : 'bg-white/10 border border-white/15',
-        disabled && 'opacity-70 cursor-not-allowed',
+          ? 'bg-sentinel-accent'
+          : 'bg-white/10 border border-sentinel-border-strong',
+        disabled && 'opacity-40 cursor-not-allowed',
       )}
     >
       <span

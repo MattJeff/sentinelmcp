@@ -156,12 +156,12 @@ export default function ApprovalsPage() {
 
   return (
     <Tooltip.Provider delayDuration={200}>
-      <div className="flex flex-col gap-6 animate-fade-up mx-auto w-full max-w-[1400px]">
+      <div className="flex flex-col gap-8 animate-fade-up mx-auto w-full max-w-[1400px]">
       <header className="flex flex-col gap-2">
-        <h1 className="text-[28px] font-semibold tracking-tight text-sentinel-text-primary">
+        <h1 className="text-metric-lg text-sentinel-text-primary">
           Approvals
         </h1>
-        <p className="max-w-2xl text-[13px] text-sentinel-text-secondary">
+        <p className="max-w-2xl text-body text-sentinel-text-secondary">
           Review every server your agents reach. Each decision becomes part
           of the signed bundle.
         </p>
@@ -171,7 +171,7 @@ export default function ApprovalsPage() {
         <div
           role="status"
           aria-live="polite"
-          className="sticky top-0 z-10 self-start pill pill-green animate-fade-up backdrop-blur-md"
+          className="sticky top-0 z-10 self-start badge badge-ok tabular-nums animate-fade-up"
         >
           Approved {approvedCount}{' '}
           {approvedCount === 1 ? 'server' : 'servers'} since opening this page
@@ -275,14 +275,14 @@ export default function ApprovalsPage() {
         <div
           role="status"
           aria-live="polite"
-          className="self-start glass-soft rounded-pill px-3 py-1.5 text-[12px] text-sentinel-text-secondary inline-flex items-center gap-2 animate-fade-up"
+          className="self-start surface rounded-lg px-3 py-2 text-caption text-sentinel-text-secondary inline-flex items-center gap-2 animate-fade-up"
         >
-          <span className="font-mono text-[11px] truncate max-w-xs">
+          <span className="font-mono text-caption text-sentinel-text-tertiary truncate max-w-xs">
             Backup: {lastBackup.backup_path}
           </span>
           <button
             type="button"
-            className="text-sentinel-blue-glow hover:underline disabled:opacity-60"
+            className="text-sentinel-accent hover:underline disabled:opacity-40 focus-visible:outline-none focus-visible:shadow-focus rounded-lg transition-colors duration-150"
             disabled={restoring}
             onClick={async () => {
               if (!lastBackup || restoring) return;
@@ -368,13 +368,10 @@ function ApprovalRow({
 }: ApprovalRowProps) {
   const dotClass =
     server.color === 'green'
-      ? 'dot-green'
+      ? 'dot-ok'
       : server.color === 'orange'
-        ? 'dot-orange'
-        : 'dot-red';
-
-  const transportPill =
-    server.transport === 'http' ? 'pill-blue' : 'pill-green';
+        ? 'dot-high'
+        : 'dot-critical';
 
   const scopesLabel =
     server.scopes.length > 0 ? server.scopes.join(', ') : 'none';
@@ -383,7 +380,7 @@ function ApprovalRow({
     <div
       className={clsx(
         'card-hover flex flex-col gap-4 lg:flex-row lg:items-center lg:gap-6',
-        server.color === 'red' && 'shadow-glow-red',
+        server.color === 'red' && 'border-l-2 border-l-sentinel-critical-border',
       )}
     >
       {/* Left: dot + endpoint + transport */}
@@ -391,7 +388,7 @@ function ApprovalRow({
         <span className={clsx('dot shrink-0', dotClass)} aria-hidden />
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
-            <span className="truncate font-mono text-[13px] font-semibold text-sentinel-text-primary min-w-0">
+            <span className="truncate font-mono text-body font-medium text-sentinel-text-primary min-w-0">
               {server.endpoint}
             </span>
           </Tooltip.Trigger>
@@ -399,19 +396,19 @@ function ApprovalRow({
             <Tooltip.Content
               side="top"
               sideOffset={6}
-              className="z-50 max-w-[90vw] break-all rounded-md bg-black/80 px-2 py-1 font-mono text-[11px] text-white shadow-glass-soft border border-white/10"
+              className="z-50 max-w-[90vw] break-all rounded-lg bg-sentinel-raised px-2 py-1 font-mono text-overline text-sentinel-text-primary shadow-raised border border-sentinel-border-strong"
             >
               {server.endpoint}
-              <Tooltip.Arrow className="fill-black/80" />
+              <Tooltip.Arrow className="fill-sentinel-raised" />
             </Tooltip.Content>
           </Tooltip.Portal>
         </Tooltip.Root>
-        <span className={clsx('pill shrink-0', transportPill)}>
+        <span className="badge badge-neutral shrink-0">
           {server.transport}
         </span>
         {failed && (
           <span
-            className="pill pill-red shrink-0 animate-fade-up"
+            className="badge badge-critical shrink-0 animate-fade-up"
             role="alert"
           >
             Failed — try again
@@ -420,7 +417,7 @@ function ApprovalRow({
       </div>
 
       {/* Center: short summary */}
-      <div className="min-w-0 flex-1 text-[12px] text-sentinel-text-secondary">
+      <div className="min-w-0 flex-1 text-caption text-sentinel-text-tertiary tabular-nums">
         {server.tool_count} {server.tool_count === 1 ? 'tool' : 'tools'} ·
         scopes: {scopesLabel}
       </div>
@@ -449,11 +446,12 @@ function ApprovalRow({
 
 function EmptyState() {
   return (
-    <div className="card flex flex-col items-center justify-center gap-2 py-16 text-center animate-fade-up">
-      <div className="text-[15px] font-semibold text-sentinel-text-primary">
+    <div className="card flex flex-col items-center justify-center gap-2 py-8 text-center animate-fade-up">
+      <span className="dot dot-ok mb-2" aria-hidden />
+      <div className="text-title text-sentinel-text-primary">
         All servers reviewed. Audit-ready.
       </div>
-      <p className="max-w-md text-[12px] text-sentinel-text-tertiary">
+      <p className="max-w-md text-caption text-sentinel-text-tertiary">
         New discoveries will appear here automatically.
       </p>
     </div>
@@ -477,19 +475,19 @@ function BlockConfirmDialog({
     <Dialog.Root open={server !== null} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm data-[state=open]:animate-fade-up"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs data-[state=open]:animate-fade-up"
         />
         <Dialog.Content
-          className="glass-strong fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-glass p-6 data-[state=open]:animate-fade-up"
+          className="surface-raised fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl p-6 shadow-overlay data-[state=open]:animate-fade-up"
         >
-          <Dialog.Title className="text-[17px] font-semibold text-sentinel-text-primary">
+          <Dialog.Title className="text-title text-sentinel-text-primary">
             Block this server?
           </Dialog.Title>
-          <Dialog.Description className="mt-2 text-[13px] text-sentinel-text-secondary">
+          <Dialog.Description className="mt-2 text-body text-sentinel-text-secondary">
             Agents won't be able to reach this endpoint. Stored as a finding.
           </Dialog.Description>
           {server && (
-            <div className="mt-4 truncate rounded-pill px-3 py-1.5 font-mono text-[12px] text-sentinel-text-secondary bg-white/5 border border-white/10">
+            <div className="mt-4 truncate rounded-lg px-3 py-2 font-mono text-caption text-sentinel-text-tertiary bg-sentinel-inset border border-sentinel-border">
               {server.endpoint}
             </div>
           )}

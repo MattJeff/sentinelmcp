@@ -32,19 +32,19 @@ export default function SettingRow({
       className={clsx(
         'flex flex-col sm:flex-row gap-2 sm:gap-6 py-4',
         align === 'center' ? 'sm:items-center' : 'sm:items-start',
-        !last && 'border-b border-white/8',
+        !last && 'border-b border-sentinel-border-soft',
         className,
       )}
     >
       <div className="flex-1 min-w-0">
         <label
           htmlFor={htmlForId}
-          className="block text-[13px] font-medium text-sentinel-text-primary"
+          className="block text-body font-medium text-sentinel-text-primary"
         >
           {label}
         </label>
         {description && (
-          <div className="mt-0.5 text-[12px] text-sentinel-text-tertiary leading-snug">
+          <div className="mt-1 max-w-prose text-caption text-sentinel-text-tertiary">
             {description}
           </div>
         )}

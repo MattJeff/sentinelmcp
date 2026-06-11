@@ -54,9 +54,9 @@ export interface ClientCardProps {
 }
 
 function serverCountTone(n: number): { className: string; label: string } {
-  if (n === 0) return { className: 'pill-green', label: '0 servers' };
-  if (n <= 3) return { className: 'pill-orange', label: `${n} ${n === 1 ? 'server' : 'servers'}` };
-  return { className: 'pill-red', label: `${n} servers` };
+  if (n === 0) return { className: 'badge-ok', label: '0 servers' };
+  if (n <= 3) return { className: 'badge-medium', label: `${n} ${n === 1 ? 'server' : 'servers'}` };
+  return { className: 'badge-high', label: `${n} servers` };
 }
 
 export default function ClientCard({ client, probes, onProbe }: ClientCardProps) {
@@ -132,30 +132,30 @@ export default function ClientCard({ client, probes, onProbe }: ClientCardProps)
   return (
     <div
       className={clsx(
-        'card-hover animate-fade-up flex flex-col gap-3.5',
-        tertiary && 'opacity-50',
+        'card-hover animate-fade-up flex flex-col gap-4',
+        tertiary && 'opacity-40',
       )}
     >
       {/* Header */}
       <div className="flex items-start gap-3">
-        <div className="h-9 w-9 shrink-0 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center">
-          <Icon className="h-4.5 w-4.5 text-sentinel-text-primary" aria-hidden />
+        <div className="h-9 w-9 shrink-0 rounded-lg bg-white/6 border border-sentinel-border flex items-center justify-center">
+          <Icon className="h-4 w-4 text-sentinel-text-primary" aria-hidden />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[14px] font-semibold tracking-tight truncate">
+            <span className="text-title truncate">
               {client.label}
             </span>
             {client.version && (
-              <span className="pill pill-blue">v{client.version}</span>
+              <span className="badge badge-accent">v{client.version}</span>
             )}
             {!client.installed && (
-              <span className="pill bg-white/6 border border-white/10 text-sentinel-text-tertiary">
+              <span className="badge badge-neutral">
                 Not installed
               </span>
             )}
           </div>
-          <div className="mt-1 text-[11px] text-sentinel-text-tertiary truncate">
+          <div className="mt-1 text-caption text-sentinel-text-tertiary truncate">
             {client.installed
               ? client.configs.length > 0
                 ? client.configs[0]
@@ -167,15 +167,15 @@ export default function ClientCard({ client, probes, onProbe }: ClientCardProps)
 
       {/* Middle: server-count pill + notes */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className={clsx('pill', tone.className)}>
+        <span className={clsx('badge tabular-nums', tone.className)}>
           <span
             className={clsx(
               'dot',
               client.servers.length === 0
-                ? 'dot-green'
+                ? 'dot-ok'
                 : client.servers.length <= 3
-                  ? 'dot-orange'
-                  : 'dot-red',
+                  ? 'dot-medium'
+                  : 'dot-high',
             )}
           />
           {tone.label}
@@ -183,13 +183,13 @@ export default function ClientCard({ client, probes, onProbe }: ClientCardProps)
         {client.notes.map((n) => (
           <span
             key={n}
-            className="pill bg-white/4 border border-white/10 text-sentinel-text-tertiary"
+            className="badge badge-neutral"
           >
             {n}
           </span>
         ))}
         {poisoningCount > 0 && (
-          <span className="pill pill-red" title="Poisoning patterns detected in live probe responses">
+          <span className="badge badge-critical tabular-nums" title="Poisoning patterns detected in live probe responses">
             <AlertTriangle className="h-3 w-3" aria-hidden />
             Poisoning detected · {poisoningCount}
           </span>
@@ -201,7 +201,7 @@ export default function ClientCard({ client, probes, onProbe }: ClientCardProps)
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-sentinel-text-tertiary hover:text-sentinel-text-secondary transition-colors self-start"
+          className="flex items-center gap-2 rounded-lg text-overline text-sentinel-text-tertiary hover:text-sentinel-text-secondary transition-colors duration-150 self-start focus-visible:outline-none focus-visible:shadow-focus"
           aria-expanded={expanded}
         >
           {expanded ? (
@@ -227,10 +227,10 @@ export default function ClientCard({ client, probes, onProbe }: ClientCardProps)
 
       {/* Footer */}
       {client.installed && hasServers && (
-        <div className="mt-auto flex justify-end pt-1">
+        <div className="mt-auto flex justify-end pt-2">
           <button
             type="button"
-            className="btn text-[12px] py-1.5 px-3 min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
+            className="btn btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={handleProbeAll}
             disabled={probing}
             aria-busy={probing}

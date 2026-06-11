@@ -117,19 +117,19 @@ export default function ReportPage() {
   };
 
   return (
-    <div className="animate-fade-up space-y-6">
+    <div className="animate-fade-up mx-auto w-full max-w-[1400px] space-y-8">
       {/* ── Hero ────────────────────────────────────────────────────────── */}
-      <section className="glass rounded-glass p-6">
+      <section className="surface rounded-glass p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 md:gap-6">
           <div className="min-w-0">
             <div className="section-heading mb-2 flex items-center gap-2">
-              <ShieldCheck className="w-3.5 h-3.5" />
+              <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
               Signed report
             </div>
-            <h1 className="text-[28px] font-semibold tracking-tight text-sentinel-text-primary">
+            <h1 className="text-metric-lg text-sentinel-text-primary">
               Compliance bundle
             </h1>
-            <p className="mt-2 text-[13px] text-sentinel-text-secondary max-w-2xl">
+            <p className="mt-2 text-body text-sentinel-text-secondary max-w-2xl">
               Signed Ed25519 · OWASP MCP09/MCP03 · SAFE-MCP T1001/T1201 · SOC 2 · ISO 27001
             </p>
           </div>
@@ -138,7 +138,7 @@ export default function ReportPage() {
             {!hasBundle ? (
               <button
                 type="button"
-                className="btn-primary btn"
+                className="btn btn-primary"
                 disabled={generating}
                 onClick={handleGenerate}
               >
@@ -194,7 +194,7 @@ export default function ReportPage() {
                 </button>
                 <button
                   type="button"
-                  className="btn-primary btn"
+                  className="btn btn-primary"
                   disabled={generating}
                   onClick={handleGenerate}
                 >
@@ -221,7 +221,7 @@ export default function ReportPage() {
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as TabId)}
       >
-        <div className="-mx-1 overflow-x-auto">
+        <div className="-mx-1 overflow-x-auto px-1">
         <Tabs.List
           className="glass-soft rounded-pill inline-flex items-center gap-1 p-1 max-w-full whitespace-nowrap"
           aria-label="Report sections"
@@ -232,9 +232,10 @@ export default function ReportPage() {
               value={tab.id}
               disabled={!hasBundle}
               className={[
-                'rounded-pill px-3.5 py-1.5 text-[13px] font-medium transition-all duration-150',
+                'rounded-pill px-4 py-1.5 text-caption font-medium transition-colors duration-150',
                 'text-sentinel-text-secondary hover:text-sentinel-text-primary',
-                'data-[state=active]:bg-white/12 data-[state=active]:text-sentinel-text-primary',
+                'focus-visible:outline-none focus-visible:shadow-focus',
+                'data-[state=active]:bg-sentinel-raised data-[state=active]:text-sentinel-text-primary',
                 'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-sentinel-text-secondary',
               ].join(' ')}
             >
@@ -244,10 +245,13 @@ export default function ReportPage() {
         </Tabs.List>
         </div>
 
-        <div className="glass rounded-glass p-6 mt-4 min-h-[280px] overflow-x-auto min-w-0">
+        <div className="surface rounded-glass p-6 mt-4 min-h-[280px] overflow-x-auto min-w-0">
           {!hasBundle ? (
-            <div className="text-[13px] text-sentinel-text-tertiary">
-              Generate a bundle to see the report.
+            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+              <FileText className="w-6 h-6 text-sentinel-text-faint" aria-hidden="true" />
+              <div className="text-body text-sentinel-text-tertiary">
+                Generate a bundle to see the report.
+              </div>
             </div>
           ) : (
             TABS.map((tab) => (
@@ -267,29 +271,22 @@ export default function ReportPage() {
       <section>
         {hasBundle && bundle?.signed ? (
           <div
-            className="flex items-center gap-3 rounded-glass px-5 py-3 text-[13px] font-medium"
-            style={{
-              background:
-                'linear-gradient(90deg, rgba(52,199,89,0.18) 0%, rgba(52,199,89,0.08) 100%)',
-              border: '1px solid rgba(52,199,89,0.40)',
-              color: '#b8f5c8',
-              boxShadow: '0 0 24px rgba(52,199,89,0.18)',
-            }}
+            className="flex items-center gap-3 rounded-glass border border-sentinel-ok-border bg-sentinel-ok-bg px-6 py-4 text-body font-medium text-sentinel-ok"
             role="status"
           >
-            <Lock className="w-4 h-4" />
+            <Lock className="w-4 h-4 shrink-0" aria-hidden="true" />
             <span>
               Signed at{' '}
-              <span className="font-mono text-[12px]">
+              <span className="font-mono text-caption tabular-nums">
                 {formatTimestamp(bundle.signature_iso8601)}
               </span>{' '}
               · Ed25519
             </span>
           </div>
         ) : hasBundle ? (
-          <div className="inline-flex">
-            <span className="pill pill-orange">
-              <span className="dot dot-orange" />
+          <div className="inline-flex" role="status">
+            <span className="badge badge-medium">
+              <span className="dot dot-medium" aria-hidden="true" />
               Draft — not signed yet
             </span>
           </div>
@@ -299,25 +296,28 @@ export default function ReportPage() {
       {/* ── Bundle paths disclosure ──────────────────────────────────────── */}
       {hasBundle && (
         <section>
-          <details className="group glass-soft rounded-glass px-4 py-3 text-[13px] no-drag">
-            <summary className="flex items-center gap-2 cursor-pointer list-none text-sentinel-text-secondary hover:text-sentinel-text-primary transition-colors">
-              <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-0 -rotate-90" />
+          <details className="group glass-soft rounded-glass p-4 text-body no-drag">
+            <summary className="flex items-center gap-2 cursor-pointer list-none rounded-lg text-sentinel-text-secondary hover:text-sentinel-text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:shadow-focus">
+              <ChevronDown
+                className="w-3.5 h-3.5 transition-transform group-open:rotate-0 -rotate-90"
+                aria-hidden="true"
+              />
               View bundle paths
             </summary>
-            <div className="mt-3 space-y-2 pl-5">
-              <div className="flex items-baseline gap-2">
-                <span className="text-[11px] uppercase tracking-wider text-sentinel-text-tertiary w-12 shrink-0">
+            <div className="mt-4 space-y-2 pl-6">
+              <div className="flex items-baseline gap-3">
+                <span className="text-overline uppercase text-sentinel-text-tertiary w-12 shrink-0">
                   PDF
                 </span>
-                <span className="font-mono text-[12px] text-sentinel-text-primary break-all">
+                <span className="font-mono text-caption text-sentinel-text-secondary break-all">
                   {bundle?.pdf_path ?? '—'}
                 </span>
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-[11px] uppercase tracking-wider text-sentinel-text-tertiary w-12 shrink-0">
+              <div className="flex items-baseline gap-3">
+                <span className="text-overline uppercase text-sentinel-text-tertiary w-12 shrink-0">
                   JSON
                 </span>
-                <span className="font-mono text-[12px] text-sentinel-text-primary break-all">
+                <span className="font-mono text-caption text-sentinel-text-secondary break-all">
                   {bundle?.json_path ?? '—'}
                 </span>
               </div>

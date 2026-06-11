@@ -107,13 +107,13 @@ export default function TagsEditor({
   return (
     <div className="flex flex-col gap-2">
       <div
-        className="flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 focus-within:border-blue-400/40"
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-sentinel-border bg-sentinel-inset px-2 py-2 transition-colors duration-150 focus-within:border-sentinel-accent focus-within:shadow-focus"
         onClick={() => inputRef.current?.focus()}
       >
         {value.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-medium bg-blue-500/15 text-blue-200 border border-blue-400/20"
+            className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-caption font-medium bg-sentinel-accent-dim text-sentinel-accent border border-sentinel-accent/20"
             title={tag}
           >
             {tag}
@@ -124,7 +124,7 @@ export default function TagsEditor({
                 removeTag(tag);
               }}
               disabled={disabled}
-              className="text-blue-200/80 hover:text-white disabled:opacity-40"
+              className="text-sentinel-accent/80 transition-colors duration-150 hover:text-sentinel-text-primary disabled:opacity-40 focus-visible:outline-none focus-visible:shadow-focus"
               aria-label={`Remove tag ${tag}`}
               title={`Remove ${tag}`}
             >
@@ -156,13 +156,13 @@ export default function TagsEditor({
             }}
             placeholder={atCap ? 'Maximum tags reached' : placeholder}
             disabled={disabled || atCap}
-            className="w-full bg-transparent text-[12px] text-sentinel-text-primary placeholder:text-sentinel-text-tertiary outline-none py-1 px-1"
+            className="w-full bg-transparent text-caption text-sentinel-text-primary placeholder:text-sentinel-text-faint outline-none py-1 px-1"
             aria-label="Add tag"
           />
           {showMenu && (
             <ul
               role="listbox"
-              className="absolute left-0 top-full mt-1 z-10 w-full max-h-48 overflow-y-auto rounded-md border border-white/10 bg-slate-900/95 backdrop-blur shadow-lg py-1"
+              className="absolute left-0 top-full mt-2 z-10 w-full max-h-48 overflow-y-auto rounded-lg border border-sentinel-border bg-sentinel-raised shadow-raised py-1"
             >
               {filteredSuggestions.map((s) => (
                 <li key={s}>
@@ -175,7 +175,7 @@ export default function TagsEditor({
                       setInput('');
                       inputRef.current?.focus();
                     }}
-                    className="w-full text-left px-2.5 py-1 text-[12px] text-sentinel-text-secondary hover:bg-white/10 hover:text-white"
+                    className="w-full text-left px-3 py-1 text-caption text-sentinel-text-secondary transition-colors duration-150 hover:bg-white/6 hover:text-sentinel-text-primary focus-visible:outline-none focus-visible:shadow-focus"
                   >
                     {s}
                   </button>
@@ -185,7 +185,7 @@ export default function TagsEditor({
           )}
         </div>
       </div>
-      <div className="text-[10px] text-sentinel-text-tertiary">
+      <div className="text-caption text-sentinel-text-tertiary tabular-nums">
         {value.length}/{TAGS_MAX_COUNT} tags · Enter or comma to add · max{' '}
         {TAG_MAX_LENGTH} chars each
       </div>
