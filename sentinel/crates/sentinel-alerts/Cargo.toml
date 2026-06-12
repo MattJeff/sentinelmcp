@@ -30,4 +30,4 @@ keyring = { version = "3", default-features = false, features = ["apple-native",
 
 [dev-dependencies]
 wiremock = "0.6"
-rcgen = "0.13"
+rcgen = "0.14"
