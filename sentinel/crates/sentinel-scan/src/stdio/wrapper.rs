@@ -232,7 +232,8 @@ where
 
 /// Extrait la méthode d'un message JSON-RPC.
 /// Pour les réponses (champ `result` ou `error`), retourne `None`.
-fn extraire_methode(
+/// `pub(crate)` : réutilisé par le proxy temps réel (`crate::proxy`).
+pub(crate) fn extraire_methode(
     valeur: &serde_json::Value,
     _direction: &Direction,
 ) -> Option<String> {
@@ -246,7 +247,8 @@ fn extraire_methode(
 ///
 /// Règle : pour `tools/call` venant du client, les `params.arguments` ne
 /// sont jamais persistés (inspection en vol seulement).
-fn epurer_payload(
+/// `pub(crate)` : réutilisé par le proxy temps réel (`crate::proxy`).
+pub(crate) fn epurer_payload(
     valeur: &serde_json::Value,
     methode: &Option<String>,
     direction: &Direction,

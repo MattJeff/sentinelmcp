@@ -10,11 +10,11 @@ The category Sentinel occupies is **MCP Detection & Response (MCPDR)**: continuo
 
 | Capability | **Sentinel** | mcp-scan / Snyk Agent Scan | ToolHive (Stacklok) | mcp-watch | MCP Guardian (eqtylab) | Cisco mcp-scanner | Commercial (Proofpoint, JFrog, Wiz, Qualys, Prisma AIRS) |
 |---|---|---|---|---|---|---|---|
-| Multi-client discovery | **14 clients** | 13 agents (+ skills, 4 config scopes) | No (manages its own servers) | No (single URL/repo) | No (manual proxy) | Partial (configs) | Yes (cloud/SaaS/endpoint) |
+| Multi-client discovery | **14 clients + skills/agents (user/project/extension scopes)** | 13 agents (+ skills, 4 config scopes) | No (manages its own servers) | No (single URL/repo) | No (manual proxy) | Partial (configs) | Yes (cloud/SaaS/endpoint) |
 | Active probing (`tools/list`) | **Yes** | Yes (consent required) | N/A (containerized) | No (static) | Via proxy | Yes | Varies |
 | Persistent cross-session baselines | **Yes (canonical SHA-256 + package_id)** | Description hashes only | No | No | No | No | Cloud inventory |
-| Continuous runtime detection | Periodic scan + file watcher | Real-time proxy mode | Yes (gateway, OIDC, per-tool policies) | No | Yes (live approvals) | No | Yes (traffic) |
-| Tool poisoning | **40+ patterns, local** | Yes (cloud LLM, Snyk token required) | Indirect | Yes | Basic checks | Yes (YARA + LLM-judge) | Yes |
+| Continuous runtime detection | **Real-time stdio proxy (poisoning, exfil combos, sampling abuse) + periodic scan + file watcher** | Real-time proxy mode | Yes (gateway, OIDC, per-tool policies) | No | Yes (live approvals) | No | Yes (traffic) |
+| Tool poisoning | **40+ patterns + YARA rules + optional local LLM judge (Ollama), all local** | Yes (cloud LLM, Snyk token required) | Indirect | Yes | Basic checks | Yes (YARA + LLM-judge) | Yes |
 | Lookalikes / typosquatting | **Jaro-Winkler, 4 registries** | No | No | No | No | No | Partial (JFrog) |
 | Exfiltration combos | **Yes** | "Toxic flows" | No | Yes (basic) | No | No | Yes |
 | SIEM (Splunk / Elastic / Syslog TLS) | **Native** | No (Snyk platform) | OTel/observability | No | No | No | Yes |
@@ -44,13 +44,13 @@ The category Sentinel occupies is **MCP Detection & Response (MCPDR)**: continuo
 
 Honest gaps, with the plan to close each one:
 
-1. **Real-time runtime detection** (mcp-scan proxy mode, ToolHive gateway, Pipelock). Sentinel's monitor loop is periodic (plus a sub-500 ms config file watcher and an experimental capture proxy). *Roadmap:* a lightweight optional stdio/HTTP proxy mode that inspects `tools/call` live, reusing the existing baselines.
+1. ~~**Real-time runtime detection**~~ **Closed (June 2026).** The stdio proxy (`sentinel-scan::proxy`) now inspects `tools/call` live — argument poisoning, streaming exfiltration combos (read-secret + external-write within a session), sampling/elicitation abuse — without ever persisting payload content. Detection-only: bytes are relayed bit-exact; blocking remains the guard's job.
 
-2. **Skills/agents coverage** (Snyk Agent Scan also scans agent skills across 4 config scopes — system/user/project/extension). *Roadmap:* extend discovery to skills (`.claude/skills`, `.agents/skills`) and project/extension scopes — the fastest-growing attack surface.
+2. ~~**Skills/agents coverage**~~ **Closed (June 2026).** Discovery now scans skills and sub-agents across user (`~/.claude/skills`, `~/.claude/agents`, `~/.agents/skills`, `~/.codex/skills`), project (`.claude/skills`, `.agents/skills` in every known Claude Code project) and extension (Claude Code plugins) scopes, and runs every artifact through the poisoning inspector.
 
 3. **Enforcement/blocking** (ToolHive: container isolation, per-tool policies, OIDC). Sentinel detects first, blocks second: enforcement mode already quarantines a compromised server from the client config (timestamped backup, one-click restore) but is opt-in and advisory by default. *Roadmap:* an "approve before run" gate.
 
-4. **Hybrid detection engines** (Cisco: YARA + LLM-as-judge; Snyk: cloud LLM analysis). 40+ regex patterns have semantic blind spots. *Roadmap:* importable YARA rules + an optional *local* LLM (Ollama) — staying true to zero-cloud.
+4. ~~**Hybrid detection engines**~~ **Closed (June 2026).** YARA rules (yara-x, pure Rust — 3 embedded rules + importable rule directory) plus an optional, off-by-default *local* LLM judge via Ollama. Zero-cloud preserved: localhost only, short timeouts, nothing leaves the machine. UI/CLI exposure on the way.
 
 5. **Traction and distribution** (2,552 stars for Snyk's scanner, Smithery registry integration, 961 for Cisco). *Roadmap:* open-source the scan engine (open-core model), pursue a registry integration, publish public benchmarks ("we scanned N public servers").
 

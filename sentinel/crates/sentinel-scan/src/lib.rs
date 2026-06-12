@@ -5,6 +5,7 @@
 
 pub mod stdio;
 pub mod http;
+pub mod proxy;
 pub mod event;
 pub mod signature;
 pub mod tools_list;
@@ -18,3 +19,4 @@ pub use signature::{filtre_grossier, confirmer_message, SuiviSessions};
 pub use tools_list::{parser_reponse_tools_list, ReponseToolsList};
 pub use scope::{inferer_portee, jeu_heuristiques};
 pub use store_contract::{ContratScanStore, EvenementInventaire};
+pub use proxy::{ConfigProxy, ConstatTempsReel, MoteurInspection, ProxyStdioTempsReel};

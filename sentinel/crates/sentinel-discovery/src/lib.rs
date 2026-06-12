@@ -10,6 +10,7 @@
 
 pub mod model;
 pub mod sources;
+pub mod skills;
 pub mod orchestrator;
 pub mod runtime_inspector;
 pub mod active_probe;
@@ -19,6 +20,9 @@ pub mod threat_intel;
 pub mod trust_graph;
 
 pub use model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
+pub use skills::{
+    ConstatSkillTexte, DecouvreurSkills, ScopeSkill, SkillDecouvert, TypeArtefactSkill,
+};
 pub use orchestrator::{RapportDecouverte, OrchestrateurDecouverte};
 pub use runtime_inspector::{ProcessusObserve, InspecteurRuntime};
 pub use sources::SourceClient;

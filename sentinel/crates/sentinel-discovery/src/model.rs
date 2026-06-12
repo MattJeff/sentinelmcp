@@ -3,6 +3,7 @@
 //! All discovery sources produce these types. They are designed to be
 //! serialised straight into the Tauri commands consumed by the UI.
 
+use crate::skills::SkillDecouvert;
 use chrono::{DateTime, Utc};
 use sentinel_protocol::ScopeServeur;
 use serde::{Deserialize, Serialize};
@@ -109,6 +110,11 @@ pub struct ClientDecouvert {
     /// Optional arbitrary key/value metadata (UI may display selectively).
     #[serde(default)]
     pub meta: BTreeMap<String, String>,
+    /// Skills et agents (sub-agents) rattachés à ce client — voir
+    /// [`crate::skills`]. `#[serde(default)]` pour la rétrocompat des
+    /// payloads UI / JSON existants qui n'ont pas encore ce champ.
+    #[serde(default)]
+    pub skills: Vec<SkillDecouvert>,
 }
 
 impl ClientDecouvert {
@@ -122,6 +128,7 @@ impl ClientDecouvert {
             serveurs: vec![],
             notes: vec![],
             meta: Default::default(),
+            skills: vec![],
         }
     }
 }

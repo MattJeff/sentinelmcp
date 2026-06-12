@@ -195,6 +195,25 @@ Clients couverts :
 Chaque carte client affiche aussi les éventuels diagnostics (« app
 bundle not found in /Applications », « mcp_config.json is empty »).
 
+### Skills et agents découverts
+
+Le balayage de découverte couvre aussi les **skills** et **agents**
+(sub-agents) installés sur la machine — la surface d'attaque qui croît
+le plus vite :
+
+- scope **utilisateur** : `~/.claude/skills/`, `~/.claude/agents/`,
+  `~/.agents/skills/`, `~/.codex/skills/` ;
+- scope **projet** : `.claude/skills/`, `.claude/agents/`,
+  `.agents/skills/` dans chaque projet connu de Claude Code
+  (clés `projects.<chemin>` de `~/.claude.json`) ;
+- scope **extension** : plugins Claude Code
+  (`~/.claude/plugins/**/skills/`, `**/agents/`).
+
+Chaque artefact (frontmatter YAML + corps Markdown) passe
+intégralement dans l'inspecteur de poisoning : instructions cachées,
+exfiltration de secrets, caractères invisibles. Les skills sont
+rattachés au client correspondant (`ClientDecouvert.skills`).
+
 ### Portée user vs portée projet
 
 Les configs qui supportent les deux modèles (`mcpServers` racine vs
@@ -989,6 +1008,55 @@ diff exactement sur l'outil incriminé, sans tout réauditer.
 Sentinel maintient un corpus interne de scénarios d'attaque (synthetic
 demos : rug-pull, poisoning, sosies). Chaque release est validée en
 continu contre ce corpus pour mesurer la précision de détection.
+
+### Moteur de règles YARA
+
+Moteur hybride basé sur `yara-x` (réimplémentation Rust officielle de
+VirusTotal, aucune libyara C). Les règles s'appliquent à la surface
+textuelle de chaque outil (description + `inputSchema` sérialisé) :
+
+- 3 règles embarquées (poisoning pseudo-système, fichiers de secrets,
+  directive d'exfiltration réseau),
+- répertoire de règles importables (`*.yar` / `*.yara`), un fichier
+  invalide est ignoré sans bloquer les autres,
+- métadonnées de règle (`description`, `categorie`, `severite`)
+  reprises dans le constat, timeout de scan de 2 s par outil.
+
+Moteur de bibliothèque (`sentinel-detect::yara`), exposition UI/CLI à
+venir.
+
+### Juge LLM local (optionnel, désactivé par défaut)
+
+Verdict sémantique (malveillant / bénin + raison) rendu par un modèle
+**local** via l'API Ollama (`http://localhost:11434`). Couvre les
+angles morts sémantiques des regex et des règles YARA :
+
+- opt-in explicite, aucune URL distante hors localhost (zéro-cloud
+  préservé), timeout court (15 s par défaut),
+- seules description et `inputSchema` sont envoyées au modèle local,
+- verdict converti en constat Poisoning de sévérité Haute (un verdict
+  LLM est un signal, pas une preuve).
+
+Moteur de bibliothèque (`sentinel-detect::llm_judge`), exposition
+UI/CLI à venir.
+
+### Proxy stdio temps réel (mode détection)
+
+Inspection des messages MCP **en direct**, au passage du relais stdio,
+sans attendre le scan périodique (`sentinel-scan::proxy`) :
+
+1. poisoning des arguments de `tools/call` (chaque chaîne de
+   `params.arguments` passe dans l'inspecteur),
+2. combo exfiltration en streaming : constat émis dès qu'une même
+   session cumule lecture-secret + écriture-externe,
+3. abus sampling/elicitation (injection persistante, demande de
+   secrets, drain de quota).
+
+Le contenu des `params` n'est jamais persisté : inspection en mémoire
+sur la ligne en vol, seuls noms d'outils, compteurs et drapeaux sont
+conservés entre deux messages (extrait déclencheur ≤ 120 caractères
+dans le constat). Le proxy relaie les octets bit-exact et ne bloque
+jamais — le blocage reste le rôle du mode guard.
 
 ---
 

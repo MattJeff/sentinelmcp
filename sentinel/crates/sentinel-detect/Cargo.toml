@@ -24,7 +24,12 @@ similar = { workspace = true }
 strsim = { workspace = true }
 reqwest = { workspace = true }
 futures = { workspace = true }
+# Moteur YARA pur Rust (réimplémentation VirusTotal, aucune libyara C).
+# Features minimales : pas de modules binaires (PE/ELF/Mach-O…) inutiles
+# pour scanner du texte (descriptions + inputSchema d'outils MCP).
+yara-x = { version = "1.17", default-features = false, features = ["constant-folding", "exact-atoms", "fast-regexp"] }
 
 [dev-dependencies]
 wiremock = "0.6"
 base64 = "0.22"
+tempfile = "3"
