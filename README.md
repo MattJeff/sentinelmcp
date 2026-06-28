@@ -85,7 +85,14 @@ See **[docs/QUICKSTART.md](docs/QUICKSTART.md)** for the full walkthrough, inclu
 | **Supply-chain attestation** | For every `npx`-launched server, resolves the real npm package and attests it (SHA-512 integrity, maintainers, publish date, weekly downloads, pinned version). Re-attesting catches a version-level rug-pull — same version + different artifact hash (the Postmark pattern) — even when the MCP tool surface is unchanged |
 | **Skills & agents scan** | Discovers skills and sub-agents across user / project / extension scopes and runs every artifact (YAML frontmatter + Markdown body) through the full hybrid poisoning pipeline |
 | **Static CI audit** | `sentinel audit <path>` statically scans a repo or folder for MCP configs and flags poisoning, typosquats, cleartext-`http://` transport, hard-coded secrets and shell-injection arguments — no probing, no store, built for CI |
-| **Exfiltration combo detector** | Flags "secret read + external write" combinations within a session window |
+| **Exfiltration combo & lethal trifecta** | Flags "secret read + external write" combinations within a session window, plus the full **3-legged lethal trifecta** (untrusted input + private-data read + external write in one session → critical) |
+| **Runtime output scan (ATPA)** | The stdio proxy also inspects the **result and error** of every `tools/call` (server→client), correlated by JSON-RPC id — catching poisoning that hides in runtime output, invisible to a static `tools/list` scan |
+| **Approve-before-run (opt-in)** | The proxy classifies each `tools/call` Low/Medium/High before relay. Detection-only by default (advisory, bit-exact relay); flip `enforce` and a high-risk call (external write carrying a secret) is **held, never relayed**, with an "awaiting approval" finding |
+| **Cross-server tool shadowing** | Across multiple servers, detects tool-name collisions (one server shadows another's tool) and cross-server poisoning (a description that instructs the model about another server's tool) — SAFE-T1102 |
+| **Offline CVE/OSV matching** | Matches each resolved package + version against an embedded, offline CVE base (mcp-remote, MCP Inspector, filesystem "EscapeRoute", MCP Python SDK). A non-parseable or fixed version is never flagged |
+| **Project-config baseline (MCPoison)** | Diffs the *content* of project-scope MCP configs between observations: a name-approved server whose command/url/transport/args/env changed raises a rug-pull (CVE-2025-54136), an unreviewed add raises a shadow finding |
+| **OAuth / SSRF static checks** | On HTTP servers: loopback/private/link-local targets incl. cloud-metadata `169.254.169.254` (SSRF, CWE-918), OAuth `client_id` without audience (confused deputy, RFC 8707), and secrets embedded in the URL/env (token passthrough, CWE-522) |
+| **Runtime socket inspector** | Enumerates listening TCP sockets (`lsof`/`ss`) and flags any bind-all (`0.0.0.0`/`::`) high port that isn't in the MCP inventory — an MCP server started off-config and exposed to the LAN ("NeighborJack") |
 | **Threat-intel feed** | Curated feed of malicious MCP packages, bundled in the binary with an optional remote refresh (`remote → disk cache → bundled` cascade — never blind, even offline) |
 | **Trust graph & blast radius** | `AI client → MCP server → scope` graph with a 0–10 attack-surface score per client |
 | **SIEM-native alerting** | Splunk HEC, Elasticsearch, Syslog UDP/TCP/TLS (RFC 5425), email, webhooks (Slack/Teams) — straight from your machine, no intermediary cloud |
@@ -107,7 +114,11 @@ New to MCP security? Here is what the main detections mean, in plain language �
 - **Rug-pull.** A server is harmless when you approve it, then quietly changes its tools later — a new parameter, a reworded description, a different behavior. Sentinel takes a fingerprint (a SHA-256 of the whole tool surface) at approval time and compares it on every session, so any later change raises an alert, even a subtle one.
 - **Supply-chain rug-pull (the Postmark pattern).** Sometimes the *MCP tools* don't change at all — but the underlying npm package is republished with a tampered build. Sentinel attests the actual package (its integrity hash, maintainers, version) and alerts if the artifact that will run on your machine changed, even when the tool surface looks identical.
 - **Lookalike / typosquat.** A malicious server copies the name and tools of a trusted one, sometimes swapping a letter for a look-alike from another alphabet (`pаypal` with a Cyrillic `а`). If your AI connects to the impostor, it trusts the wrong code. Sentinel measures name/description similarity (and look-alike characters) against public registries to spot the copy.
-- **Exfiltration combo.** One tool reads a secret; another sends data out. Each is fine alone, but together, in the same session, they can quietly leak your data. Sentinel watches for that "read-secret then write-out" pairing.
+- **Exfiltration combo & lethal trifecta.** One tool reads a secret; another sends data out. Each is fine alone, but together, in the same session, they can quietly leak your data. Sentinel watches for that "read-secret then write-out" pairing — and for the stricter **lethal trifecta** where a third leg, *untrusted input* (a fetched web page, an email, an issue), can carry the injected instruction that drives the leak.
+- **Poisoned runtime output (ATPA).** A tool's *description* can look clean, then its *answer* at run time carries the hidden instruction instead. Sentinel's live proxy reads the result and error of each tool call the same way the AI would, so poisoning that only appears at runtime doesn't slip past the static scan.
+- **Cross-server shadowing.** With several servers connected, a malicious one can name its tool exactly like a trusted server's, or write a description that re-routes a neighbouring tool ("before calling `send_email`, first…"). Sentinel compares tools across servers to catch both.
+- **Known-vulnerable package (CVE).** Some MCP packages have published vulnerabilities (mcp-remote, MCP Inspector, the filesystem server's "EscapeRoute"). Sentinel matches the resolved package and version against an offline CVE list, entirely on your machine, and only flags a version that actually falls in the affected range.
+- **MCPoison (project-config swap).** You approve a project server *by name*; later someone keeps the name but swaps what it runs (command, URL, args). Sentinel baselines the config *content* per project and alerts when the thing that will execute is no longer the thing you approved (CVE-2025-54136).
 
 All of this runs **on your machine** — no cloud, no token, nothing uploaded.
 
@@ -214,7 +225,8 @@ pnpm tauri build --bundles dmg
 
 - [OWASP MCP Top 10](https://owasp.org/) — MCP03 (Tool Poisoning), MCP09 (Shadow MCP Server)
 - [OWASP Agentic Security Initiative](https://owasp.org/) — ASI06 (persistent-context / memory poisoning)
-- [SAFE-MCP](https://safemcp.io/) — T1001 (Tool Description Poisoning), T1201 (Rug Pull)
+- [SAFE-MCP](https://safemcp.io/) — T1001 (Tool Description Poisoning), T1201 (Rug Pull), T1102 (Cross-Server Tool Shadowing)
+- CWE / CVE — CWE-918 (SSRF), CWE-522 (token passthrough), and an offline CVE base (CVE-2025-6514, -49596, -53109, -53110, -53365, -53366; MCPoison CVE-2025-54136)
 - MITRE ATT&CK / ATLAS (where clearly applicable) — T1195 (Supply Chain Compromise), T1036 (Masquerading), T1567 (Exfiltration Over Web Service), T1598 (Phishing for Information), ATLAS AML.T0051 (LLM Prompt Injection)
 - SOC 2 — CC6.1, CC7.1, CC7.2
 - ISO 27001 — A.8.1.1, A.12.4.1, A.12.4.3, A.12.6.1, A.13.1.1, A.14.2.2

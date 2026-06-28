@@ -34,7 +34,9 @@ pub use runtime_inspector::{
 pub use sources::SourceClient;
 pub use active_probe::{EtatProbe, ProbeurActif, RapportProbe};
 // D13 — baseline + diff du contenu des configs MCP de projet (MCPoison).
-pub use config_baseline::{comparer_config_projet, BaselineConfigsProjet};
+pub use config_baseline::{
+    comparer_config_projet, grouper_serveurs_projet, BaselineConfigsProjet,
+};
 // D14 — contrôles statiques OAuth/SSRF sur serveurs HTTP.
 pub use static_http::{analyser_serveur_http, analyser_serveurs_http};
 // D16 — matching threat feed flou (casse + Levenshtein).

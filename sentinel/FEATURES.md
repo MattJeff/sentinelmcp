@@ -33,6 +33,23 @@ résolvent.
 > (clé scellée dans le trousseau OS, PDF inclus) ; et un mapping conformité
 > élargi (OWASP ASI06, MITRE ATT&CK / ATLAS).
 
+> Note Vague D : ajoute huit détecteurs additifs, tous **locaux et
+> hors-ligne**. (1) **Trifecta létale** à 3 jambes (entrée non fiable + lecture
+> secret + écriture externe, même session → Critique). (2) **Scan des sorties /
+> erreurs d'outils (ATPA)** : le proxy temps réel inspecte le `result`/`error`
+> de chaque `tools/call`, corrélé à la requête par `id` JSON-RPC. (3)
+> **Approve-before-run** : classification Faible/Moyen/Eleve de chaque
+> `tools/call` avant relais, avec un mode **`enforce` opt-in** qui retient un
+> appel à risque élevé (détection seule par défaut). (4) **Cross-server tool
+> shadowing** (collision de nom + cross-server poisoning, SAFE-T1102). (5)
+> **Matching CVE/OSV hors-ligne** contre une base embarquée (6 CVE MCP). (6)
+> **Baseline de contenu des configs projet** contre l'attaque MCPoison
+> (CVE-2025-54136). (7) **Contrôles OAuth/SSRF statiques** sur les serveurs HTTP
+> (SSRF/métadonnées cloud CWE-918, confused deputy RFC 8707, token passthrough
+> CWE-522). (8) **Inspecteur de sockets en écoute** (NeighborJack : serveur MCP
+> lancé hors config, exposé au LAN). Mapping conformité élargi en conséquence
+> (SAFE-T1102, OWASP MCP10/A06, CWE-918/522, ATT&CK T1195/T1567).
+
 Le document n'est pas un manuel d'API ni un guide d'installation. C'est la
 référence à donner à un auditeur, un acheteur ou un nouveau membre de
 l'équipe pour comprendre ce que l'application fait, sans avoir à lire le
@@ -1147,7 +1164,175 @@ Le contenu des `params` n'est jamais persisté : inspection en mémoire
 sur la ligne en vol, seuls noms d'outils, compteurs et drapeaux sont
 conservés entre deux messages (extrait déclencheur ≤ 120 caractères
 dans le constat). Le proxy relaie les octets bit-exact et ne bloque
-jamais — le blocage reste le rôle du mode guard.
+jamais en mode détection — voir l'« approve-before-run » ci-dessous pour
+le mode enforce opt-in.
+
+### Trifecta létale (3 jambes) — Vague D
+
+Au-delà de la combinaison 2-jambes « lecture secret + écriture externe »,
+`detect::exfiltration` détecte la **trifecta létale** (Simon Willison /
+Invariant Labs) : trois capacités coexistant dans une **même session** —
+
+1. **entrée non fiable** (ingestion de contenu externe : `fetch`, `browse`,
+   `scrape`, `read_email`/`read_issue`/`read_comment`, `download`, URL `http(s)`
+   sous une clé de récupération…),
+2. **lecture de secret** (`read_env`, `get_credential`, `~/.ssh`, `.env`…),
+3. **écriture externe** (`send`, `post`, `upload`, `webhook`, URL externe…).
+
+Quand les trois sont réunies, une instruction injectée dans le contenu non
+fiable peut piloter la lecture d'un secret puis son exfiltration. La sévérité
+est figée à **Critique** (plus grave que la combo 2-jambes). Les outils sont
+dédupliqués par jambe (un `fetch` peut porter deux jambes). API :
+`evaluer_trifecta` / `evaluer_trifecta_signal` (`SignalTrifecta`) /
+`vers_constat_trifecta` ; mappée SAFE-T1201, OWASP MCP09, ATT&CK T1567 dans la
+conformité, le résumé et la remédiation. (Le proxy temps réel émet aujourd'hui
+la combo 2-jambes ; l'émission live de la trifecta complète reste à câbler.)
+
+### Scan des sorties / erreurs d'outils (ATPA) — Vague D
+
+Une description d'outil peut sembler propre, puis sa **réponse runtime**
+transporter l'instruction cachée. Le proxy temps réel
+(`scan::proxy::inspecter_reponse_outil`) applique donc les patterns de
+poisoning au **contenu du `result` ET de l'`error`** de chaque `tools/call`
+(direction serveur → client), pas seulement aux arguments. La réponse est
+corrélée à la requête `tools/call` par son **`id` JSON-RPC** : seuls les
+résultats d'appels effectivement observés sont inspectés (les réponses non
+corrélées — `initialize`, `tools/list`… — sont ignorées, ce qui borne les faux
+positifs). C'est la défense contre l'**ATPA / toxic-flow**, invisible au scan
+statique de `tools/list`. Confidentialité préservée : le contenu est lu en
+mémoire, jamais persisté ; seul l'extrait déclencheur (≤ 120 car.) survit. Le
+suivi des appels en attente est borné (`LIMITE_APPELS_EN_ATTENTE = 4096`,
+anti-DoS de l'EDR).
+
+### Approve-before-run (gate opt-in) — Vague D
+
+Le proxy classe chaque `tools/call` AVANT relais via
+`evaluer_risque_tools_call` :
+
+- **Faible** : ni écriture externe ni secret impliqué ;
+- **Moyen** : un seul axe (écriture externe **ou** secret) ;
+- **Eleve** : écriture externe **portant** un secret — motif d'exfiltration en
+  un seul appel.
+
+Le contrat est **détection d'abord, blocage opt-in** (`ConfigProxy.enforce`) :
+
+- `enforce = false` (**défaut**) : le relais reste **bit-exact** ; un appel
+  `Eleve` ne produit qu'un constat *advisory* (l'appel est relayé) ;
+- `enforce = true` : un appel `Eleve` est **retenu — jamais relayé** vers le
+  serveur — avec un constat « retenu pour approbation ». Les appels
+  `Faible`/`Moyen` restent relayés bit-exact.
+
+L'évaluation est purement locale, en mémoire (nom d'outil + chaînes de
+`params.arguments`, profondeur bornée) ; aucun contenu brut n'est conservé.
+Limite actuelle : le gate est un filet déterministe opt-in câblé dans la
+bibliothèque/proxy — il n'y a pas encore de **flux d'approbation interactif**
+(pop-up opérateur qui suspend puis reprend l'appel), ni de drapeau CLI / toggle
+desktop l'exposant.
+
+### Cross-server tool shadowing — Vague D
+
+`detect::shadowing::detecter_shadowing` exploite l'atout multi-serveurs de
+Sentinel sur l'inventaire d'outils de **plusieurs** serveurs :
+
+- **Collision de nom** (**Haute**) : deux serveurs DISTINCTS exposent un outil
+  de même nom — un serveur malveillant peut « ombrer » un outil de confiance
+  (résolution ambiguë côté client). Un constat par serveur impliqué. Une
+  collision intra-serveur n'est jamais signalée.
+- **Cross-server poisoning** (**Critique**) : la description d'un outil
+  RÉFÉRENCE et INSTRUIT à propos d'un outil d'un AUTRE serveur (« before calling
+  `send_email`… », « override the behaviour of X »). On exige un **verbe
+  impératif à proximité** (fenêtre de 48 octets) du nom d'outil voisin, et un
+  nom d'outil **spécifique** (≥ 4 car., contenant `_`/`-` ou en camelCase) :
+  une simple mention descriptive, ou un verbe éloigné, n'est pas flaggée
+  (réduction des faux positifs, robustesse aux caractères Unicode hostiles).
+
+Mappé SAFE-T1102 (+ SAFE-T1001, OWASP MCP03). Une variante **statique** est
+exposée dans `sentinel audit` (collision de nom de serveur sur des paquets
+distincts).
+
+### Matching CVE/OSV hors-ligne — Vague D
+
+`detect::cve_match::rechercher_cve` matche le `package_id` + la version
+installée contre une **base CVE embarquée** (`data/cve_mcp.json`, incluse via
+`include_str!`), purement locale (zéro réseau). Comparaison de versions en
+**semver simplifié** `MAJOR.MINOR.PATCH` (préfixe `v`, pré-release et build
+tolérés ; schéma calendaire `2025.7.x` géré) ; une version **non
+interprétable** (`latest`, vide) n'est **jamais** signalée — on préfère un faux
+négatif à un faux positif. Sévérité dérivée du CVSS. Câblé dans `sentinel
+audit` (`controler_cve`) ; mappé OWASP MCP10 / OWASP A06 / ATT&CK T1195.
+
+CVE couvertes (6) :
+
+| CVE | Paquet(s) | CVSS | Résumé |
+|---|---|---|---|
+| CVE-2025-6514 | `mcp-remote` | 9.6 | Injection de commande OS face à un serveur MCP non fiable (RCE côté client) — corrigé en 0.1.16 |
+| CVE-2025-49596 | `@modelcontextprotocol/inspector`, `mcp-inspector` | 9.4 | Absence d'auth + DNS rebinding → RCE via le proxy (ports 6277/6274) — corrigé en 0.14.1 |
+| CVE-2025-53109 | `@modelcontextprotocol/server-filesystem` | 8.4 | « EscapeRoute » : contournement par lien symbolique hors répertoires autorisés — corrigé en 2025.7.1 |
+| CVE-2025-53110 | `@modelcontextprotocol/server-filesystem` | 7.3 | « EscapeRoute » : confinement contourné par correspondance de préfixe insuffisante — corrigé en 2025.7.1 |
+| CVE-2025-53365 | `mcp` (SDK Python) | 7.5 | Exception non gérée → déni de service du serveur — corrigé en 1.9.4 |
+| CVE-2025-53366 | `mcp` (SDK Python) | 7.5 | `ValidationError` non gérée → déni de service — corrigé en 1.9.4 |
+
+La **CVE-2025-54136** (« MCPoison ») n'est pas une CVE de version mais un
+échange de contenu de config approuvée : elle est couverte par la baseline de
+configs projet ci-dessous.
+
+### Baseline de contenu des configs projet (MCPoison) — Vague D
+
+`discovery::config_baseline` comble l'angle mort de la **CVE-2025-54136
+« MCPoison »** : un opérateur approuve un serveur MCP de projet **par son nom**
+(clé de `mcpServers`), puis l'attaquant échange le *contenu* de cette entrée
+(commande, args, url, transport) en gardant le même nom — le client (Cursor,
+Claude Code…) ré-exécute sans redemander d'approbation. `comparer_config_projet`
+diffe le contenu entre deux observations d'un même projet et émet :
+
+- **serveur ajouté** hors approbation → `ShadowMcp` (**Haute**, OWASP MCP09) ;
+- **contenu modifié** d'un serveur approuvé → `RugPull` (transport/commande/url
+  changés = **Critique** ; args/réactivation = **Haute** ; clés env = **Moyenne**),
+  avec un diff Markdown lisible.
+
+Faux positifs proscrits : réordonnance, config identique, serveur **retiré**, et
+la **première** observation d'un projet n'émettent rien. `BaselineConfigsProjet`
+mémorise la dernière config par chemin de projet pour un suivi continu sans
+dépendre du store ; câblé dans l'orchestrateur de découverte (`observer_baseline`).
+Réfs : OWASP MCP03/MCP09, CVE-2025-54136.
+
+### Contrôles OAuth / SSRF statiques (serveurs HTTP) — Vague D
+
+`discovery::static_http::analyser_serveur_http` ajoute trois contrôles
+**statiques** sur les serveurs MCP HTTP, sans aucune résolution DNS :
+
+- **SSRF (CWE-918)** : l'endpoint pointe vers une IP loopback / privée /
+  lien-local, l'IP de **métadonnées cloud** `169.254.169.254` (ou son nom DNS
+  interne `metadata.google.internal`), ou une adresse non spécifiée — incluant
+  le contournement IPv4-mapped IPv6 (`[::ffff:169.254.169.254]`). Cible
+  métadonnées = **Haute**.
+- **Confused deputy (RFC 8707)** : l'URL embarque un `client_id` OAuth statique
+  **sans** paramètre `resource`/audience — délégation d'autorité abusable ;
+  également signalé quand le `client_id` est en clair dans l'URL.
+- **Token passthrough (CWE-522)** : un secret/jeton est embarqué dans l'URL, ou
+  une clé d'`env` dénote un relais de jeton client vers l'amont. Un `env` métier
+  n'est jamais traité comme passthrough.
+
+Câblé dans `sentinel audit` (`controler_http_statique`), avec déduplication
+vis-à-vis du contrôle de transport en clair (D11). Réfs : OWASP MCP05, RFC 8707,
+CWE-918, CWE-522.
+
+### Inspecteur de sockets en écoute (NeighborJack) — Vague D
+
+`discovery::runtime_inspector::InspecteurSockets::scanner_local` énumère les
+**sockets TCP en écoute** de la machine — `lsof -nP -iTCP -sTCP:LISTEN`
+(macOS/BSD), à défaut `ss -ltnp` (Linux) — en **best-effort sans panic** (sans
+`lsof` ni `ss`, `Vec` vide + `warn!`). `correler_avec_inventaire` émet ensuite
+un constat par socket exposé à **toutes les interfaces** (`0.0.0.0`/`::`/`*`),
+sur un **port ≥ 1024**, et **absent** de l'inventaire MCP connu : c'est l'angle
+mort « **NeighborJack** » (serveur MCP HTTP lancé hors config — script, docker —
+exposé à tout le réseau local). Faux positifs maîtrisés : loopback ignoré,
+ports privilégiés (< 1024) ignorés, port présent dans l'inventaire ignoré. La
+nature MCP d'un socket n'étant pas prouvable statiquement, la sévérité reste
+**Moyenne** et le libellé invite à vérifier (réfs OWASP MCP09, shadow-mcp).
+Câblé dans l'orchestrateur. NB : l'énumération de **processus**
+(`ProcessusObserve::scanner`) est un point d'extension qui renvoie pour
+l'instant une liste vide.
 
 ---
 
@@ -1184,7 +1369,23 @@ Le mapping est natif et défini dans `sentinel-report` (mod
 ### SAFE-MCP
 
 - **SAFE-T1001 — Tool Description Poisoning**
-- **SAFE-T1201 — Rug Pull / Tool Behavior Change**
+- **SAFE-T1201 — Rug Pull / Tool Behavior Change** (couvre aussi la trifecta
+  létale runtime)
+- **SAFE-T1102 — Cross-Server Tool Shadowing** (Vague D) : collision de nom
+  d'outil et cross-server poisoning entre serveurs.
+
+### CWE / supply-chain (Vague D)
+
+- **CWE-918 — Server-Side Request Forgery (SSRF)** : endpoint HTTP vers une IP
+  interne / métadonnées cloud (`static_http`).
+- **CWE-522 — Insufficiently Protected Credentials** : token passthrough
+  (secret dans l'URL ou relayé via `env`).
+- **RFC 8707 — Resource Indicators for OAuth 2.0** : `client_id` OAuth sans
+  audience/`resource` (confused deputy).
+- **OWASP MCP — Supply Chain / Vulnerable Components** & **OWASP A06 —
+  Vulnerable and Outdated Components** : paquet à **CVE connue** (matching
+  CVE/OSV hors-ligne) ; la config projet altérée (MCPoison) porte en outre
+  l'identifiant **CVE-2025-54136**.
 
 ### MITRE ATT&CK / ATLAS
 
@@ -1350,10 +1551,15 @@ chiffré.
   HTTP runtime.
 - Pas de mode multi-machine : un Sentinel par poste de travail
   développeur.
-- L'enforcement reste **advisory** et au niveau config : pas encore de
-  porte « approve-before-run » qui retiendrait un `tools/call` en ligne
-  (le guard sait bloquer une dérive critique de `tools/list`, pas chaque
-  appel d'outil).
+- L'enforcement config reste **advisory** par défaut. La porte
+  « approve-before-run » au niveau `tools/call` existe désormais (Vague D) mais
+  en **opt-in** : `ConfigProxy.enforce = true` retient un appel à risque élevé
+  (écriture externe portant un secret), sinon le proxy reste en détection seule
+  (relais bit-exact). Il s'agit d'un gate déterministe câblé dans le proxy/la
+  bibliothèque — **pas** d'un flux d'approbation interactif complet (pop-up
+  opérateur suspendant puis reprenant l'appel), ni d'un drapeau CLI / toggle
+  desktop l'exposant. Le guard, lui, sait bloquer une dérive critique de
+  `tools/list`.
 - Le juge LLM exige un **Ollama local** installé par l'opérateur ; sans
   lui, le pipeline reste purement patterns + YARA (aucune dégradation,
   aucun appel réseau).
@@ -1362,6 +1568,19 @@ chiffré.
 - Le matching threat-intel repose sur un flux curaté (bundled + refresh
   optionnel), pas un registre live de paquets malveillants synchronisé en
   continu.
+- Le matching **CVE/OSV** s'appuie sur une **base embarquée** (6 CVE MCP au
+  moment de l'écriture), pas une synchronisation OSV/NVD en direct ; il exige une
+  version résolue (les commandes dont la version n'est pas attestée — uvx, git,
+  binaire local — ne sont pas évaluées).
+- La **trifecta létale** est livrée comme détecteur + mapping conformité/rapport ;
+  l'émission **live** dans le proxy reste à câbler (le proxy émet la combo
+  2-jambes en temps réel).
+- L'**inspecteur de sockets** ne couvre que le **TCP en écoute** (best-effort via
+  `lsof`/`ss`) : ni UDP, ni sockets Unix ; l'énumération des **processus** MCP
+  est un point d'extension non encore implémenté.
+- Le **cross-server shadowing** suppose un inventaire d'outils multi-serveurs
+  collecté (probing actif) ; la variante de `sentinel audit` ne voit que la
+  collision de **nom de serveur** (statique).
 - Lookalike scan n'agrège pas encore les similarités sur les enums
   d'outils — uniquement nom + description, plus l'overlap d'outils.
 - L'auto-refresh du threat feed se déclenche au plus une fois par

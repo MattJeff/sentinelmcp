@@ -183,6 +183,43 @@ const ISO_A12_4_3: Reference = Reference {
     url: None,
 };
 
+// --- Vague D — référentiels des nouvelles natures de constats --------------
+
+/// Cross-server tool shadowing (un serveur instruit le client à propos d'un
+/// autre serveur, ou collisionne son nom d'outil).
+const SAFE_T1102: Reference = Reference {
+    cadre: "SAFE-MCP",
+    identifiant: "SAFE-T1102",
+    titre: "Cross-Server Tool Shadowing",
+    url: Some("https://safemcp.io/techniques/T1102"),
+};
+
+/// Confused deputy / élévation de privilèges sur la surface MCP HTTP
+/// (OAuth sans audience, SSRF). Aligné sur l'intitulé de la matrice MCP05.
+const OWASP_MCP05: Reference = Reference {
+    cadre: "OWASP MCP",
+    identifiant: "MCP05",
+    titre: "Confused Deputy / Privilege Escalation",
+    url: Some("https://owasp.org/www-project-mcp-top-10/"),
+};
+
+/// Compromission de la chaîne d'approvisionnement (rug-pull, paquet vulnérable
+/// avec CVE connue). Aligné sur l'intitulé de la matrice MCP10.
+const OWASP_MCP10: Reference = Reference {
+    cadre: "OWASP MCP",
+    identifiant: "MCP10",
+    titre: "Supply Chain Compromise",
+    url: Some("https://owasp.org/www-project-mcp-top-10/"),
+};
+
+/// Composant tiers vulnérable et non à jour (CVE connue) — OWASP Top 10 2021.
+const OWASP_A06: Reference = Reference {
+    cadre: "OWASP",
+    identifiant: "A06",
+    titre: "Vulnerable and Outdated Components",
+    url: Some("https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/"),
+};
+
 // ---------------------------------------------------------------------------
 // Moteur
 // ---------------------------------------------------------------------------
@@ -382,6 +419,163 @@ impl MoteurConformite {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Vague D — estampillage affiné par la NATURE du constat
+    // -----------------------------------------------------------------------
+
+    /// Pousse un identifiant de référentiel s'il n'est pas déjà présent.
+    fn pousser_id_unique(ids: &mut Vec<&'static str>, valeur: &'static str) {
+        if !ids.contains(&valeur) {
+            ids.push(valeur);
+        }
+    }
+
+    /// Pousse une référence détaillée si son couple (cadre, identifiant) est absent.
+    fn pousser_ref_unique(refs: &mut Vec<Reference>, r: Reference) {
+        if !refs
+            .iter()
+            .any(|x| x.cadre == r.cadre && x.identifiant == r.identifiant)
+        {
+            refs.push(r);
+        }
+    }
+
+    /// Estampillage multi-référentiels **affiné par la nature** d'un constat.
+    ///
+    /// [`Self::references_frameworks`] ne dispatche que sur le `TypeConstat`. Or
+    /// plusieurs détections Vague D partagent un même type sans s'y réduire : la
+    /// vulnérabilité CVE et les contrôles OAuth/SSRF statiques retombent sur
+    /// `Autre`, le cross-server shadowing sur `Poisoning`, la trifecta létale sur
+    /// `Exfiltration`. Ces natures ne se distinguent que par les marqueurs déjà
+    /// déposés par les détecteurs dans `references_conformite`. On lit donc ces
+    /// marqueurs pour produire l'estampillage exact — sans introduire de nouveau
+    /// variant d'enum (changement strictement additif).
+    pub fn references_frameworks_constat(c: &Constat) -> Vec<&'static str> {
+        let mut ids = Self::references_frameworks(&c.type_constat);
+        let contient =
+            |aiguille: &str| c.references_conformite.iter().any(|r| r.contains(aiguille));
+
+        // Cross-server tool shadowing : SAFE-T1102 + tool poisoning inter-serveurs.
+        if contient("SAFE-T1102") {
+            Self::pousser_id_unique(&mut ids, "SAFE-T1102");
+            Self::pousser_id_unique(&mut ids, "MCP03");
+        }
+        // Vulnérabilité CVE connue : composant vulnérable → chaîne d'appro.
+        if contient("CVE-") {
+            Self::pousser_id_unique(&mut ids, "A06");
+            Self::pousser_id_unique(&mut ids, "MCP10");
+            Self::pousser_id_unique(&mut ids, "ATT&CK T1195");
+        }
+        // OAuth confused deputy (RFC 8707) : délégation d'autorité abusable.
+        if contient("confused-deputy") || contient("RFC 8707") {
+            Self::pousser_id_unique(&mut ids, "MCP05");
+        }
+        // SSRF (CWE-918) : pivot réseau vers services internes / métadonnées cloud.
+        if contient("SSRF") || contient("CWE-918") {
+            Self::pousser_id_unique(&mut ids, "MCP05");
+            Self::pousser_id_unique(&mut ids, "CWE-918");
+        }
+        // Trifecta létale : exfiltration runtime → exfil over web service + shadow.
+        if contient("ATT&CK T1567") {
+            Self::pousser_id_unique(&mut ids, "ATT&CK T1567");
+            Self::pousser_id_unique(&mut ids, "MCP09");
+        }
+        ids
+    }
+
+    /// Références de conformité détaillées **affinées par la nature** d'un
+    /// constat. Complète [`Self::references_pour`] (qui ne voit que le type) avec
+    /// les référentiels propres aux détections Vague D, identifiées par les
+    /// marqueurs déposés dans `references_conformite`.
+    pub fn references_pour_constat(c: &Constat) -> Vec<Reference> {
+        let mut refs = Self::references_pour(&c.type_constat);
+        let contient =
+            |aiguille: &str| c.references_conformite.iter().any(|r| r.contains(aiguille));
+
+        if contient("SAFE-T1102") {
+            Self::pousser_ref_unique(&mut refs, SAFE_T1102.clone());
+            Self::pousser_ref_unique(&mut refs, OWASP_MCP03.clone());
+        }
+        if contient("CVE-") {
+            Self::pousser_ref_unique(&mut refs, OWASP_A06.clone());
+            Self::pousser_ref_unique(&mut refs, OWASP_MCP10.clone());
+            Self::pousser_ref_unique(&mut refs, ISO_A12_6_1.clone());
+        }
+        if contient("confused-deputy")
+            || contient("RFC 8707")
+            || contient("SSRF")
+            || contient("CWE-918")
+        {
+            Self::pousser_ref_unique(&mut refs, OWASP_MCP05.clone());
+        }
+        if contient("ATT&CK T1567") {
+            Self::pousser_ref_unique(&mut refs, OWASP_MCP09.clone());
+        }
+        refs
+    }
+
+    /// Libellé humain de la nature d'un constat pour l'estampillage, en
+    /// distinguant les détections Vague D qui partagent un même `TypeConstat`.
+    fn nature_vague_d(c: &Constat) -> String {
+        let contient =
+            |aiguille: &str| c.references_conformite.iter().any(|r| r.contains(aiguille));
+        if contient("CVE-") {
+            "Vulnérabilité CVE connue".to_string()
+        } else if contient("confused-deputy") || contient("RFC 8707") {
+            "OAuth confused deputy".to_string()
+        } else if contient("SSRF") || contient("CWE-918") {
+            "SSRF (pivot réseau)".to_string()
+        } else if contient("SAFE-T1102") {
+            "Cross-server shadowing".to_string()
+        } else if contient("shadow-mcp") {
+            "Socket fantôme (shadow MCP)".to_string()
+        } else if contient("ATT&CK T1567") {
+            "Trifecta létale (exfiltration runtime)".to_string()
+        } else {
+            format!("{:?}", c.type_constat)
+        }
+    }
+
+    /// Variante constat-aware de [`Self::frameworks_markdown`] : estampille
+    /// chaque constat selon sa nature fine (détections Vague D incluses) plutôt
+    /// que son seul type. Les lignes au libellé + référentiels identiques sont
+    /// dédupliquées. C'est cette variante qu'utilise le rapport, afin que les
+    /// CVE / OAuth-SSRF / cross-server shadowing / trifecta apparaissent.
+    pub fn frameworks_markdown_constats(constats: &[Constat]) -> String {
+        let mut lignes: Vec<String> = Vec::new();
+        lignes.push(format!(
+            "## Correspondances multi-référentiels (table v{})\n",
+            VERSION_TABLE
+        ));
+        lignes.push(
+            "| Nature du constat | Référentiels (SAFE-MCP / OWASP MCP / ASI / MITRE / CWE) |"
+                .to_string(),
+        );
+        lignes.push(
+            "|-------------------|----------------------------------------------------------|"
+                .to_string(),
+        );
+
+        let mut vues: Vec<String> = Vec::new();
+        for c in constats {
+            let ids = Self::references_frameworks_constat(c);
+            if ids.is_empty() {
+                continue;
+            }
+            let libelle = Self::nature_vague_d(c);
+            // Déduplication par (libellé, estampillage) : une nature donnée
+            // n'apparaît qu'une fois.
+            let cle = format!("{}|{}", libelle, ids.join(","));
+            if vues.contains(&cle) {
+                continue;
+            }
+            vues.push(cle);
+            lignes.push(format!("| {} | {} |", libelle, ids.join(", ")));
+        }
+
+        lignes.join("\n")
+    }
+
     /// Section Markdown récapitulant l'estampillage multi-référentiels par type
     /// de constat présent. Un constat dont le type n'a aucune correspondance
     /// n'est pas listé. Les types sont dédupliqués (un seul affichage par type).
@@ -457,14 +651,14 @@ impl MoteurConformite {
                 identifiant: "MCP04",
                 titre: "Exfiltration de données via paramètres",
                 niveau: Oui,
-                justification: "Détecteur Exfiltration (paramètres acheminés vers une destination externe).",
+                justification: "Détecteur Exfiltration (paramètres vers une destination externe) renforcé par la trifecta létale runtime (entrée non fiable + lecture secret + écriture externe, ATT&CK T1567).",
             },
             CouvertureCategorie {
                 cadre: "OWASP MCP",
                 identifiant: "MCP05",
                 titre: "Élévation de privilèges / confused deputy",
-                niveau: Non,
-                justification: "Hors périmètre EDR : l'analyse des chaînes de privilèges de l'agent n'est pas instrumentée.",
+                niveau: Partiel,
+                justification: "Contrôles statiques OAuth/SSRF sur les serveurs HTTP (confused deputy RFC 8707, SSRF CWE-918) ; les chaînes de privilèges effectives de l'agent restent hors périmètre.",
             },
             CouvertureCategorie {
                 cadre: "OWASP MCP",
@@ -499,7 +693,7 @@ impl MoteurConformite {
                 identifiant: "MCP10",
                 titre: "Compromission de la chaîne d'approvisionnement / rug-pull",
                 niveau: Oui,
-                justification: "Détecteurs RugPull et Sosie (changement de comportement, usurpation d'empreinte).",
+                justification: "Détecteurs RugPull et Sosie (changement de comportement, usurpation d'empreinte) et appariement de CVE connues sur les paquets (composants vulnérables, OWASP A06).",
             },
             // ---- OWASP Agentic Security Initiative -------------------------
             CouvertureCategorie {
@@ -514,7 +708,7 @@ impl MoteurConformite {
                 identifiant: "ASI02",
                 titre: "Abus d'outil (Tool Misuse)",
                 niveau: Partiel,
-                justification: "Couvert indirectement via Poisoning et Exfiltration sur la surface MCP.",
+                justification: "Couvert indirectement via Poisoning, cross-server shadowing (SAFE-T1102) et Exfiltration sur la surface MCP.",
             },
             CouvertureCategorie {
                 cadre: "OWASP ASI",
@@ -665,5 +859,103 @@ mod tests_internes {
         assert_eq!(NiveauCouverture::Oui.etiquette(), "Oui");
         assert_eq!(NiveauCouverture::Partiel.etiquette(), "Partiel");
         assert_eq!(NiveauCouverture::Non.etiquette(), "Non");
+    }
+
+    // --- Vague D — estampillage affiné par la nature -----------------------
+
+    fn constat_avec_refs(t: TypeConstat, refs: &[&str]) -> Constat {
+        Constat {
+            id: uuid::Uuid::new_v4(),
+            serveur_id: uuid::Uuid::new_v4(),
+            outil_nom: None,
+            type_constat: t,
+            severite: Severite::Haute,
+            titre: "test".to_string(),
+            detail: String::new(),
+            diff: None,
+            references_conformite: refs.iter().map(|s| s.to_string()).collect(),
+            horodatage: chrono::Utc::now(),
+            etat: sentinel_protocol::EtatConstat::Ouvert,
+        }
+    }
+
+    #[test]
+    fn frameworks_constat_cve_supply_chain() {
+        // Une CVE (TypeConstat::Autre) est mappée vers la chaîne d'appro.
+        let c = constat_avec_refs(TypeConstat::Autre, &["CVE-2025-49596", "GHSA-xxxx"]);
+        let ids = MoteurConformite::references_frameworks_constat(&c);
+        assert!(ids.contains(&"A06"), "CVE → OWASP A06, obtenu : {:?}", ids);
+        assert!(ids.contains(&"MCP10"), "CVE → MCP10, obtenu : {:?}", ids);
+        assert!(ids.contains(&"ATT&CK T1195"), "CVE → T1195, obtenu : {:?}", ids);
+    }
+
+    #[test]
+    fn frameworks_constat_cross_server_shadowing() {
+        let c = constat_avec_refs(
+            TypeConstat::Poisoning,
+            &["SAFE-T1102", "SAFE-T1001", "OWASP MCP03"],
+        );
+        let ids = MoteurConformite::references_frameworks_constat(&c);
+        assert!(ids.contains(&"SAFE-T1102"), "→ SAFE-T1102, obtenu : {:?}", ids);
+        assert!(ids.contains(&"MCP03"), "→ MCP03, obtenu : {:?}", ids);
+    }
+
+    #[test]
+    fn frameworks_constat_oauth_ssrf_confused_deputy() {
+        let oauth = constat_avec_refs(
+            TypeConstat::Autre,
+            &["OWASP MCP", "OAuth", "confused-deputy", "RFC 8707"],
+        );
+        assert!(
+            MoteurConformite::references_frameworks_constat(&oauth).contains(&"MCP05"),
+            "OAuth confused deputy → MCP05"
+        );
+        let ssrf = constat_avec_refs(TypeConstat::Autre, &["OWASP MCP", "SSRF", "CWE-918"]);
+        let ids = MoteurConformite::references_frameworks_constat(&ssrf);
+        assert!(ids.contains(&"MCP05"), "SSRF → MCP05, obtenu : {:?}", ids);
+        assert!(ids.contains(&"CWE-918"), "SSRF → CWE-918, obtenu : {:?}", ids);
+    }
+
+    #[test]
+    fn frameworks_constat_trifecta_letale() {
+        let c = constat_avec_refs(
+            TypeConstat::Exfiltration,
+            &["SAFE-T1201", "OWASP MCP09", "ATT&CK T1567"],
+        );
+        let ids = MoteurConformite::references_frameworks_constat(&c);
+        assert!(ids.contains(&"ATT&CK T1567"), "→ T1567, obtenu : {:?}", ids);
+        assert!(ids.contains(&"MCP09"), "trifecta → MCP09, obtenu : {:?}", ids);
+    }
+
+    #[test]
+    fn frameworks_constat_socket_fantome_via_type() {
+        // Le socket fantôme est un ShadowMcp : déjà couvert par le type seul.
+        let c = constat_avec_refs(TypeConstat::ShadowMcp, &["OWASP MCP09", "shadow-mcp"]);
+        let ids = MoteurConformite::references_frameworks_constat(&c);
+        assert!(ids.contains(&"MCP09"), "socket fantôme → MCP09, obtenu : {:?}", ids);
+        assert_eq!(
+            MoteurConformite::nature_vague_d(&c),
+            "Socket fantôme (shadow MCP)"
+        );
+    }
+
+    #[test]
+    fn references_pour_constat_cve_porte_a06_et_mcp10() {
+        let c = constat_avec_refs(TypeConstat::Autre, &["CVE-2025-49596"]);
+        let refs = MoteurConformite::references_pour_constat(&c);
+        let ids: Vec<&str> = refs.iter().map(|r| r.identifiant).collect();
+        assert!(ids.contains(&"A06"), "obtenu : {:?}", ids);
+        assert!(ids.contains(&"MCP10"), "obtenu : {:?}", ids);
+    }
+
+    #[test]
+    fn frameworks_markdown_constats_distingue_les_natures_autre() {
+        // Deux constats Autre de natures différentes ne doivent pas être
+        // collapsés (contrairement à la dédup par type).
+        let cve = constat_avec_refs(TypeConstat::Autre, &["CVE-2025-49596"]);
+        let ssrf = constat_avec_refs(TypeConstat::Autre, &["SSRF", "CWE-918"]);
+        let md = MoteurConformite::frameworks_markdown_constats(&[cve, ssrf]);
+        assert!(md.contains("Vulnérabilité CVE connue"), "md :\n{}", md);
+        assert!(md.contains("SSRF (pivot réseau)"), "md :\n{}", md);
     }
 }

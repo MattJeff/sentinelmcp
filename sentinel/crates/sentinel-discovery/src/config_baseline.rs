@@ -37,11 +37,33 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use sentinel_protocol::{Constat, EtatConstat, ServeurId, Severite, TypeConstat};
+use sentinel_protocol::{Constat, EtatConstat, ScopeServeur, ServeurId, Severite, TypeConstat};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::model::ServeurMcpDeclare;
+
+/// Regroupe les serveurs MCP de **portée projet** par chemin de projet.
+///
+/// Chemin d'intégration prêt à consommer pour le suivi MCPoison
+/// (CVE-2025-54136) : un appelant (monitor/CLI/desktop) passe l'inventaire
+/// déclaré, récupère une map `chemin_projet -> serveurs`, puis alimente
+/// [`BaselineConfigsProjet::observer`] pour chaque projet afin de diffuser le
+/// contenu approuvé contre le contenu courant.
+///
+/// Les serveurs de portée [`ScopeServeur::User`] sont **ignorés** : le diff
+/// MCPoison ne concerne que les configs de projet approuvées par nom.
+pub fn grouper_serveurs_projet(
+    serveurs: &[ServeurMcpDeclare],
+) -> BTreeMap<String, Vec<ServeurMcpDeclare>> {
+    let mut par_projet: BTreeMap<String, Vec<ServeurMcpDeclare>> = BTreeMap::new();
+    for s in serveurs {
+        if let ScopeServeur::Project { path } = &s.scope {
+            par_projet.entry(path.clone()).or_default().push(s.clone());
+        }
+    }
+    par_projet
+}
 
 /// Identifiant de serveur **stable et déterministe** dérivé du nom déclaré.
 ///
@@ -414,6 +436,24 @@ mod tests {
     fn id_serveur_stable_est_deterministe() {
         assert_eq!(id_serveur_stable("github"), id_serveur_stable("github"));
         assert_ne!(id_serveur_stable("github"), id_serveur_stable("gitlab"));
+    }
+
+    #[test]
+    fn grouper_serveurs_projet_regroupe_par_chemin_et_ignore_user() {
+        let mut user = stdio("u", "npx", &[]);
+        user.scope = ScopeServeur::User;
+        let mut a = stdio("a", "npx", &[]);
+        a.scope = ScopeServeur::Project { path: "/repo1".to_string() };
+        let mut b = stdio("b", "node", &["b.js"]);
+        b.scope = ScopeServeur::Project { path: "/repo1".to_string() };
+        let mut c = stdio("c", "node", &["c.js"]);
+        c.scope = ScopeServeur::Project { path: "/repo2".to_string() };
+
+        let groupes = grouper_serveurs_projet(&[user, a, b, c]);
+        // User ignoré ; deux projets distincts.
+        assert_eq!(groupes.len(), 2);
+        assert_eq!(groupes["/repo1"].len(), 2);
+        assert_eq!(groupes["/repo2"].len(), 1);
     }
 
     #[test]

@@ -48,6 +48,48 @@ impl PlanRemediation {
         actions
     }
 
+    /// Conseil de remédiation ciblé selon la nature « Vague D » du constat le
+    /// plus grave (CVE, OAuth/SSRF, cross-server shadowing, trifecta, socket
+    /// fantôme). Reconnu via les marqueurs de `references_conformite`. Texte sans
+    /// caractère `|` pour rester sûr dans une cellule de tableau Markdown.
+    fn conseil_vague_d(constat: &Constat) -> Option<String> {
+        let marque =
+            |aiguille: &str| constat.references_conformite.iter().any(|r| r.contains(aiguille));
+        if marque("CVE-") {
+            Some(
+                "Mettre à jour le paquet vers une version non affectée (CVE connue, supply-chain)."
+                    .to_string(),
+            )
+        } else if marque("confused-deputy") || marque("RFC 8707") {
+            Some(
+                "Restreindre l'audience du jeton OAuth (paramètre resource, RFC 8707) pour clore le confused deputy."
+                    .to_string(),
+            )
+        } else if marque("SSRF") || marque("CWE-918") {
+            Some(
+                "Interdire les destinations loopback / privées / métadonnées cloud (pivot SSRF, CWE-918)."
+                    .to_string(),
+            )
+        } else if marque("SAFE-T1102") {
+            Some(
+                "Isoler le serveur : un outil instruit le client à propos d'un autre serveur (cross-server shadowing)."
+                    .to_string(),
+            )
+        } else if marque("ATT&CK T1567") {
+            Some(
+                "Couper l'écriture externe : trifecta létale (entrée non fiable + lecture secret + exfiltration)."
+                    .to_string(),
+            )
+        } else if marque("shadow-mcp") {
+            Some(
+                "Tracer le processus du socket en écoute non attribué (shadow MCP)."
+                    .to_string(),
+            )
+        } else {
+            None
+        }
+    }
+
     fn action_pour_serveur(serveur: &Serveur, constats: &[Constat]) -> Option<ActionRemediation> {
         // Trouver le constat le plus grave associé à ce serveur.
         let constat_grave = constats
@@ -59,17 +101,23 @@ impl PlanRemediation {
             .map(|c| c.references_conformite.join(", "))
             .unwrap_or_default();
 
+        // Conseil ciblé pour les détections avancées (Vague D), le cas échéant.
+        let conseil = constat_grave
+            .and_then(Self::conseil_vague_d)
+            .map(|c| format!(" {c}"))
+            .unwrap_or_default();
+
         match serveur.couleur {
             Couleur::Rouge => {
                 let justification = if refs_conformite.is_empty() {
                     format!(
-                        "Serveur rouge (statut : {:?}) — risque immédiat détecté.",
-                        serveur.statut
+                        "Serveur rouge (statut : {:?}) — risque immédiat détecté.{}",
+                        serveur.statut, conseil
                     )
                 } else {
                     format!(
-                        "Serveur rouge (statut : {:?}) — références : {}.",
-                        serveur.statut, refs_conformite
+                        "Serveur rouge (statut : {:?}) — références : {}.{}",
+                        serveur.statut, refs_conformite, conseil
                     )
                 };
                 Some(ActionRemediation {
@@ -83,13 +131,13 @@ impl PlanRemediation {
             Couleur::Orange => {
                 let justification = if refs_conformite.is_empty() {
                     format!(
-                        "Serveur orange (statut : {:?}) — investigation requise.",
-                        serveur.statut
+                        "Serveur orange (statut : {:?}) — investigation requise.{}",
+                        serveur.statut, conseil
                     )
                 } else {
                     format!(
-                        "Serveur orange (statut : {:?}) — références : {}.",
-                        serveur.statut, refs_conformite
+                        "Serveur orange (statut : {:?}) — références : {}.{}",
+                        serveur.statut, refs_conformite, conseil
                     )
                 };
                 Some(ActionRemediation {
