@@ -19,4 +19,7 @@ pub use signature::{filtre_grossier, confirmer_message, SuiviSessions};
 pub use tools_list::{parser_reponse_tools_list, ReponseToolsList};
 pub use scope::{inferer_portee, jeu_heuristiques};
 pub use store_contract::{ContratScanStore, EvenementInventaire};
-pub use proxy::{ConfigProxy, ConstatTempsReel, MoteurInspection, ProxyStdioTempsReel};
+pub use proxy::{
+    evaluer_risque_tools_call, ConfigProxy, ConstatTempsReel, EvaluationRisque, MoteurInspection,
+    NiveauRisque, ProxyStdioTempsReel,
+};
