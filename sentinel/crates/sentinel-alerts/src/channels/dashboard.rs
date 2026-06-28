@@ -52,7 +52,9 @@ impl CanalDashboard {
 
     /// Retourne les compteurs courants : (critique, haute, moyenne).
     pub fn compteurs(&self) -> (u64, u64, u64) {
-        let c = self.compteurs.lock().expect("mutex compteurs empoisonné");
+        // Récupère le garde même si le mutex est empoisonné (un panic d'un
+        // autre thread ne doit pas rendre les badges inaccessibles).
+        let c = self.compteurs.lock().unwrap_or_else(|e| e.into_inner());
         (c.critique, c.haute, c.moyenne)
     }
 }
@@ -61,8 +63,10 @@ impl CanalDashboard {
 impl CanalEmetteur for CanalDashboard {
     async fn emettre(&self, alerte: &Alerte) -> anyhow::Result<()> {
         // Incrémente le compteur correspondant à la sévérité.
+        // Récupère le garde même si le mutex est empoisonné : l'émission ne
+        // doit jamais paniquer à cause d'un panic survenu sur un autre thread.
         let (critique, haute, moyenne) = {
-            let mut c = self.compteurs.lock().expect("mutex compteurs empoisonné");
+            let mut c = self.compteurs.lock().unwrap_or_else(|e| e.into_inner());
             match alerte.severite {
                 Severite::Critique => c.critique += 1,
                 Severite::Haute => c.haute += 1,
@@ -87,5 +91,54 @@ impl CanalEmetteur for CanalDashboard {
 
     fn nom(&self) -> &'static str {
         "dashboard"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use sentinel_protocol::CanalAlerte;
+    use uuid::Uuid;
+
+    fn alerte_test(severite: Severite) -> Alerte {
+        Alerte {
+            id: Uuid::new_v4(),
+            constat_id: Uuid::new_v4(),
+            canal: CanalAlerte::Dashboard,
+            severite,
+            titre: "t".to_string(),
+            message: "m".to_string(),
+            diff: None,
+            horodatage: Utc::now(),
+            envoyee: false,
+            tentatives: 0,
+        }
+    }
+
+    /// Régression B9 : un mutex de compteurs empoisonné (panic d'un autre
+    /// thread) ne doit faire paniquer ni `compteurs()` ni `emettre()`.
+    #[tokio::test]
+    async fn mutex_compteurs_empoisonne_ne_panique_pas() {
+        let canal = CanalDashboard::nouveau();
+
+        // Empoisonne volontairement le mutex en paniquant garde tenu.
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = canal.compteurs.lock().unwrap();
+            panic!("empoisonnement volontaire du mutex compteurs");
+        }));
+        assert!(r.is_err(), "le panic doit empoisonner le mutex");
+        assert!(canal.compteurs.is_poisoned(), "le mutex doit être empoisonné");
+
+        // `compteurs()` ne doit pas paniquer malgré l'empoisonnement.
+        let _ = canal.compteurs();
+
+        // `emettre()` ne doit pas paniquer et doit incrémenter le compteur.
+        canal
+            .emettre(&alerte_test(Severite::Critique))
+            .await
+            .expect("emettre doit survivre à un mutex empoisonné");
+        let (critique, _, _) = canal.compteurs();
+        assert_eq!(critique, 1, "le compteur critique doit avoir été incrémenté");
     }
 }

@@ -19,5 +19,6 @@ pub use lifecycle::EtatAlerteMachine;
 pub use siem::{
     AdaptateurStandard, ContratSiem, EnregistrementSiem,
     gravite_siem, vers_cef, vers_leef, vers_ecs_json,
+    vers_enregistrement_avec_references,
 };
 pub use secrets::{CoffreKeyring, CoffreMemoire, CoffreSecrets};

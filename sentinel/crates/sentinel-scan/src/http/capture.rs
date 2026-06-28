@@ -246,21 +246,29 @@ async fn construire_reponse(
         let session_id = session_id.to_string();
         let upstream = upstream.to_string();
 
+        // Tampon de reste SSE persisté pour toute la durée du flux : une ligne
+        // `data:` coupée à une frontière de chunk doit être reconstituée puis
+        // observée, sinon un message MCP fragmenté serait perdu (faux négatif
+        // critique pour l'EDR). Les chunks sont traités séquentiellement par
+        // `then`, donc une seule prise de verrou à la fois ; `tokio::sync::Mutex`
+        // autorise sa tenue à travers les `await` internes du parseur.
+        let reste_flux: Arc<tokio::sync::Mutex<Vec<u8>>> =
+            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
         let stream_upstream = reponse.bytes_stream();
 
         let stream_observe = stream_upstream.then(move |chunk_result| {
             let emetteur = emetteur.clone();
             let session_id = session_id.clone();
             let upstream = upstream.clone();
+            let reste_flux = reste_flux.clone();
 
             async move {
                 match chunk_result {
                     Ok(chunk) => {
-                        // Tampon de reste SSE : doit être persisté entre chunks.
-                        // Pour la v1 démo on parse chaque chunk indépendamment ;
-                        // un chunk coupé au milieu d'une ligne sera ignoré.
-                        // Un reste global nécessiterait un Arc<Mutex<Vec<u8>>> par session.
-                        let mut reste: Vec<u8> = Vec::new();
+                        // Le tampon résiduel persiste entre chunks (par flux) :
+                        // une ligne `data:` coupée en deux est recollée ici.
+                        let mut reste = reste_flux.lock().await;
                         parser_flux_sse(&chunk, &mut reste, &session_id, &upstream, &emetteur)
                             .await;
                         Ok::<Bytes, std::io::Error>(chunk)

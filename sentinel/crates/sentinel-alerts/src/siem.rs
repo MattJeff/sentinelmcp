@@ -43,6 +43,27 @@ pub fn gravite_siem(s: Severite) -> &'static str {
     }
 }
 
+/// Convertit la gravité textuelle SIEM en valeur numérique (échelle CEF/ECS).
+///
+/// Une gravité **inconnue** est traitée de façon prudente comme la plus haute
+/// (10) — et non 0 — pour qu'un événement critique mal mappé ne passe jamais
+/// inaperçu côté SIEM ; un avertissement est journalisé.
+fn gravite_numerique(gravite: &str) -> u8 {
+    match gravite {
+        "INFO"     => 1,
+        "MEDIUM"   => 5,
+        "HIGH"     => 8,
+        "CRITICAL" => 10,
+        autre => {
+            tracing::warn!(
+                gravite = autre,
+                "gravité SIEM inconnue : repli prudent sur 10 (CRITICAL)"
+            );
+            10
+        }
+    }
+}
+
 // ─── Mapping de catégorie ───────────────────────────────────────────────────
 
 /// Déduit une catégorie SIEM lisible depuis le titre de l'alerte.
@@ -90,15 +111,26 @@ impl ContratSiem for AdaptateurStandard {
             categorie: categorie_depuis_titre(&a.titre),
             gravite: gravite_siem(a.severite),
             message: a.message.clone(),
-            // Les références de conformité ne sont pas portées par `Alerte` directement ;
-            // le champ est laissé vide ici — l'enrichisseur de v2 le peuplera via le
-            // `Constat` d'origine.  Le champ est maintenu dans le contrat pour la v2.
+            // Les références de conformité ne sont pas portées par `Alerte`
+            // directement ; ce constructeur les laisse vides. Pour les propager
+            // réellement vers le SIEM, utiliser [`vers_enregistrement_avec_references`]
+            // en passant les `references_conformite` du `Constat` d'origine.
             references: Vec::new(),
             horodatage_iso8601: a.horodatage.to_rfc3339_opts(SecondsFormat::Millis, true),
             alerte_id: a.id.to_string(),
             diff: a.diff.clone(),
         }
     }
+}
+
+/// Variante de [`AdaptateurStandard::vers_enregistrement`] qui propage en plus
+/// les références de conformité (OWASP MCP09, SAFE-T1001, …) issues du `Constat`
+/// d'origine — `Alerte` ne les portant pas directement. Les références sont
+/// reportées dans les trois formats de sortie (CEF, LEEF, ECS).
+pub fn vers_enregistrement_avec_references(a: &Alerte, references: &[String]) -> EnregistrementSiem {
+    let mut e = AdaptateurStandard::vers_enregistrement(a);
+    e.references = references.to_vec();
+    e
 }
 
 // ─── Formats de sortie ───────────────────────────────────────────────────────
@@ -112,22 +144,24 @@ pub fn vers_cef(e: &EnregistrementSiem) -> String {
     let message_safe = e.message.replace('\\', "\\\\").replace('|', "\\|");
     let categorie_safe = e.categorie.replace('\\', "\\\\").replace('|', "\\|");
 
-    // Gravité numérique CEF déduite depuis la chaîne textuelle.
-    let gravite_num: u8 = match e.gravite {
-        "INFO"     => 1,
-        "MEDIUM"   => 5,
-        "HIGH"     => 8,
-        "CRITICAL" => 10,
-        _          => 0,
+    // Gravité numérique CEF déduite depuis la chaîne textuelle (repli prudent).
+    let gravite_num: u8 = gravite_numerique(e.gravite);
+
+    // Références de conformité (vide si aucune).
+    let refs = if e.references.is_empty() {
+        String::new()
+    } else {
+        format!(" cs2={} cs2Label=Compliance", e.references.join(","))
     };
 
     let extensions = format!(
-        "cs1={} cs1Label=AlerteId src={} rt={} cat={}{}",
+        "cs1={} cs1Label=AlerteId src={} rt={} cat={}{}{}",
         e.alerte_id,
         e.source,
         e.horodatage_iso8601,
         e.categorie,
         e.diff.as_deref().map(|d| format!(" reason={}", d.replace('\n', " "))).unwrap_or_default(),
+        refs,
     );
 
     format!(
@@ -142,15 +176,19 @@ pub fn vers_cef(e: &EnregistrementSiem) -> String {
 /// `LEEF:2.0|Sentinel|MCP|1.0|<categorie>|^|<champs tab-séparés>`
 pub fn vers_leef(e: &EnregistrementSiem) -> String {
     // LEEF 2.0 utilise `^` comme délimiteur de champs dans l'en-tête étendu.
-    let champs = [
+    let mut champs = vec![
         format!("devTime={}", e.horodatage_iso8601),
         format!("sev={}", e.gravite),
         format!("cat={}", e.categorie),
         format!("msg={}", e.message.replace('\t', " ").replace('\n', " ")),
         format!("src={}", e.source),
         format!("alerteId={}", e.alerte_id),
-    ]
-    .join("\t");
+    ];
+    // Références de conformité, propagées seulement si présentes.
+    if !e.references.is_empty() {
+        champs.push(format!("compliance={}", e.references.join(",")));
+    }
+    let champs = champs.join("\t");
 
     format!(
         "LEEF:2.0|Sentinel|MCP|1.0|{}|^|{}",
@@ -163,13 +201,7 @@ pub fn vers_leef(e: &EnregistrementSiem) -> String {
 /// Champs minimaux garantis : `@timestamp`, `event.category`, `event.severity`,
 /// `event.dataset`, `message`, `labels.alerte_id`, `labels.source`.
 pub fn vers_ecs_json(e: &EnregistrementSiem) -> serde_json::Value {
-    let gravite_num: u8 = match e.gravite {
-        "INFO"     => 1,
-        "MEDIUM"   => 5,
-        "HIGH"     => 8,
-        "CRITICAL" => 10,
-        _          => 0,
-    };
+    let gravite_num: u8 = gravite_numerique(e.gravite);
 
     let mut val = serde_json::json!({
         "@timestamp": e.horodatage_iso8601,

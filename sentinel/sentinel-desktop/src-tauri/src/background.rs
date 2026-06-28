@@ -172,9 +172,15 @@ async fn boucle_watcher(app: AppHandle, state: AppState) {
 /// Wrapped in a 60-second outer timeout so a hung probe can never freeze
 /// the loop. Errors are logged and never propagated.
 async fn executer_scan(app: &AppHandle, state: &AppState) {
+    // Build the hybrid-detection configuration from the operator's settings
+    // once per sweep (YARA on by default; optional local LLM judge only when
+    // explicitly enabled). Passed into the inner sweep so every persisted
+    // poisoning finding goes through the full pipeline.
+    let config = crate::commands_settings::config_detection(app);
+
     let outcome = tokio::time::timeout(
         Duration::from_secs(60),
-        executer_scan_interne(state),
+        executer_scan_interne(state, &config),
     )
     .await;
 
@@ -216,7 +222,10 @@ async fn executer_scan(app: &AppHandle, state: &AppState) {
 
 /// Core sweep logic, factored out so [`executer_scan`] can wrap it in a
 /// timeout + error log.
-async fn executer_scan_interne(state: &AppState) -> anyhow::Result<()> {
+async fn executer_scan_interne(
+    state: &AppState,
+    config: &sentinel_detect::ConfigDetection,
+) -> anyhow::Result<()> {
     use sentinel_detect::InspecteurPoisoning;
     use sentinel_discovery::{
         active_probe::{EtatProbe, ProbeurActif},
@@ -272,16 +281,15 @@ async fn executer_scan_interne(state: &AppState) -> anyhow::Result<()> {
                 }
             };
 
-            // Persist poisoning findings (re-using the probe's own list when
-            // populated, else running the inspector ourselves).
-            let constats = if rapport_probe.constats_poisoning.is_empty() {
-                InspecteurPoisoning::inspecter(&rapport_probe.outils)
-            } else {
-                rapport_probe.constats_poisoning.clone()
-            };
-            for cp in &constats {
-                let constat = InspecteurPoisoning::vers_constat(cp, serveur_id);
-                if let Err(e) = state.store.enregistrer_constat(&constat) {
+            // Persist poisoning findings through the HYBRID pipeline:
+            // patterns + Unicode anti-smuggling + line-jumping + embedded YARA
+            // (and the optional local LLM judge when enabled in settings).
+            // `inspecter_complet` already returns store-ready `Constat`s.
+            let constats =
+                InspecteurPoisoning::inspecter_complet(&rapport_probe.outils, serveur_id, config)
+                    .await;
+            for constat in &constats {
+                if let Err(e) = state.store.enregistrer_constat(constat) {
                     log::warn!("live scan: could not store poisoning finding: {}", e);
                 }
             }
@@ -365,12 +373,18 @@ use tokio::time::interval;
 /// TTL for a cache entry, in seconds (24h). An entry older than this is
 /// considered stale and gets refetched on the next tick (or immediately at
 /// startup).
+#[allow(dead_code)]
 const REGISTRY_CACHE_TTL_SECS: i64 = 24 * 3600;
 
 /// Public entry point: spawn the daily registry refresh task.
 ///
 /// Fire-and-forget — never panics, never crashes the app. The cache DB lives
 /// next to the main store in the platform-specific app-data directory.
+///
+/// Currently not wired into `setup()`: the lookalike registries are refreshed
+/// on-demand by the probe-driven rescan path instead. Kept here, ready to be
+/// armed, behind `#[allow(dead_code)]` so the unused-helper warning stays off.
+#[allow(dead_code)]
 pub fn lancer_refresh_registres(app: AppHandle, _state: AppState) {
     tauri::async_runtime::spawn(async move {
         boucle_refresh_registres(app).await;
@@ -379,6 +393,7 @@ pub fn lancer_refresh_registres(app: AppHandle, _state: AppState) {
 
 /// Periodic refresh loop. Resolves the cache DB path once, runs an initial
 /// refresh for any stale registry, then ticks every 24h.
+#[allow(dead_code)]
 async fn boucle_refresh_registres(app: AppHandle) {
     let cache = match ouvrir_cache_registres(&app) {
         Some(c) => c,
@@ -423,6 +438,7 @@ async fn boucle_refresh_registres(app: AppHandle) {
 /// Resolve `<app-data>/sentinel.db` and open the `CacheRegistres` against it.
 /// Returns `None` on any failure (logged), so the caller can early-exit
 /// without crashing.
+#[allow(dead_code)]
 fn ouvrir_cache_registres(app: &AppHandle) -> Option<CacheRegistres> {
     let dir = match app.path().app_data_dir() {
         Ok(d) => d,
@@ -459,6 +475,7 @@ fn ouvrir_cache_registres(app: &AppHandle) -> Option<CacheRegistres> {
 /// Fetch one registry, JSON-encode the result and persist it via
 /// `CacheRegistres::ecrire`. All failure modes are logged at `warn` level
 /// and swallowed.
+#[allow(dead_code)]
 async fn refresh_un_registre(cache: &CacheRegistres, cle: &str, source: &dyn SourceRegistre) {
     let entrees = match source.lister().await {
         Ok(v) => v,

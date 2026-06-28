@@ -465,6 +465,19 @@ export interface SettingsThreatFeed {
   last_refresh_at: string | null;
 }
 
+/**
+ * Hybrid-detection preferences (V0.6). Drives the Rust `ConfigDetection`
+ * used by the live background scan, the active probe and the skills scan.
+ * `yara` (local, offline) is ON by default; the optional local LLM judge
+ * (`llm`, talking to `llm_url` — localhost by default) is OFF by default so
+ * the zero-cloud guarantee holds until the operator explicitly opts in.
+ */
+export interface SettingsDetection {
+  yara: boolean;
+  llm: boolean;
+  llm_url: string;
+}
+
 export interface Settings {
   capture: SettingsCapture;
   alerts: SettingsAlerts;
@@ -473,6 +486,13 @@ export interface Settings {
   enforcement: SettingsEnforcement;
   general: SettingsGeneral;
   threat_feed: SettingsThreatFeed;
+  /**
+   * Hybrid-detection block (V0.6). Optional on the wire for back-compat with
+   * older frontends / settings objects that pre-date the block — the Rust
+   * backend always emits it (serde default: YARA on, LLM off). Treat
+   * `undefined` as `{ yara: true, llm: false, llm_url: 'http://localhost:11434' }`.
+   */
+  detection?: SettingsDetection;
 }
 
 /**
@@ -635,6 +655,87 @@ export interface ProxyStatus {
   events_seen: number;
 }
 
+// ─── Hybrid detection surfacing (V0.6) ─────────────────────────────────────
+
+/**
+ * One embedded YARA rule, surfaced by `list_yara_rules` so the UI can show
+ * the operator which local signatures are active.
+ */
+export interface YaraRule {
+  /** Rule identifier (e.g. `MCP_Poisoning_PseudoSysteme`). */
+  name: string;
+  /** Compilation namespace (`sentinel-embarque` for the embedded set). */
+  source: string;
+  /** `categorie` meta of the rule (default `yara`). */
+  category: string;
+  severity: Severity;
+  /** `description` meta of the rule. */
+  description: string;
+}
+
+/** Result of `list_yara_rules`: the embedded rules + the compiled source count. */
+export interface YaraRules {
+  rules: YaraRule[];
+  /** Number of compiled rule sources (1 = embedded set only). */
+  sources_count: number;
+}
+
+/**
+ * One row of the OWASP MCP / ASI coverage matrix returned by
+ * `compliance_coverage`. Mirrors `CouvertureCategorie` on the Rust side.
+ */
+export interface ComplianceCoverageRow {
+  framework: string;
+  identifier: string;
+  title: string;
+  /** "yes" (dedicated detector), "partial" (heuristic/indirect), "no" (out of scope). */
+  level: 'yes' | 'partial' | 'no' | string;
+  justification: string;
+}
+
+/** Full coverage matrix + per-level roll-up counts (`compliance_coverage`). */
+export interface ComplianceCoverage {
+  /** Version tag of the underlying coverage table. */
+  version: string;
+  matrix: ComplianceCoverageRow[];
+  covered: number;
+  partial: number;
+  not_covered: number;
+}
+
+// ─── Skills / agents scan (scan_skills) ────────────────────────────────────
+// Surfaces the Claude/agent skills installed on this Mac, each annotated with
+// any hybrid-detection findings on its content. Skills are not MCP servers, so
+// these findings are returned here rather than persisted to the server store.
+
+/** One detection hit on a skill/agent's content. */
+export interface SkillFinding {
+  /** snake_case constat type (e.g. `poisoning`). */
+  finding_type: string;
+  severity: Severity;
+  title: string;
+  detail: string;
+  /** Synthetic tool name carrying the skill content (the skill name). */
+  tool_name: string | null;
+  compliance_refs: string[];
+}
+
+/** One discovered skill/agent plus its detection findings. */
+export interface SkillScan {
+  name: string;
+  description: string | null;
+  /** "skill" or "agent". */
+  artifact_type: 'skill' | 'agent' | string;
+  /** "user" | "project" | "extension". */
+  scope: 'user' | 'project' | 'extension' | string;
+  /** kebab-case client identifier (same vocabulary as `discover_system`). */
+  client: string;
+  /** Absolute path of the SKILL.md / agent .md inspected. */
+  path: string;
+  /** Detection findings on the artefact's content (empty = clean). */
+  findings: SkillFinding[];
+}
+
 // Tauri command names — must match exactly the #[tauri::command] functions.
 export const COMMANDS = {
   listServers: 'list_servers',
@@ -652,11 +753,14 @@ export const COMMANDS = {
   stixExportBundle: 'stix_export_bundle',
   executiveSummary: 'executive_summary',
   complianceReferences: 'compliance_references',
+  complianceCoverage: 'compliance_coverage',
   appVersion: 'app_version',
   discoverSystem: 'discover_system',
   computeTrustGraph: 'compute_trust_graph',
   listThreats: 'list_threats',
   scanLookalikes: 'scan_lookalikes',
+  scanSkills: 'scan_skills',
+  listYaraRules: 'list_yara_rules',
   probeServer: 'probe_server',
   listObservedEvents: 'list_observed_events',
   getSettings: 'get_settings',

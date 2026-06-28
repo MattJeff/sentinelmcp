@@ -69,15 +69,34 @@ impl ClientSplunkHec {
     }
 
     /// Envoie l'alerte sérialisée vers Splunk HEC.
+    ///
+    /// Le token est résolu via le trousseau OS s'il s'agit d'une référence
+    /// `keyring:<nom>` (cf. [`Self::envoyer_avec_coffre`]).
     pub async fn envoyer(&self, alert_json: &Value) -> Result<(), SinkError> {
+        self.envoyer_avec_coffre(alert_json, crate::secrets::coffre_actif().as_deref())
+            .await
+    }
+
+    /// Variante de [`Self::envoyer`] avec coffre de secrets injectable.
+    ///
+    /// Avant de construire l'en-tête `Authorization`, un token resté sous forme
+    /// de référence `keyring:<nom>` est résolu via `coffre` — un secret ne doit
+    /// jamais partir en clair sous forme de référence (défense en profondeur).
+    pub async fn envoyer_avec_coffre(
+        &self,
+        alert_json: &Value,
+        coffre: Option<&dyn crate::secrets::CoffreSecrets>,
+    ) -> Result<(), SinkError> {
         let corps = self.charge_utile(alert_json);
         let corps_str = serde_json::to_string(&corps)
             .map_err(|e| SinkError::Serialisation(e.to_string()))?;
 
+        let token = super::resoudre_secret(&self.token, coffre).map_err(SinkError::Reseau)?;
+
         let reponse = self
             .client
             .post(self.url_endpoint())
-            .header("Authorization", format!("Splunk {}", self.token))
+            .header("Authorization", format!("Splunk {}", token))
             .header("Content-Type", "application/json")
             .body(corps_str)
             .send()

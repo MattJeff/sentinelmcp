@@ -20,6 +20,10 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
+# Normalisation Unicode NFKC du chemin de DÉTECTION (homoglyphes / variantes de
+# compatibilité repliées avant l'application des patterns regex). N'intervient
+# jamais dans l'empreinte canonique (canonical.rs) — contrat d'empreinte stable.
+unicode-normalization = "0.1"
 similar = { workspace = true }
 strsim = { workspace = true }
 reqwest = { workspace = true }

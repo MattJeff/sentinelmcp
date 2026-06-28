@@ -98,7 +98,9 @@ impl JournalActivite {
             .enregistrer_contact(serveur_id, session_id, methode, horodatage)?;
 
         // Mise à jour des compteurs en mémoire.
-        let mut compteurs = self.compteurs.lock().unwrap();
+        // Récupération sur mutex empoisonné : un panic ailleurs ne doit pas
+        // figer le journal d'activité.
+        let mut compteurs = self.compteurs.lock().unwrap_or_else(|e| e.into_inner());
         compteurs
             .entry(serveur_id)
             .and_modify(|e| e.mettre_a_jour(horodatage))
@@ -112,7 +114,7 @@ impl JournalActivite {
     /// Si le serveur n'a jamais été contacté depuis le démarrage du process,
     /// retourne des stats vides (nombre_contacts = 0).
     pub fn stats(&self, serveur_id: ServeurId) -> Result<StatsServeur> {
-        let compteurs = self.compteurs.lock().unwrap();
+        let compteurs = self.compteurs.lock().unwrap_or_else(|e| e.into_inner());
         match compteurs.get(&serveur_id) {
             None => Ok(StatsServeur {
                 serveur_id,
@@ -135,7 +137,7 @@ impl JournalActivite {
     ///
     /// Utilisé par l'agent 5.3 pour itérer sur la section historique du rapport.
     pub fn tous_les_serveurs(&self) -> Vec<ServeurId> {
-        let compteurs = self.compteurs.lock().unwrap();
+        let compteurs = self.compteurs.lock().unwrap_or_else(|e| e.into_inner());
         compteurs.keys().copied().collect()
     }
 }

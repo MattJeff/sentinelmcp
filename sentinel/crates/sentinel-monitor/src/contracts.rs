@@ -117,19 +117,21 @@ impl ContratMock {
 
     /// Retourne le nombre de faits collectés.
     pub fn nb_faits(&self) -> usize {
-        self.faits.lock().unwrap().len()
+        // Récupération sur mutex empoisonné : un panic d'un autre thread ne doit
+        // pas rendre le mock inutilisable.
+        self.faits.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Vide la collection (utile entre deux scénarios de test).
     pub fn vider(&self) {
-        self.faits.lock().unwrap().clear();
+        self.faits.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 }
 
 #[async_trait::async_trait]
 impl ContratSurveillance for ContratMock {
     async fn emettre(&self, fait: FaitSurveillance) -> anyhow::Result<()> {
-        self.faits.lock().unwrap().push(fait);
+        self.faits.lock().unwrap_or_else(|e| e.into_inner()).push(fait);
         Ok(())
     }
 }

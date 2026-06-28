@@ -55,11 +55,21 @@ sentinel scan --probe
 For each declared server, Sentinel spawns the actual MCP executable (stdio) or opens a Streamable HTTP session, performs the standard handshake (`initialize` → `tools/list`), and captures the **real** tool inventory — names, descriptions, full input schemas. It then:
 
 - computes a **canonical SHA-256 fingerprint** of the tool surface,
-- runs **40+ poisoning patterns** over every description and schema,
+- runs the **hybrid local poisoning engine** over every description and schema — 40+ regex patterns + Unicode anti-smuggling (zero-width, bidi, Tags block, ANSI) + NFKC normalization + line-jumping + embedded **YARA** rules,
 - cross-references the inventory against the bundled **threat-intel feed**,
 - flags **secret-read + network-write** scope combinations.
 
 No tool is ever executed; the probe is handshake-only and closes the process cleanly.
+
+YARA is on by default; toggle the engines with flags (and an optional **local** LLM judge via Ollama — opt-in, localhost-only, zero cloud):
+
+```bash
+sentinel scan --probe --no-yara          # disable the YARA engine
+sentinel scan --probe --llm              # add a local LLM second opinion (Ollama)
+sentinel scan --probe --llm --llm-url http://localhost:11434
+```
+
+The same engines are exposed in the desktop app under **Settings → Detection engines** (YARA toggle, local LLM-judge toggle + endpoint, and a read-only list of the embedded YARA rules).
 
 ### Report
 
@@ -67,7 +77,7 @@ No tool is ever executed; the probe is handshake-only and closes the process cle
 sentinel report
 ```
 
-Generates the signed audit bundle: an executive-summary PDF, a structured JSON export, and an **Ed25519 signature** verifiable offline. Every finding is mapped to SOC 2, ISO 27001, OWASP MCP and SAFE-MCP control identifiers — ready to hand to an auditor as-is.
+Generates the signed audit bundle: an executive-summary PDF, a structured JSON export, and an **Ed25519 signature** verifiable offline (signing is on by default, the key is sealed in the OS keychain). Every finding is mapped to SOC 2, ISO 27001, OWASP MCP, SAFE-MCP, OWASP ASI and — where clearly applicable — MITRE ATT&CK / ATLAS control identifiers — ready to hand to an auditor as-is.
 
 ---
 
@@ -115,6 +125,25 @@ Typical workflow:
 3. **Nightly schedule** — catches rug-pulls that happen upstream between PRs.
 
 The action runs fully inside the runner: no token, no cloud account, nothing uploaded.
+
+### Or audit a repo directly
+
+If you'd rather not probe live servers, `sentinel audit <path>` statically scans a checkout for MCP configs (`mcp.json`, `.mcp.json`, `mcp_config.json`, `claude_desktop_config.json`) and reports findings — no probing, no database, ideal for CI:
+
+```bash
+sentinel audit .                 # scan the working tree
+sentinel audit . --json          # machine-readable output
+```
+
+It flags, statically and locally:
+
+- **tool poisoning** in declared definitions (patterns + Unicode anti-smuggling + YARA),
+- **typosquats** of official packages (canonical `package_id` + Jaro-Winkler),
+- **cleartext transport** — an `http://` endpoint to a remote host (loopback is exempt),
+- **hard-coded secrets** — only high-confidence, structured token formats (OpenAI/Anthropic, GitHub PAT, Slack, AWS, Google…), never bare values, so secrets referenced indirectly (`${VAR}`, `op://`, `vault:`…) are not false-flagged,
+- **shell-injection** arguments (chained metacharacters into a shell/network binary).
+
+Exit code is `0` (no finding), `1` (a high/critical finding — fail the build), or `2` (execution error). `--yara`/`--no-yara`/`--llm`/`--llm-url` apply here too.
 
 ---
 

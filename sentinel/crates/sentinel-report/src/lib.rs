@@ -14,7 +14,7 @@ pub mod remediation;
 pub use engine::GenerateurRapport;
 pub use summary::ResumeExecutif;
 pub use inventory::{SectionInventaire, SectionJournal};
-pub use compliance::{MoteurConformite, Reference};
+pub use compliance::{CouvertureCategorie, MoteurConformite, NiveauCouverture, Reference};
 pub use signature::SignataireBundle;
 pub use pdf::RenduPdf;
 pub use json_export::ExportJson;

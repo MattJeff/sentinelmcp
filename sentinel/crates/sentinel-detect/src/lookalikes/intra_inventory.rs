@@ -117,11 +117,7 @@ pub fn detecter_sosies_intra(inventaire: &[EntreeInventaire]) -> Vec<SosieIntra>
         }
     }
 
-    // Tri décroissant par score
-    sosies.sort_by(|x, y| {
-        y.score
-            .partial_cmp(&x.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Tri décroissant par score (total_cmp : ordre total déterministe même en présence de NaN).
+    sosies.sort_by(|x, y| y.score.total_cmp(&x.score));
     sosies
 }

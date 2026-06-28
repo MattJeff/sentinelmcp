@@ -24,6 +24,49 @@ pub struct Reference {
     pub url: Option<&'static str>,
 }
 
+/// Niveau de couverture d'une catégorie de référentiel par Sentinel.
+///
+/// Honnêteté assumée pour un auditeur / RSSI : Sentinel est un EDR de serveurs
+/// MCP, pas un moteur d'introspection du raisonnement de l'agent. Certaines
+/// catégories agentiques (mémoire persistante, hallucinations en cascade…)
+/// sont des angles morts revendiqués.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NiveauCouverture {
+    /// Catégorie couverte par un détecteur Sentinel dédié.
+    Oui,
+    /// Couverture heuristique, indirecte ou partielle (faux négatifs possibles).
+    Partiel,
+    /// Hors périmètre de l'EDR — angle mort assumé.
+    Non,
+}
+
+impl NiveauCouverture {
+    /// Étiquette lisible pour le rendu Markdown / JSON.
+    pub fn etiquette(self) -> &'static str {
+        match self {
+            NiveauCouverture::Oui => "Oui",
+            NiveauCouverture::Partiel => "Partiel",
+            NiveauCouverture::Non => "Non",
+        }
+    }
+}
+
+/// Ligne de la matrice de couverture : une catégorie d'un référentiel et le
+/// niveau de couverture revendiqué par Sentinel, justifié pour l'auditeur.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CouvertureCategorie {
+    /// Cadre : "OWASP MCP" ou "OWASP ASI".
+    pub cadre: &'static str,
+    /// Identifiant de la catégorie (ex. "MCP03", "ASI06").
+    pub identifiant: &'static str,
+    /// Intitulé humain de la catégorie (table Sentinel).
+    pub titre: &'static str,
+    /// Niveau de couverture revendiqué.
+    pub niveau: NiveauCouverture,
+    /// Justification courte (détecteur concerné ou raison de l'angle mort).
+    pub justification: &'static str,
+}
+
 // ---------------------------------------------------------------------------
 // Constantes — une seule définition par référence, évite les divergences.
 // ---------------------------------------------------------------------------
@@ -288,6 +331,303 @@ impl MoteurConformite {
 
         lignes.join("\n")
     }
+
+    // -----------------------------------------------------------------------
+    // D10 — estampillage multi-référentiels
+    // -----------------------------------------------------------------------
+
+    /// Table de correspondance documentée : pour un type de constat, retourne
+    /// l'ensemble des identifiants de référentiels applicables, tous cadres
+    /// confondus (OWASP MCP Top 10, SAFE-MCP, OWASP Agentic Security Initiative
+    /// et MITRE ATT&CK / ATLAS quand une technique est clairement applicable).
+    ///
+    /// Le résultat est un estampillage « à plat » destiné à enrichir le champ
+    /// `references_conformite` des constats et la section conformité du rapport.
+    /// Pour les références détaillées (cadre, titre, URL, SOC 2 / ISO 27001),
+    /// voir [`Self::references_pour`].
+    ///
+    /// Chaque correspondance MITRE est une technique réelle et stable :
+    /// - ATT&CK T1195 — Supply Chain Compromise (serveur fantôme, rug-pull) ;
+    /// - ATT&CK T1036 — Masquerading (sosie / typosquatting) ;
+    /// - ATT&CK T1567 — Exfiltration Over Web Service (exfiltration) ;
+    /// - ATT&CK T1598 — Phishing for Information (elicitation de secrets) ;
+    /// - ATLAS AML.T0051 — LLM Prompt Injection (poisoning, injection persistante).
+    pub fn references_frameworks(t: &TypeConstat) -> Vec<&'static str> {
+        match t {
+            // Serveur fantôme : OWASP MCP09 + introduction d'un composant non
+            // approuvé dans la chaîne d'approvisionnement.
+            TypeConstat::NouveauServeur | TypeConstat::ShadowMcp => {
+                vec!["MCP09", "ATT&CK T1195"]
+            }
+            // Rug-pull : changement de comportement d'un outil approuvé →
+            // compromission de dépendance logicielle.
+            TypeConstat::RugPull => vec!["MCP03", "SAFE-T1201", "ATT&CK T1195"],
+            // Tool poisoning : instruction cachée dans la description/le schéma
+            // = injection d'invite au sens ATLAS.
+            TypeConstat::Poisoning => vec!["MCP03", "SAFE-T1001", "ATLAS AML.T0051"],
+            // Sosie / lookalike : usurpation de l'empreinte d'un serveur légitime.
+            TypeConstat::Sosie => vec!["MCP09", "ATT&CK T1036"],
+            // Exfiltration : acheminement de données vers une destination externe.
+            TypeConstat::Exfiltration => vec!["MCP03", "SAFE-T1201", "ATT&CK T1567"],
+            // Absence d'authentification : défaut d'identification/authentification.
+            TypeConstat::SansAuthentification => vec!["A07"],
+            // Dérive inter-session : variante de changement de comportement.
+            TypeConstat::DeriveInterSession => vec!["SAFE-T1201"],
+            // Abus de sampling : injection persistante dans le contexte / mémoire.
+            TypeConstat::AbusSampling => vec!["ASI06", "ATLAS AML.T0051"],
+            // Elicitation sensible : extraction de secrets auprès de l'utilisateur.
+            TypeConstat::ElicitationSensible => vec!["ATT&CK T1598"],
+            // Constat non catégorisé.
+            TypeConstat::Autre => vec![],
+        }
+    }
+
+    /// Section Markdown récapitulant l'estampillage multi-référentiels par type
+    /// de constat présent. Un constat dont le type n'a aucune correspondance
+    /// n'est pas listé. Les types sont dédupliqués (un seul affichage par type).
+    pub fn frameworks_markdown(constats: &[Constat]) -> String {
+        let mut lignes: Vec<String> = Vec::new();
+        lignes.push(format!(
+            "## Correspondances multi-référentiels (table v{})\n",
+            VERSION_TABLE
+        ));
+        lignes.push("| Type de constat | Référentiels (SAFE-MCP / OWASP MCP / ASI / MITRE) |".to_string());
+        lignes.push("|-----------------|----------------------------------------------------|".to_string());
+
+        let mut vus: Vec<&TypeConstat> = Vec::new();
+        for constat in constats {
+            // Déduplication par type : on n'affiche chaque type qu'une fois.
+            if vus.contains(&&constat.type_constat) {
+                continue;
+            }
+            let ids = Self::references_frameworks(&constat.type_constat);
+            if ids.is_empty() {
+                continue;
+            }
+            vus.push(&constat.type_constat);
+            lignes.push(format!(
+                "| {:?} | {} |",
+                constat.type_constat,
+                ids.join(", ")
+            ));
+        }
+
+        lignes.join("\n")
+    }
+
+    // -----------------------------------------------------------------------
+    // P3 — matrice de couverture
+    // -----------------------------------------------------------------------
+
+    /// Matrice de couverture honnête : pour chaque catégorie d'OWASP MCP Top 10
+    /// et d'OWASP Agentic Security Initiative, indique si Sentinel la couvre
+    /// (Oui / Partiel / Non) avec une justification.
+    ///
+    /// La numérotation est alignée au mieux sur les référentiels publics ; les
+    /// intitulés et les niveaux de couverture relèvent de la table Sentinel
+    /// (version [`VERSION_TABLE`]). ASI06 (mémoire & contexte persistants) est
+    /// un angle mort explicitement revendiqué.
+    pub fn matrice_couverture() -> Vec<CouvertureCategorie> {
+        use NiveauCouverture::*;
+        vec![
+            // ---- OWASP MCP Top 10 ------------------------------------------
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP01",
+                titre: "Injection d'invite / d'outil",
+                niveau: Partiel,
+                justification: "Heuristiques de poisoning sur descriptions et schémas ; pas d'inspection de tout le trafic.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP02",
+                titre: "Authentification et autorisation défaillantes",
+                niveau: Oui,
+                justification: "Détecteur SansAuthentification (endpoint exposé sans mécanisme d'auth).",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP03",
+                titre: "Empoisonnement d'outil (Tool Poisoning)",
+                niveau: Oui,
+                justification: "Détecteur Poisoning (instructions cachées dans la description/le schéma).",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP04",
+                titre: "Exfiltration de données via paramètres",
+                niveau: Oui,
+                justification: "Détecteur Exfiltration (paramètres acheminés vers une destination externe).",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP05",
+                titre: "Élévation de privilèges / confused deputy",
+                niveau: Non,
+                justification: "Hors périmètre EDR : l'analyse des chaînes de privilèges de l'agent n'est pas instrumentée.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP06",
+                titre: "Exécution de code non maîtrisée",
+                niveau: Partiel,
+                justification: "Surveillance comportementale du serveur ; pas d'analyse statique de son code.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP07",
+                titre: "Détournement de consentement (elicitation)",
+                niveau: Oui,
+                justification: "Détecteur ElicitationSensible (demande d'informations sensibles, interdite par la spec).",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP08",
+                titre: "Manque de journalisation et de traçabilité",
+                niveau: Oui,
+                justification: "Sentinel produit le journal d'évidence signé (inventaire, constats, horodatage).",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP09",
+                titre: "Serveur MCP fantôme (Shadow MCP Server)",
+                niveau: Oui,
+                justification: "Détecteur NouveauServeur / ShadowMcp (serveur non approuvé observé).",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP MCP",
+                identifiant: "MCP10",
+                titre: "Compromission de la chaîne d'approvisionnement / rug-pull",
+                niveau: Oui,
+                justification: "Détecteurs RugPull et Sosie (changement de comportement, usurpation d'empreinte).",
+            },
+            // ---- OWASP Agentic Security Initiative -------------------------
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI01",
+                titre: "Détournement d'objectif / manipulation d'intention",
+                niveau: Non,
+                justification: "Hors périmètre : le raisonnement interne de l'agent n'est pas observé.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI02",
+                titre: "Abus d'outil (Tool Misuse)",
+                niveau: Partiel,
+                justification: "Couvert indirectement via Poisoning et Exfiltration sur la surface MCP.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI03",
+                titre: "Compromission de privilèges",
+                niveau: Non,
+                justification: "Hors périmètre : pas d'instrumentation des autorisations effectives de l'agent.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI04",
+                titre: "Surcharge de ressources (Resource Overload)",
+                niveau: Partiel,
+                justification: "Détecteur AbusSampling (drain de quota) ; pas de quotas applicatifs complets.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI05",
+                titre: "Hallucinations en cascade",
+                niveau: Non,
+                justification: "Hors périmètre : Sentinel n'évalue pas le contenu généré par le modèle.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI06",
+                titre: "Empoisonnement mémoire & contexte (persistant)",
+                niveau: Non,
+                justification: "Angle mort assumé : la mémoire persistante de l'agent n'est pas inspectée par l'EDR.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI07",
+                titre: "Comportements trompeurs / désalignés",
+                niveau: Non,
+                justification: "Hors périmètre : l'alignement comportemental du modèle n'est pas évalué.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI08",
+                titre: "Répudiation & non-traçabilité",
+                niveau: Oui,
+                justification: "Évidence signée Ed25519, inventaire et journal horodatés.",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI09",
+                titre: "Usurpation d'identité & imitation",
+                niveau: Oui,
+                justification: "Détecteur Sosie / lookalike (usurpation de nom ou d'empreinte).",
+            },
+            CouvertureCategorie {
+                cadre: "OWASP ASI",
+                identifiant: "ASI10",
+                titre: "Débordement du humain-dans-la-boucle",
+                niveau: Partiel,
+                justification: "Élicitation abusive détectée ; pas de mesure de la charge décisionnelle globale.",
+            },
+        ]
+    }
+
+    /// Rend la matrice de couverture sous forme de tableau Markdown lisible
+    /// pour un RSSI / auditeur, précédé d'une légende explicite des niveaux.
+    pub fn matrice_couverture_markdown() -> String {
+        let mut lignes: Vec<String> = Vec::new();
+        lignes.push(format!(
+            "## Matrice de couverture (table v{})\n",
+            VERSION_TABLE
+        ));
+        lignes.push(
+            "Lecture : « Oui » = catégorie couverte par un détecteur dédié ; \
+             « Partiel » = couverture heuristique ou indirecte (faux négatifs \
+             possibles) ; « Non » = hors périmètre EDR (angle mort assumé). \
+             Numérotation alignée au mieux sur OWASP MCP Top 10 et OWASP Agentic \
+             Security Initiative ; les intitulés relèvent de la table Sentinel.\n"
+                .to_string(),
+        );
+        lignes.push("| Cadre | ID | Catégorie | Couverture | Justification |".to_string());
+        lignes.push("|-------|----|-----------|------------|---------------|".to_string());
+
+        for c in Self::matrice_couverture() {
+            lignes.push(format!(
+                "| {} | {} | {} | {} | {} |",
+                c.cadre,
+                c.identifiant,
+                c.titre,
+                c.niveau.etiquette(),
+                c.justification
+            ));
+        }
+
+        lignes.join("\n")
+    }
+
+    /// Rend la matrice de couverture sous forme de tableau JSON (liste d'objets)
+    /// pour intégration dans le bundle d'export.
+    pub fn matrice_couverture_json() -> serde_json::Value {
+        let categories: Vec<serde_json::Value> = Self::matrice_couverture()
+            .into_iter()
+            .map(|c| {
+                serde_json::json!({
+                    "cadre": c.cadre,
+                    "identifiant": c.identifiant,
+                    "titre": c.titre,
+                    "couverture": c.niveau.etiquette(),
+                    "justification": c.justification,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "version_table": VERSION_TABLE,
+            "categories": categories,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -307,5 +647,23 @@ mod tests_internes {
     #[test]
     fn autre_vide() {
         assert!(MoteurConformite::references_pour(&TypeConstat::Autre).is_empty());
+    }
+
+    #[test]
+    fn frameworks_autre_vide() {
+        assert!(MoteurConformite::references_frameworks(&TypeConstat::Autre).is_empty());
+    }
+
+    #[test]
+    fn matrice_couverture_non_vide_et_complete() {
+        // 10 catégories OWASP MCP + 10 OWASP ASI.
+        assert_eq!(MoteurConformite::matrice_couverture().len(), 20);
+    }
+
+    #[test]
+    fn etiquette_niveaux() {
+        assert_eq!(NiveauCouverture::Oui.etiquette(), "Oui");
+        assert_eq!(NiveauCouverture::Partiel.etiquette(), "Partiel");
+        assert_eq!(NiveauCouverture::Non.etiquette(), "Non");
     }
 }

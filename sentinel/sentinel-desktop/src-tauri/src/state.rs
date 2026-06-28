@@ -45,6 +45,7 @@ pub struct AppState {
 impl AppState {
     /// Legacy/fallback constructor: in-memory store.
     /// Kept so tests and harness boots can still spin up without an `App`.
+    #[allow(dead_code)]
     pub fn nouveau() -> Self {
         let store = Store::in_memory().expect("opening in-memory store failed");
         Self {

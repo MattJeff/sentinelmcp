@@ -171,6 +171,34 @@ impl Default for ThreatFeedSettings {
     }
 }
 
+/// Hybrid-detection settings (V0.6).
+///
+/// Drives the [`sentinel_detect::ConfigDetection`] used by the live
+/// background scan, the active probe and the skills scan. YARA (local,
+/// offline) is ON by default; the optional local LLM judge (Ollama) is OFF
+/// by default to preserve the zero-cloud guarantee — it only ever talks to
+/// the configured `llm_url` (localhost by default) and only when `llm` is on.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct DetectionSettings {
+    /// Enable the embedded YARA engine (local, no network). Default `true`.
+    pub yara: bool,
+    /// Enable the optional local LLM judge (Ollama). Default `false`.
+    pub llm: bool,
+    /// Base URL of the local Ollama endpoint. Default `http://localhost:11434`.
+    pub llm_url: String,
+}
+
+impl Default for DetectionSettings {
+    fn default() -> Self {
+        Self {
+            yara: true,
+            llm: false,
+            llm_url: sentinel_detect::OLLAMA_DEFAULT_URL.to_string(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Settings {
@@ -180,6 +208,7 @@ pub struct Settings {
     pub privacy: PrivacySettings,
     pub general: GeneralSettings,
     pub threat_feed: ThreatFeedSettings,
+    pub detection: DetectionSettings,
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -378,11 +407,81 @@ pub fn lire_keep_running(app: &AppHandle) -> Option<bool> {
     Some(parsed.general.keep_running_in_background)
 }
 
+/// Read the persisted `detection` block from `settings.toml`. Fail-closed to
+/// [`DetectionSettings::default`] (YARA on, LLM off) whenever the file is
+/// absent, malformed, or unreadable — so the detection pipeline always has a
+/// safe, zero-cloud configuration even on a brand-new install.
+pub fn lire_detection(app: &AppHandle) -> DetectionSettings {
+    let path = match settings_path(app) {
+        Ok(p) => p,
+        Err(_) => return DetectionSettings::default(),
+    };
+    if !path.exists() {
+        return DetectionSettings::default();
+    }
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(r) => r,
+        Err(_) => return DetectionSettings::default(),
+    };
+    match toml::from_str::<Settings>(&raw) {
+        Ok(s) => s.detection,
+        Err(_) => DetectionSettings::default(),
+    }
+}
+
+/// Build the hybrid-detection configuration consumed by `sentinel-detect`
+/// ([`InspecteurPoisoning::inspecter_complet`]) and `sentinel-discovery`
+/// (`skills::inspecter_skill_complet`) from the persisted settings.
+///
+/// YARA tracks `detection.yara`; the local LLM judge is wired only when
+/// `detection.llm` is on — in that case `ConfigJugeLlm::active` is set and the
+/// base URL points at `detection.llm_url` (localhost by default), keeping the
+/// zero-cloud guarantee. When `detection.llm` is off, `llm` is `None` and no
+/// network call is ever attempted.
+pub fn config_detection(app: &AppHandle) -> sentinel_detect::ConfigDetection {
+    let detection = lire_detection(app);
+    let llm = if detection.llm {
+        Some(sentinel_detect::ConfigJugeLlm {
+            active: true,
+            url_base: detection.llm_url,
+            ..Default::default()
+        })
+    } else {
+        None
+    };
+    sentinel_detect::ConfigDetection {
+        yara: detection.yara,
+        llm,
+    }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn defaults_detection_yara_on_llm_off() {
+        let s = Settings::default();
+        assert!(s.detection.yara);
+        assert!(!s.detection.llm);
+        assert_eq!(s.detection.llm_url, sentinel_detect::OLLAMA_DEFAULT_URL);
+    }
+
+    #[test]
+    fn parse_legacy_toml_without_detection_block_defaults() {
+        // A settings.toml written before the `[detection]` block existed must
+        // still parse and default to "YARA on, LLM off".
+        let legacy = r#"
+            [privacy]
+            in_flight_only = true
+            outbound_lookups = false
+        "#;
+        let parsed: Settings = toml::from_str(legacy).expect("legacy TOML must parse");
+        assert!(parsed.detection.yara);
+        assert!(!parsed.detection.llm);
+    }
 
     #[test]
     fn defaults_keep_running_true() {

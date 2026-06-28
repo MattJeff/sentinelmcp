@@ -18,6 +18,7 @@ import {
   type Settings as PersistedSettings,
 } from '../api/contract';
 import SettingRow from '../components/SettingRow';
+import DetectionSettings from '../components/settings/DetectionSettings';
 import SiemSettings from '../components/settings/SiemSettings';
 import TaxiiSettings from '../components/settings/TaxiiSettings';
 import ThreatFeedSettings from '../components/settings/ThreatFeedSettings';
@@ -71,6 +72,14 @@ interface Settings {
     /** Stamped by the backend; never edited from the UI directly. */
     lastRefreshAt: string | null;
   };
+  detection: {
+    /** Local, offline YARA signature engine. ON by default. */
+    yara: boolean;
+    /** Optional local LLM judge (Ollama). OFF by default. */
+    llm: boolean;
+    /** Base URL of the local LLM endpoint (zero-cloud: localhost by default). */
+    llmUrl: string;
+  };
 }
 
 const INITIAL: Settings = {
@@ -117,6 +126,14 @@ const INITIAL: Settings = {
     url: 'https://raw.githubusercontent.com/sentinel-mcp/threat-intel-feed/main/threat_feed.yaml',
     autoRefreshEnabled: true,
     lastRefreshAt: null,
+  },
+  // Hybrid-detection defaults (V0.6): YARA is local + offline and ON; the
+  // optional local LLM judge is OFF so the zero-cloud guarantee holds until
+  // the operator explicitly opts in.
+  detection: {
+    yara: true,
+    llm: false,
+    llmUrl: 'http://localhost:11434',
   },
 };
 
@@ -185,6 +202,13 @@ function fromPersisted(p: PersistedSettings): Settings {
       autoRefreshEnabled: p.threat_feed?.auto_refresh_enabled ?? true,
       lastRefreshAt: p.threat_feed?.last_refresh_at ?? null,
     },
+    detection: {
+      // Default to the zero-cloud baseline when older settings.toml files
+      // pre-date the V0.6 detection block: YARA on, LLM off, localhost URL.
+      yara: p.detection?.yara ?? true,
+      llm: p.detection?.llm ?? false,
+      llmUrl: p.detection?.llm_url ?? 'http://localhost:11434',
+    },
   };
 }
 
@@ -217,6 +241,11 @@ function toPersisted(s: Settings): PersistedSettings {
       url: s.threatFeed.url,
       auto_refresh_enabled: s.threatFeed.autoRefreshEnabled,
       last_refresh_at: s.threatFeed.lastRefreshAt,
+    },
+    detection: {
+      yara: s.detection.yara,
+      llm: s.detection.llm,
+      llm_url: s.detection.llmUrl,
     },
   };
 }
@@ -731,6 +760,42 @@ export default function SettingsPage() {
           />
         </section>
 
+        {/* ── Detection engines (V0.6) ── */}
+        <section
+          className="card min-w-0 min-[1100px]:col-span-2"
+          aria-labelledby="settings-detection"
+        >
+          <SectionHeading
+            id="settings-detection"
+            title="Detection engines"
+          />
+          <p className="mb-4 max-w-prose text-caption text-sentinel-text-tertiary">
+            Hybrid detection over every declared tool surface. Toggle the local
+            YARA engine and the optional self-hosted LLM judge — both run
+            entirely on this Mac.
+          </p>
+          <DetectionSettings
+            yara={draft.detection.yara}
+            llm={draft.detection.llm}
+            llmUrl={draft.detection.llmUrl}
+            onYaraChange={(next) =>
+              set((s) => {
+                s.detection.yara = next;
+              })
+            }
+            onLlmChange={(next) =>
+              set((s) => {
+                s.detection.llm = next;
+              })
+            }
+            onLlmUrlChange={(next) =>
+              set((s) => {
+                s.detection.llmUrl = next;
+              })
+            }
+          />
+        </section>
+
         {/* ── Retention ── */}
         <section className="card min-w-0" aria-labelledby="settings-retention">
           <SectionHeading id="settings-retention" title="Retention" />
@@ -1167,10 +1232,11 @@ function LiveIntervalRow() {
 
 // ─── Proxy capture (mode B) ──────────────────────────────────────────────
 //
-// Thin wrappers around the `proxy_start`, `proxy_stop` and `proxy_status`
+// Thin wrappers around the `start_proxy`, `stop_proxy` and `proxy_status`
 // Tauri commands introduced in V11. We call `invoke` directly so this page
 // doesn't need a corresponding entry on the shared `api` surface — keeps the
-// change scoped to the UI layer.
+// change scoped to the UI layer. Les noms passent par `COMMANDS` pour rester
+// alignés sur le contrat (le backend expose `start_proxy`/`stop_proxy`).
 
 interface ProxyStatus {
   running: boolean;
@@ -1180,16 +1246,16 @@ interface ProxyStatus {
 }
 
 async function proxyStart(port: number, upstream: string): Promise<void> {
-  await invoke('proxy_start', { port, upstream });
+  await invoke(COMMANDS.startProxy, { port, upstream });
 }
 
 async function proxyStop(): Promise<void> {
-  await invoke('proxy_stop');
+  await invoke(COMMANDS.stopProxy);
 }
 
 async function proxyStatus(): Promise<ProxyStatus> {
   try {
-    return await invoke<ProxyStatus>('proxy_status');
+    return await invoke<ProxyStatus>(COMMANDS.proxyStatus);
   } catch {
     return { running: false, port: null, upstream: null, events_seen: 0 };
   }

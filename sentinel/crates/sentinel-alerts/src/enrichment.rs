@@ -11,6 +11,15 @@ const REFERENCES_CONFORMITE: &str = "SAFE-T1001, OWASP MCP09";
 const NOTE_INCOMPLETE: &str =
     "⚠ Contexte actionnable incomplet — voir le constat";
 
+/// En-tête de la section diff insérée dans le message actionnable.
+/// Sert aussi de garde d'idempotence : la section n'est ajoutée qu'une fois.
+const EN_TETE_DIFF: &str = "### Changement détecté (ancien vs nouveau)";
+
+/// Longueur maximale (en caractères) du diff inséré dans le message.
+/// Au-delà, le diff est tronqué dans le message — le champ `Alerte.diff`
+/// conserve de toute façon le diff complet pour les canaux qui le rendent.
+const MAX_DIFF_MESSAGE: usize = 1000;
+
 pub struct EnrichisseurAlerte;
 
 impl EnrichisseurAlerte {
@@ -26,14 +35,27 @@ impl EnrichisseurAlerte {
             alerte.diff = constat.diff.clone();
         }
 
-        // 2. Si critique et toujours sans diff, noter l'incomplétude.
+        // 2. Rendre le diff lisible directement dans le contenu actionnable
+        //    (le message) pour qu'un opérateur voie immédiatement ce qui a
+        //    changé : description, paramètres, défauts, enums — ancienne vs
+        //    nouvelle valeur. Le champ `alerte.diff` conserve le diff complet
+        //    brut pour les canaux qui le rendent séparément ; ici on garantit
+        //    que même un consommateur ne lisant que le message voit le diff.
+        if let Some(diff) = alerte.diff.as_deref() {
+            if !diff.trim().is_empty() && !alerte.message.contains(EN_TETE_DIFF) {
+                let section = Self::rendre_diff_lisible(diff);
+                alerte.message.push_str(&format!("\n\n{section}"));
+            }
+        }
+
+        // 3. Si critique et toujours sans diff, noter l'incomplétude.
         if alerte.severite == Severite::Critique && alerte.diff.is_none() {
             if !alerte.message.contains(NOTE_INCOMPLETE) {
                 alerte.message.push_str(&format!("\n\n{NOTE_INCOMPLETE}"));
             }
         }
 
-        // 3. Ajouter les références conformité en suffixe.
+        // 4. Ajouter les références conformité en suffixe.
         let suffixe = format!("\n\nRéférences : {REFERENCES_CONFORMITE}");
         if !alerte.message.contains(&suffixe) {
             alerte.message.push_str(&suffixe);
@@ -64,6 +86,25 @@ impl EnrichisseurAlerte {
             "Alerte critique '{}' (id={}) sans contexte actionnable : diff absent et aucun pattern de conformité trouvé dans le message.",
             alerte.titre, alerte.id
         ))
+    }
+
+    /// Rend un diff brut sous une forme lisible insérable dans le message
+    /// actionnable d'une alerte de rug-pull / drift.
+    ///
+    /// Le diff porte typiquement des lignes préfixées `-` (ancienne valeur) et
+    /// `+` (nouvelle valeur) — description, paramètres, défauts, enums. La
+    /// sortie encapsule ce diff dans un bloc ` ```diff ` précédé d'un en-tête
+    /// explicite (ancien vs nouveau), et le tronque au-delà de
+    /// [`MAX_DIFF_MESSAGE`] caractères pour garder le message lisible.
+    pub fn rendre_diff_lisible(diff: &str) -> String {
+        let diff = diff.trim();
+        let corps = if diff.chars().count() > MAX_DIFF_MESSAGE {
+            let tronque: String = diff.chars().take(MAX_DIFF_MESSAGE).collect();
+            format!("{tronque}\n… (diff tronqué — voir le diff complet de l'alerte)")
+        } else {
+            diff.to_string()
+        };
+        format!("{EN_TETE_DIFF}\n```diff\n{corps}\n```")
     }
 
     /// Construit un résumé actionnable texte à partir d'un Constat.

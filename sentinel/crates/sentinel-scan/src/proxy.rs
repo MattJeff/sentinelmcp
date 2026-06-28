@@ -458,7 +458,9 @@ where
         // Inspection en vol — section critique courte, aucune attente async
         // tant que le verrou est tenu, aucun contenu conservé.
         let (session_id, serveur, constats) = {
-            let mut m = moteur.lock().expect("verrou moteur d'inspection");
+            // Récupération sur mutex empoisonné : un panic dans une autre tâche
+            // ne doit pas transformer l'EDR en cible de déni de service.
+            let mut m = moteur.lock().unwrap_or_else(|e| e.into_inner());
             let constats = m.inspecter(&valeur, direction);
             (m.session_id.clone(), m.serveur.clone(), constats)
         };
@@ -685,6 +687,45 @@ mod tests_unitaires {
         assert!(textes.contains(&"trois".to_string()));
         // Les clés sont inspectées aussi.
         assert!(textes.contains(&"a".to_string()));
+    }
+
+    #[tokio::test]
+    async fn relais_tolere_mutex_empoisonne() {
+        use tokio::sync::mpsc;
+
+        let moteur = Arc::new(Mutex::new(MoteurInspection::nouveau(
+            "sess-poison",
+            "serveur-poison",
+            ConfigProxy::default(),
+        )));
+
+        // Empoisonne le verrou du moteur (panic d'une autre tâche).
+        let moteur_c = moteur.clone();
+        let h = std::thread::spawn(move || {
+            let _garde = moteur_c.lock().unwrap();
+            panic!("empoisonnement volontaire du moteur");
+        });
+        assert!(h.join().is_err(), "le thread doit avoir paniqué");
+
+        // Un message JSON-RPC traverse le relais : sans récupération sur mutex
+        // empoisonné, l'inspection paniquerait (DoS de l'EDR).
+        let (tx_constats, _rx_constats) = mpsc::channel(8);
+        let source = b"{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}\n".to_vec();
+        let mut dest: Vec<u8> = Vec::new();
+
+        let res = relayer_inspecter(
+            &source[..],
+            &mut dest,
+            Direction::ClientVersServeur,
+            moteur,
+            tx_constats,
+            None,
+        )
+        .await;
+
+        assert!(res.is_ok(), "le relais doit survivre à un mutex empoisonné");
+        // Le relais reste bit-exact malgré l'empoisonnement.
+        assert_eq!(dest, source);
     }
 
     #[test]

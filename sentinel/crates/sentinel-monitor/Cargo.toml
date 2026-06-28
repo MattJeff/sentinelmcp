@@ -8,6 +8,8 @@ license.workspace = true
 sentinel-protocol = { workspace = true }
 sentinel-store = { workspace = true }
 sentinel-report = { workspace = true }
+# Réutilisé pour la canonicalisation JSON déterministe des empreintes (B7).
+sentinel-detect = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

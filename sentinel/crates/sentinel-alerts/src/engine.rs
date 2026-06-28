@@ -82,8 +82,11 @@ impl MoteurAlertes {
             EnrichisseurAlerte::enrichir(constat, &mut alerte);
 
             // Déduplication : filtre les doublons récents.
+            // On récupère le garde même si le mutex est empoisonné : le panic
+            // d'un autre thread ne doit pas faire échouer toute la chaîne
+            // d'alertes (le pire cas est un état de dédup légèrement incohérent).
             let doit_emettre = {
-                let mut guard = self.dedup.lock().expect("mutex dedup empoisonné");
+                let mut guard = self.dedup.lock().unwrap_or_else(|e| e.into_inner());
                 guard.doit_emettre(&alerte)
             };
 

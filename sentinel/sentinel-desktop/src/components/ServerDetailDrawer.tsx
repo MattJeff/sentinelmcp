@@ -14,6 +14,7 @@ import {
   Loader2,
   Copy,
   Check,
+  ChevronDown,
 } from 'lucide-react';
 
 import { api } from '../api/tauri';
@@ -24,6 +25,7 @@ import {
   type DiscoveredClientKind,
   type DiscoveryReport,
   type EnforcementRemoveResult,
+  type Finding,
   type Investigation,
   type ProbeResult,
   type ServerDetail,
@@ -32,6 +34,8 @@ import {
   type Tool,
 } from '../api/contract';
 import ToolList from './ToolList';
+import DiffViewer from './DiffViewer';
+import { CategoryBadge, ComplianceRefBadges } from '../lib/findingCategory';
 import InvestigateDialog, {
   subscribeInvestigations,
 } from './InvestigateDialog';
@@ -147,6 +151,20 @@ export default function ServerDetailDrawer({
     () => api.discoverSystem(),
   );
   const enforcementEnabled = settings?.enforcement?.enabled ?? false;
+
+  // Open findings for this server — so the drawer can surface each finding's
+  // attack category, compliance refs, and (for rug-pull/drift) the actual
+  // before/after diff inline. `listFindings` returns every open finding; we
+  // filter client-side by server id. Keyed without the id so switching server
+  // reuses the cached list instead of refetching.
+  const { data: allFindings } = useSWR<Finding[]>(
+    open ? [COMMANDS.listFindings, 'drawer'] : null,
+    () => api.listFindings(false),
+  );
+  const serverFindings = useMemo(
+    () => (allFindings ?? []).filter((f) => f.server_id === serverId),
+    [allFindings, serverId],
+  );
 
   // Live probe state.
   const [probing, setProbing] = useState(false);
@@ -676,6 +694,52 @@ export default function ServerDetailDrawer({
                     <ArrowUpRight size={13} />
                   </a>
                 </div>
+
+                {serverFindings.length > 0 && (
+                  <ul className="mt-4 flex flex-col gap-3">
+                    {serverFindings.map((f) => (
+                      <li
+                        key={f.id}
+                        className="rounded-lg border border-sentinel-border bg-sentinel-inset p-3"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <CategoryBadge
+                            severity={f.severity}
+                            finding_type={f.finding_type}
+                            title={f.title}
+                            detail={f.detail}
+                            diff={f.diff}
+                            compliance_refs={f.compliance_refs}
+                          />
+                          <span className="text-caption font-semibold text-sentinel-text-primary">
+                            {f.title}
+                          </span>
+                        </div>
+                        {f.detail && (
+                          <p className="mt-2 text-caption leading-relaxed text-sentinel-text-secondary">
+                            {f.detail}
+                          </p>
+                        )}
+                        <ComplianceRefBadges refs={f.compliance_refs} className="mt-2" />
+                        {f.diff && (
+                          <details className="mt-3 group">
+                            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-caption text-sentinel-accent hover:underline no-drag focus-visible:outline-none focus-visible:shadow-focus rounded-lg">
+                              <ChevronDown
+                                size={13}
+                                aria-hidden
+                                className="shrink-0 transition-transform duration-200 group-open:rotate-180"
+                              />
+                              View change diff (before → after)
+                            </summary>
+                            <div className="mt-2 max-w-full overflow-x-auto">
+                              <DiffViewer diff={f.diff} />
+                            </div>
+                          </details>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               {/* Tags — operator-curated labels persisted on the server row */}

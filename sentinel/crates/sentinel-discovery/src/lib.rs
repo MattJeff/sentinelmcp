@@ -21,7 +21,8 @@ pub mod trust_graph;
 
 pub use model::{ClientDecouvert, ClientKind, ConfigSource, ServeurMcpDeclare};
 pub use skills::{
-    ConstatSkillTexte, DecouvreurSkills, ScopeSkill, SkillDecouvert, TypeArtefactSkill,
+    inspecter_skill_complet, ConstatSkillTexte, DecouvreurSkills, ScopeSkill, SkillDecouvert,
+    TypeArtefactSkill,
 };
 pub use orchestrator::{RapportDecouverte, OrchestrateurDecouverte};
 pub use runtime_inspector::{ProcessusObserve, InspecteurRuntime};

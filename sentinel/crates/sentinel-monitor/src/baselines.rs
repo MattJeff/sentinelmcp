@@ -36,9 +36,22 @@ impl GestionnaireBaselines {
         let empreintes_outils: BTreeMap<String, Empreinte> = outils
             .iter()
             .map(|outil| {
-                let json = serde_json::to_string(outil)
-                    .unwrap_or_else(|_| format!("{}", outil.nom));
-                let hash = hex::encode(Sha256::digest(json.as_bytes()));
+                // Canonicalisation déterministe (clés triées) avant hash : un
+                // outil logiquement identique produit toujours la même empreinte,
+                // indépendamment de l'ordre des clés du `input_schema` (B7).
+                let canonical = match serde_json::to_value(outil) {
+                    Ok(valeur) => sentinel_detect::canonicaliser_json(&valeur),
+                    Err(e) => {
+                        // Repli sur le nom seul, mais sans rester silencieux (B8).
+                        tracing::warn!(
+                            outil = %outil.nom,
+                            erreur = %e,
+                            "sérialisation de l'outil échouée, repli sur le nom seul"
+                        );
+                        outil.nom.clone()
+                    }
+                };
+                let hash = hex::encode(Sha256::digest(canonical.as_bytes()));
                 (outil.nom.clone(), Empreinte::new(hash))
             })
             .collect();

@@ -16,10 +16,13 @@
 //! return [`EtatAttestation::NonNpm`] with a note — extending coverage to
 //! those ecosystems is left to future versions.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use sentinel_protocol::{Constat, EtatConstat, ServeurId, Severite, TypeConstat};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::model::ServeurMcpDeclare;
 
@@ -393,6 +396,187 @@ fn appliquer_metadata_registry(att: &mut AttestationSupplyChain, body: &serde_js
 }
 
 // ---------------------------------------------------------------------------
+// D7 — baseline + diff d'attestation (rug-pull supply-chain par version)
+// ---------------------------------------------------------------------------
+
+/// Compare deux attestations successives du **même paquet** et émet un constat
+/// de rug-pull supply-chain si l'artefact qui s'exécutera a changé.
+///
+/// Motivation (rug-pull *Postmark*) : un paquet réputé republie une version dont
+/// le binaire est altéré alors que la surface d'outils MCP exposée par le serveur
+/// est inchangée. La dérive est invisible au niveau du protocole (l'empreinte des
+/// outils ne bouge pas) ; seul l'artefact npm — donc son empreinte SHA-512 ou sa
+/// version résolue — change. On compare ici précisément ces données déjà
+/// collectées par [`VerifierSupplyChain::attester`].
+///
+/// Sévérité :
+///   - **même version, empreinte SHA-512 différente** → re-publication sous le
+///     même tag : `Severite::Critique`. npm garantit l'immutabilité d'une version
+///     publiée ; une empreinte qui change à version constante est une violation
+///     directe (tampering / compromission du mainteneur) ;
+///   - **version disponible différente** (avec ou sans changement d'empreinte) →
+///     l'artefact résolu a bougé depuis l'attestation : `Severite::Haute`. Une
+///     mise à jour peut être légitime, mais doit être ré-attestée par l'opérateur.
+///
+/// Retourne `None` — donc **aucun faux positif** — si les attestations ne portent
+/// pas sur le même paquet, ou si rien d'observable n'a changé.
+pub fn comparer_attestation(
+    precedente: &AttestationSupplyChain,
+    courante: &AttestationSupplyChain,
+    serveur_id: ServeurId,
+) -> Option<Constat> {
+    // Comparaison cohérente uniquement entre attestations du même paquet
+    // (le `package_id` = nom npm résolu sert de clé d'identité).
+    let paquet = courante.package_name.as_deref()?;
+    if precedente.package_name.as_deref() != Some(paquet) {
+        return None;
+    }
+
+    let hash_p = precedente.tarball_sha512.as_deref();
+    let hash_c = courante.tarball_sha512.as_deref();
+    // Changement d'empreinte uniquement si les DEUX côtés en exposent une : une
+    // empreinte absente d'un côté est une lacune de collecte, pas une preuve de
+    // dérive (on évite ainsi un faux positif réseau/registry).
+    let hash_change = matches!((hash_p, hash_c), (Some(a), Some(b)) if a != b);
+
+    let ver_p = precedente.version_disponible.as_deref();
+    let ver_c = courante.version_disponible.as_deref();
+    let version_change = matches!((ver_p, ver_c), (Some(a), Some(b)) if a != b);
+
+    if !hash_change && !version_change {
+        return None;
+    }
+
+    // Empreinte altérée à version identique = re-publication / tampering.
+    let republie_meme_version = hash_change && !version_change;
+    let severite = if republie_meme_version {
+        Severite::Critique
+    } else {
+        Severite::Haute
+    };
+
+    let titre = if republie_meme_version {
+        format!("Rug-pull supply-chain : artefact de « {paquet} » republié sous la même version")
+    } else {
+        format!("Rug-pull supply-chain : artefact de « {paquet} » modifié depuis l'attestation")
+    };
+
+    let detail = format!(
+        "Paquet « {paquet} » : l'attestation supply-chain a changé alors que la surface \
+         d'outils MCP peut être inchangée (rug-pull par version). Version attestée : {} → {} ; \
+         empreinte SHA-512 : {} → {}. Ré-attester puis approuver explicitement la nouvelle \
+         version avant de réactiver le serveur.",
+        ver_p.unwrap_or("?"),
+        ver_c.unwrap_or("?"),
+        hash_p.unwrap_or("?"),
+        hash_c.unwrap_or("?"),
+    );
+
+    Some(Constat {
+        id: Uuid::new_v4(),
+        serveur_id,
+        outil_nom: None,
+        type_constat: TypeConstat::RugPull,
+        severite,
+        titre,
+        detail,
+        diff: Some(construire_diff_attestation(precedente, courante)),
+        references_conformite: vec!["SAFE-T1201".to_string(), "OWASP MCP03".to_string()],
+        horodatage: Utc::now(),
+        etat: EtatConstat::Ouvert,
+    })
+}
+
+/// Construit un diff Markdown lisible (UI) entre deux attestations.
+fn construire_diff_attestation(
+    precedente: &AttestationSupplyChain,
+    courante: &AttestationSupplyChain,
+) -> String {
+    let ligne = |libelle: &str, avant: Option<&str>, apres: Option<&str>| -> String {
+        let a = avant.unwrap_or("∅");
+        let b = apres.unwrap_or("∅");
+        if a == b {
+            format!("- {libelle} : `{a}` (inchangé)\n")
+        } else {
+            format!("- {libelle} : `{a}` → `{b}`\n")
+        }
+    };
+    let mut md = String::from("### Dérive d'attestation supply-chain\n\n");
+    md.push_str(&ligne(
+        "Version",
+        precedente.version_disponible.as_deref(),
+        courante.version_disponible.as_deref(),
+    ));
+    md.push_str(&ligne(
+        "Empreinte SHA-512",
+        precedente.tarball_sha512.as_deref(),
+        courante.tarball_sha512.as_deref(),
+    ));
+    md.push_str(&ligne(
+        "Publiée le",
+        precedente.publie_a.map(|d| d.to_rfc3339()).as_deref(),
+        courante.publie_a.map(|d| d.to_rfc3339()).as_deref(),
+    ));
+    if precedente.maintainers != courante.maintainers {
+        md.push_str(&format!(
+            "- Mainteneurs : `{}` → `{}`\n",
+            precedente.maintainers.join(", "),
+            courante.maintainers.join(", "),
+        ));
+    }
+    md
+}
+
+/// Baseline en mémoire des attestations supply-chain, indexée par `package_id`
+/// (le nom de paquet npm résolu).
+///
+/// Permet de détecter un rug-pull supply-chain **sans dépendre du store** : à
+/// chaque ré-attestation d'un paquet, on compare à la précédente via
+/// [`comparer_attestation`] puis on met la baseline à jour. Quand une couche de
+/// persistance est disponible, l'appelant peut hydrater cette baseline au
+/// démarrage et y reverser les attestations approuvées.
+#[derive(Debug, Clone, Default)]
+pub struct BaselineAttestations {
+    par_paquet: BTreeMap<String, AttestationSupplyChain>,
+}
+
+impl BaselineAttestations {
+    /// Baseline vide.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Observe une nouvelle attestation : la compare à la baseline du même
+    /// `package_id`, met la baseline à jour, puis retourne un constat de
+    /// rug-pull supply-chain si l'artefact a changé.
+    ///
+    /// La toute première attestation d'un paquet n'émet jamais de constat (rien
+    /// à comparer). Une attestation non résolue en paquet npm (`package_name`
+    /// absent — uvx, binaire local…) est ignorée : pas de `package_id`, donc
+    /// pas de baseline possible.
+    pub fn observer(
+        &mut self,
+        att: &AttestationSupplyChain,
+        serveur_id: ServeurId,
+    ) -> Option<Constat> {
+        let Some(paquet) = att.package_name.clone() else {
+            return None;
+        };
+        let constat = self
+            .par_paquet
+            .get(&paquet)
+            .and_then(|prec| comparer_attestation(prec, att, serveur_id));
+        self.par_paquet.insert(paquet, att.clone());
+        constat
+    }
+
+    /// Attestation actuellement en baseline pour un `package_id`, le cas échéant.
+    pub fn attestation(&self, package_id: &str) -> Option<&AttestationSupplyChain> {
+        self.par_paquet.get(package_id)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests (pure logic — no network).
 // ---------------------------------------------------------------------------
 
@@ -436,5 +620,86 @@ mod unit {
         assert_eq!(classer_commande("npx"), CommandeKind::Npx);
         assert_eq!(classer_commande("uvx"), CommandeKind::Uvx);
         assert_eq!(classer_commande("docker"), CommandeKind::Autre);
+    }
+
+    // -- D7 : comparaison d'attestations (rug-pull supply-chain) ------------
+
+    /// Fabrique une attestation `Verifie` minimale paramétrée pour les tests.
+    fn att(paquet: &str, version: &str, hash: &str) -> AttestationSupplyChain {
+        AttestationSupplyChain {
+            serveur_nom: "srv".to_string(),
+            package_name: Some(paquet.to_string()),
+            version_requise: None,
+            version_disponible: Some(version.to_string()),
+            tarball_sha512: Some(hash.to_string()),
+            maintainers: vec!["alice".to_string()],
+            publie_a: None,
+            downloads_weekly: None,
+            etat: EtatAttestation::Verifie,
+            notes: vec![],
+        }
+    }
+
+    #[test]
+    fn rugpull_meme_version_hash_change_est_critique() {
+        let avant = att("@scope/postmark", "1.0.0", "sha512-AAAA");
+        let apres = att("@scope/postmark", "1.0.0", "sha512-BBBB");
+        let c = comparer_attestation(&avant, &apres, Uuid::nil())
+            .expect("une re-publication à empreinte modifiée doit produire un constat");
+        assert_eq!(c.type_constat, TypeConstat::RugPull);
+        assert_eq!(c.severite, Severite::Critique);
+        assert!(c.diff.is_some(), "le constat doit porter un diff lisible");
+    }
+
+    #[test]
+    fn rugpull_version_change_est_haute() {
+        let avant = att("@scope/postmark", "1.0.0", "sha512-AAAA");
+        let apres = att("@scope/postmark", "1.1.0", "sha512-BBBB");
+        let c = comparer_attestation(&avant, &apres, Uuid::nil())
+            .expect("un changement de version doit produire un constat");
+        assert_eq!(c.severite, Severite::Haute);
+    }
+
+    #[test]
+    fn pas_de_constat_quand_rien_ne_change() {
+        // Faux positif proscrit : deux attestations identiques.
+        let a = att("@scope/postmark", "1.0.0", "sha512-AAAA");
+        assert!(comparer_attestation(&a, &a, Uuid::nil()).is_none());
+    }
+
+    #[test]
+    fn paquets_differents_non_comparables() {
+        let avant = att("@scope/a", "1.0.0", "sha512-AAAA");
+        let apres = att("@scope/b", "2.0.0", "sha512-BBBB");
+        assert!(comparer_attestation(&avant, &apres, Uuid::nil()).is_none());
+    }
+
+    #[test]
+    fn empreinte_absente_un_cote_ne_declenche_pas_sur_le_hash() {
+        // Lacune de collecte (registry indisponible) ≠ dérive : pas de constat
+        // si seule l'empreinte manque et que la version est stable.
+        let mut avant = att("@scope/a", "1.0.0", "sha512-AAAA");
+        avant.tarball_sha512 = None;
+        let apres = att("@scope/a", "1.0.0", "sha512-AAAA");
+        assert!(comparer_attestation(&avant, &apres, Uuid::nil()).is_none());
+    }
+
+    #[test]
+    fn baseline_premiere_observation_silencieuse_puis_detecte() {
+        let mut baseline = BaselineAttestations::new();
+        let v1 = att("@scope/postmark", "1.0.0", "sha512-AAAA");
+        // Première observation : rien à comparer.
+        assert!(baseline.observer(&v1, Uuid::nil()).is_none());
+        assert!(baseline.attestation("@scope/postmark").is_some());
+
+        // Re-publication silencieuse sous la même version → constat critique.
+        let v2 = att("@scope/postmark", "1.0.0", "sha512-CCCC");
+        let c = baseline
+            .observer(&v2, Uuid::nil())
+            .expect("la dérive d'empreinte doit être détectée par la baseline");
+        assert_eq!(c.severite, Severite::Critique);
+
+        // La baseline a été mise à jour : ré-observer la v2 ne re-déclenche pas.
+        assert!(baseline.observer(&v2, Uuid::nil()).is_none());
     }
 }

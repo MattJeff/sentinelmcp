@@ -53,8 +53,24 @@ impl ClientElastic {
 
     /// Pousse `alert_json` comme un nouveau document vers l'index.
     ///
-    /// Retourne `Ok(())` si le statut HTTP est 2xx, sinon une `SinkError`.
+    /// Retourne `Ok(())` si le statut HTTP est 2xx, sinon une `SinkError`. Un
+    /// mot de passe sous forme de référence `keyring:<nom>` est résolu via le
+    /// trousseau OS (cf. [`Self::envoyer_avec_coffre`]).
     pub async fn envoyer(&self, alert_json: &serde_json::Value) -> Result<(), SinkError> {
+        self.envoyer_avec_coffre(alert_json, crate::secrets::coffre_actif().as_deref())
+            .await
+    }
+
+    /// Variante de [`Self::envoyer`] avec coffre de secrets injectable.
+    ///
+    /// Avant l'authentification HTTP Basic, un mot de passe resté sous forme de
+    /// référence `keyring:<nom>` est résolu via `coffre` — un secret ne doit
+    /// jamais partir en clair sous forme de référence (défense en profondeur).
+    pub async fn envoyer_avec_coffre(
+        &self,
+        alert_json: &serde_json::Value,
+        coffre: Option<&dyn crate::secrets::CoffreSecrets>,
+    ) -> Result<(), SinkError> {
         let base = self.base_url.trim_end_matches('/');
         let url = format!("{}/{}/_doc", base, self.index);
 
@@ -65,6 +81,7 @@ impl ClientElastic {
             .json(alert_json);
 
         if let Some((user, pass)) = &self.auth {
+            let pass = super::resoudre_secret(pass, coffre).map_err(SinkError::Io)?;
             req = req.basic_auth(user, Some(pass));
         }
 

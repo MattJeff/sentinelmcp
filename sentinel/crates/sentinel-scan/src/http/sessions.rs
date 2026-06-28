@@ -46,7 +46,7 @@ impl SuiviSessionsHttp {
     /// Retourne l'URL upstream à utiliser pour cette session.
     pub fn enregistrer(&self, session_id: &str) -> String {
         let maintenant = Utc::now();
-        let mut sessions = self.sessions.lock().expect("mutex sessions empoisonné");
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
 
         let info = sessions.entry(session_id.to_string()).or_insert_with(|| InfoSession {
             id: session_id.to_string(),
@@ -63,7 +63,7 @@ impl SuiviSessionsHttp {
 
     /// Retourne une copie de l'info session si elle existe.
     pub fn obtenir(&self, session_id: &str) -> Option<InfoSession> {
-        let sessions = self.sessions.lock().expect("mutex sessions empoisonné");
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.get(session_id).cloned()
     }
 
@@ -74,7 +74,7 @@ impl SuiviSessionsHttp {
 
     /// Retourne le nombre de sessions actives.
     pub fn nb_sessions(&self) -> usize {
-        let sessions = self.sessions.lock().expect("mutex sessions empoisonné");
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.len()
     }
 }
@@ -109,5 +109,27 @@ mod tests {
     fn session_inconnue_retourne_none() {
         let suivi = SuiviSessionsHttp::nouveau("http://localhost:3000");
         assert!(suivi.obtenir("inexistant").is_none());
+    }
+
+    #[test]
+    fn recuperation_sur_mutex_empoisonne() {
+        // Un mutex empoisonné (panic d'une autre tâche tenant le verrou) ne doit
+        // pas paralyser le suivi des sessions : récupération via `into_inner`.
+        let suivi = SuiviSessionsHttp::nouveau("http://localhost:3000");
+        suivi.enregistrer("avant");
+
+        // Empoisonne le mutex partagé en paniquant alors qu'il est verrouillé.
+        let suivi_clone = suivi.clone();
+        let h = std::thread::spawn(move || {
+            let _garde = suivi_clone.sessions.lock().unwrap();
+            panic!("empoisonnement volontaire du mutex sessions");
+        });
+        assert!(h.join().is_err(), "le thread doit avoir paniqué");
+
+        // Sans récupération, ces appels paniqueraient (`.expect`).
+        let upstream = suivi.enregistrer("apres");
+        assert_eq!(upstream, "http://localhost:3000");
+        assert!(suivi.obtenir("avant").is_some());
+        assert_eq!(suivi.nb_sessions(), 2);
     }
 }

@@ -53,15 +53,40 @@ enum Cmd {
         /// Sortie JSON machine-readable (inventaire + constats).
         #[arg(long)]
         json: bool,
+        /// Force l'activation du moteur YARA local (défaut : activé).
+        #[arg(long)]
+        yara: bool,
+        /// Désactive le moteur YARA local.
+        #[arg(long)]
+        no_yara: bool,
+        /// Active le juge LLM local (Ollama) — opt-in, zéro-cloud (défaut : désactivé).
+        #[arg(long)]
+        llm: bool,
+        /// URL de base de l'API Ollama locale pour le juge LLM.
+        #[arg(long, default_value_t = sentinel_detect::OLLAMA_DEFAULT_URL.to_string())]
+        llm_url: String,
     },
     /// Audit statique d'un dépôt/dossier : trouve les configs MCP et applique
-    /// la détection poisoning/sosies — conçu pour la CI, aucun store requis.
+    /// la détection poisoning/sosies/transport/secrets — conçu pour la CI,
+    /// aucun store requis.
     Audit {
         /// Dossier (ou fichier de config) à auditer.
         chemin: PathBuf,
         /// Sortie JSON machine-readable.
         #[arg(long)]
         json: bool,
+        /// Force l'activation du moteur YARA local (défaut : activé).
+        #[arg(long)]
+        yara: bool,
+        /// Désactive le moteur YARA local.
+        #[arg(long)]
+        no_yara: bool,
+        /// Active le juge LLM local (Ollama) — opt-in, zéro-cloud (défaut : désactivé).
+        #[arg(long)]
+        llm: bool,
+        /// URL de base de l'API Ollama locale pour le juge LLM.
+        #[arg(long, default_value_t = sentinel_detect::OLLAMA_DEFAULT_URL.to_string())]
+        llm_url: String,
     },
     /// Surveillance continue : re-balaye la découverte et signale les
     /// nouveaux serveurs. Logs structurés sur stderr.
@@ -105,16 +130,38 @@ async fn main() -> ExitCode {
     let quiet = cli.quiet;
 
     let resultat: anyhow::Result<CodeSortie> = match cli.cmd {
-        Cmd::Scan { probe, db, json } => {
+        Cmd::Scan {
+            probe,
+            db,
+            json,
+            yara,
+            no_yara,
+            llm,
+            llm_url,
+        } => {
             cmd_scan::executer(cmd_scan::OptionsScan {
                 probe,
                 db,
                 json,
                 quiet,
+                // `--no-yara` désactive ; `--yara` force ; défaut = activé.
+                detection: sortie::config_detection(yara || !no_yara, llm, &llm_url),
             })
             .await
         }
-        Cmd::Audit { chemin, json } => cmd_audit::executer(&chemin, json, quiet),
+        Cmd::Audit {
+            chemin,
+            json,
+            yara,
+            no_yara,
+            llm,
+            llm_url,
+        } => cmd_audit::executer(
+            &chemin,
+            json,
+            quiet,
+            &sortie::config_detection(yara || !no_yara, llm, &llm_url),
+        ),
         Cmd::Monitor {
             daemon,
             interval,

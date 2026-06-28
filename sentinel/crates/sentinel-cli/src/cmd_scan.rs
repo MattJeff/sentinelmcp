@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use sentinel_detect::InspecteurPoisoning;
+use sentinel_detect::{ConfigDetection, InspecteurPoisoning};
 use sentinel_discovery::{EtatProbe, OrchestrateurDecouverte, ProbeurActif, ServeurMcpDeclare};
 use sentinel_protocol::{
     extraire_package_id, Couleur, Portee, Serveur, Severite, StatutServeur, Transport,
@@ -19,13 +19,18 @@ use sentinel_scan::store_contract::{AdaptateurStore, ContratScanStore, Evenement
 use sentinel_store::Store;
 
 use crate::db::ouvrir_store;
-use crate::sortie::{code_depuis_severites, imprimer, libelle_severite, rendre_table, CodeSortie};
+use crate::sortie::{
+    code_depuis_severites, imprimer, libelle_severite, libelle_type, rendre_table, CodeSortie,
+};
 
 pub struct OptionsScan {
     pub probe: bool,
     pub db: Option<PathBuf>,
     pub json: bool,
     pub quiet: bool,
+    /// Configuration du pipeline de détection hybride (patterns + smuggling +
+    /// line-jumping + YARA local + juge LLM optionnel). Voir `--yara`/`--llm`.
+    pub detection: ConfigDetection,
 }
 
 #[derive(Serialize)]
@@ -163,25 +168,29 @@ pub async fn executer(opts: OptionsScan) -> Result<CodeSortie> {
                     };
                     match adaptateur.enregistrer_inventaire(evenement).await {
                         Ok(serveur_id) => {
-                            let constats_poisoning = if rp.constats_poisoning.is_empty() {
-                                InspecteurPoisoning::inspecter(&rp.outils)
-                            } else {
-                                rp.constats_poisoning.clone()
-                            };
-                            for cp in &constats_poisoning {
-                                let constat = InspecteurPoisoning::vers_constat(cp, serveur_id);
+                            // Pipeline de détection hybride : patterns + smuggling +
+                            // line-jumping + YARA local (+ juge LLM si `--llm`). Superset
+                            // strict des constats poisoning du probe (`rp.constats_poisoning`,
+                            // qui n'est que `InspecteurPoisoning::inspecter`).
+                            let constats_detection = InspecteurPoisoning::inspecter_complet(
+                                &rp.outils,
+                                serveur_id,
+                                &opts.detection,
+                            )
+                            .await;
+                            for constat in &constats_detection {
                                 severites.push(constat.severite);
                                 constats.push(ConstatJson {
                                     serveur: serv.nom.clone(),
                                     outil: constat.outil_nom.clone(),
-                                    type_constat: "poisoning".into(),
+                                    type_constat: libelle_type(&constat.type_constat).into(),
                                     severite: libelle_severite(&constat.severite).into(),
                                     titre: constat.titre.clone(),
                                     detail: constat.detail.clone(),
                                 });
-                                if let Err(e) = store.enregistrer_constat(&constat) {
+                                if let Err(e) = store.enregistrer_constat(constat) {
                                     tracing::warn!(
-                                        "constat poisoning non persisté pour {}: {e}",
+                                        "constat de détection non persisté pour {}: {e}",
                                         serv.nom
                                     );
                                 }

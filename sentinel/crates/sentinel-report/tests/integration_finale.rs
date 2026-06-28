@@ -14,6 +14,12 @@ use sentinel_store::Store;
 use std::time::Instant;
 use uuid::Uuid;
 
+/// Force la clé de signature éphémère : tests hermétiques, sans accès au
+/// trousseau OS (cf. convention `SENTINEL_NO_KEYRING`).
+fn hermetique() {
+    std::env::set_var("SENTINEL_NO_KEYRING", "1");
+}
+
 // ------------------------------------------------------------------ //
 //  Helpers                                                             //
 // ------------------------------------------------------------------ //
@@ -69,6 +75,7 @@ fn enregistrer_constat_critique(store: &Store, serveur_id: uuid::Uuid) {
 
 #[tokio::test]
 async fn test_pipeline_complet() {
+    hermetique();
     // 1. Store en mémoire + adaptateur.
     let store = Store::in_memory().expect("store en mémoire");
     let adaptateur = AdaptateurStore::nouveau(store.clone());
@@ -146,6 +153,7 @@ async fn test_pipeline_complet() {
 
 #[tokio::test]
 async fn test_pipeline_complet_sous_5_secondes() {
+    hermetique();
     let debut = Instant::now();
 
     // 1. Store en mémoire + adaptateur.

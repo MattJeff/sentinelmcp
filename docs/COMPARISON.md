@@ -14,8 +14,9 @@ The category Sentinel occupies is **MCP Detection & Response (MCPDR)**: continuo
 | Active probing (`tools/list`) | **Yes** | Yes (consent required) | N/A (containerized) | No (static) | Via proxy | Yes | Varies |
 | Persistent cross-session baselines | **Yes (canonical SHA-256 + package_id)** | Description hashes only | No | No | No | No | Cloud inventory |
 | Continuous runtime detection | **Real-time stdio proxy (poisoning, exfil combos, sampling abuse) + periodic scan + file watcher** | Real-time proxy mode | Yes (gateway, OIDC, per-tool policies) | No | Yes (live approvals) | No | Yes (traffic) |
-| Tool poisoning | **40+ patterns + YARA rules + optional local LLM judge (Ollama), all local** | Yes (cloud LLM, Snyk token required) | Indirect | Yes | Basic checks | Yes (YARA + LLM-judge) | Yes |
-| Lookalikes / typosquatting | **Jaro-Winkler, 4 registries** | No | No | No | No | No | Partial (JFrog) |
+| Tool poisoning | **Hybrid local engine, wired in CLI + UI: 40+ patterns + Unicode anti-smuggling/NFKC + line-jumping + YARA (yara-x) + optional Ollama LLM judge** | Yes (cloud LLM, Snyk token required) | Indirect | Yes | Basic checks | Yes (YARA + LLM-judge) | Yes |
+| Lookalikes / typosquatting | **Jaro-Winkler + Unicode confusables (UTS#39 skeleton), 4 registries** | No | No | No | No | No | Partial (JFrog) |
+| Supply-chain attestation (npm integrity) | **Yes (SHA-512, maintainers, publish date, pinned version + version-level rug-pull diff)** | No | No | No | No | No | Partial (JFrog) |
 | Exfiltration combos | **Yes** | "Toxic flows" | No | Yes (basic) | No | No | Yes |
 | SIEM (Splunk / Elastic / Syslog TLS) | **Native** | No (Snyk platform) | OTel/observability | No | No | No | Yes |
 | STIX 2.1 / TAXII 2.1 | **Yes** | No | No | No | No | No | Rare |
@@ -36,7 +37,9 @@ The category Sentinel occupies is **MCP Detection & Response (MCPDR)**: continuo
 
 4. **Multi-registry lookalike detection.** Jaro-Winkler similarity (name + description) against four public registries (PulseMCP, Smithery, mcp.so, the official MCP registry), with an official-package allowlist and asymmetric scoring to cut false positives. Nobody else covers MCP typosquatting.
 
-5. **Ed25519-signed compliance reports** with native mapping to SOC 2 (CC6.1/CC7.1/CC7.2), ISO 27001, OWASP MCP (MCP03/MCP09) and SAFE-MCP (T1001/T1201). An auditor-grade, offline-verifiable artifact that neither the OSS scanners nor the gateways offer.
+5. **Ed25519-signed compliance reports** (signing on by default, key sealed in the OS keychain, verifiable offline; the PDF footer carries the signature notice) with native mapping to SOC 2 (CC6.1/CC7.1/CC7.2), ISO 27001, OWASP MCP (MCP03/MCP09), SAFE-MCP (T1001/T1201), OWASP ASI (ASI06) and — where a technique is clearly applicable — MITRE ATT&CK / ATLAS (T1195, T1036, T1567, T1598, ATLAS AML.T0051). An auditor-grade, offline-verifiable artifact that neither the OSS scanners nor the gateways offer.
+
+6. **Supply-chain attestation and version-level rug-pull.** For every npm-launched server (`npx`), Sentinel resolves the real package, then attests it against the public npm registry: SHA-512 tarball integrity, maintainers, publish date, weekly downloads, and whether the version is pinned. Re-attesting later flags a *version-level* rug-pull — the exact **Postmark** pattern, where a reputable package republishes a tampered artifact while the MCP tool surface is unchanged: same version + different SHA-512 is **critical**, a moved version is **high**. Lookalike scanning is also now **confusable-aware** (UTS#39 skeleton), catching homoglyph spoofs (e.g. Cyrillic `а` in `pаypal`) that plain Jaro-Winkler would miss.
 
 ---
 
@@ -48,11 +51,11 @@ Honest gaps, with the plan to close each one:
 
 2. ~~**Skills/agents coverage**~~ **Closed (June 2026).** Discovery now scans skills and sub-agents across user (`~/.claude/skills`, `~/.claude/agents`, `~/.agents/skills`, `~/.codex/skills`), project (`.claude/skills`, `.agents/skills` in every known Claude Code project) and extension (Claude Code plugins) scopes, and runs every artifact through the poisoning inspector.
 
-3. **Enforcement/blocking** (ToolHive: container isolation, per-tool policies, OIDC). Sentinel detects first, blocks second: enforcement mode already quarantines a compromised server from the client config (timestamped backup, one-click restore) but is opt-in and advisory by default. *Roadmap:* an "approve before run" gate.
+3. ~~**Hybrid detection engines**~~ **Closed (June 2026), wired end to end.** The poisoning pipeline (`InspecteurPoisoning::inspecter_complet`) now runs, in order: regex patterns + Unicode anti-smuggling (zero-width, bidi controls, the Tags block, ANSI escapes) on the raw text, NFKC normalization to defeat full-width/homoglyph evasions, line-jumping patterns, then YARA rules (yara-x, pure Rust — 3 embedded rules + an importable rule directory), and finally an optional, off-by-default *local* LLM judge via Ollama. Zero-cloud preserved: localhost only, short timeouts, nothing leaves the machine. **Now exposed both in the CLI** (`sentinel scan` and the new `sentinel audit <path>`, with `--yara`/`--no-yara`/`--llm`/`--llm-url`) **and in the desktop app** (Settings → *Detection engines*: YARA toggle, local LLM-judge toggle + endpoint, read-only list of the embedded YARA rules).
 
-4. ~~**Hybrid detection engines**~~ **Closed (June 2026).** YARA rules (yara-x, pure Rust — 3 embedded rules + importable rule directory) plus an optional, off-by-default *local* LLM judge via Ollama. Zero-cloud preserved: localhost only, short timeouts, nothing leaves the machine. UI/CLI exposure on the way.
+4. **Enforcement / "approve before run"** (ToolHive: container isolation, per-tool policies, OIDC). Sentinel detects first, blocks second: enforcement mode already quarantines a compromised server from the client config (timestamped backup, one-click restore), but it is opt-in and advisory by default — there is still no inline gate that holds a `tools/call` until an operator approves it. *Roadmap:* an approve-before-run gate on the stdio proxy.
 
-5. **Traction and distribution** (2,552 stars for Snyk's scanner, Smithery registry integration, 961 for Cisco). *Roadmap:* open-source the scan engine (open-core model), pursue a registry integration, publish public benchmarks ("we scanned N public servers").
+5. **Traction and distribution** (2,552 stars for Snyk's scanner, Smithery registry integration, 961 for Cisco). Threat-intel matching also still relies on a curated feed (bundled in the binary + optional 24 h refresh from a configured URL) rather than a continuously-synced live registry of known-malicious packages. *Roadmap:* open-source the scan engine (open-core model), a live registry integration, and public benchmarks ("we scanned N public servers").
 
 ---
 

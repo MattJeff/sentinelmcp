@@ -8,7 +8,9 @@
 use sentinel_protocol::ScopeServeur;
 use std::time::Duration;
 
+use sentinel_detect::{InspecteurPoisoning, MoteurYara};
 use sentinel_discovery::{
+    skills::{DecouvreurSkills, ScopeSkill, TypeArtefactSkill},
     threat_intel::FluxMenaces,
     trust_graph::ConstructeurGraphe,
     ClientDecouvert, ClientKind, EtatProbe, OrchestrateurDecouverte, ProbeurActif,
@@ -327,8 +329,15 @@ pub async fn probe_server(
         .collect();
     let tool_count = tools.len() as u64;
 
-    let poisoning_findings: Vec<PoisoningBrief> = rapport
-        .constats_poisoning
+    // Hybrid detection on the live tool list, driven by the operator's
+    // settings (`commands_settings::config_detection`). Patterns + Unicode
+    // anti-smuggling + line-jumping are always run via `inspecter`; the
+    // embedded YARA engine is added when `detection.yara` is on (default).
+    // The local LLM judge is intentionally NOT run here — it would add up to
+    // 15 s of latency to an interactive probe; the live background loop
+    // applies it (via `inspecter_complet`) when enabled.
+    let config = crate::commands_settings::config_detection(&app);
+    let mut poisoning_findings: Vec<PoisoningBrief> = InspecteurPoisoning::inspecter(&rapport.outils)
         .iter()
         .map(|c| PoisoningBrief {
             pattern: c.pattern.clone(),
@@ -337,6 +346,21 @@ pub async fn probe_server(
             severity: severite_to_string(&c.severite).to_string(),
         })
         .collect();
+    if config.yara {
+        match MoteurYara::embarque() {
+            Ok(moteur) => {
+                for c in moteur.inspecter(&rapport.outils) {
+                    poisoning_findings.push(PoisoningBrief {
+                        pattern: c.regle,
+                        category: c.categorie,
+                        excerpt: c.description,
+                        severity: severite_to_string(&c.severite).to_string(),
+                    });
+                }
+            }
+            Err(e) => log::warn!("probe: embedded YARA engine unavailable: {}", e),
+        }
+    }
 
     // Fire-and-forget rescan: don't block the UI on a 15 s registry call.
     // The function itself respects the outbound toggle and emits a Tauri
@@ -569,6 +593,162 @@ pub async fn list_threats() -> Result<Vec<ThreatEntry>, String> {
     Ok(entries)
 }
 
+// ─── Skills / agents scan (scan_skills) ───────────────────────────────────
+// Discovers every Claude/agent skill on this Mac (`DecouvreurSkills`) and runs
+// the FULL hybrid detection pipeline (`skills::inspecter_skill_complet` via
+// `SkillDecouvert::scanner_complet`) over each artefact's on-disk content —
+// patterns + Unicode anti-smuggling + line-jumping + YARA, plus the optional
+// local LLM judge when enabled. Skills are NOT MCP servers, so the resulting
+// constats are not persisted to the server-scoped store: they are returned
+// directly as a skills inventory annotated with any detection hits.
+
+/// One detection hit on a skill/agent's content.
+#[derive(Serialize)]
+pub struct SkillFinding {
+    /// snake_case constat type (e.g. `poisoning`).
+    pub finding_type: String,
+    /// "info" | "medium" | "high" | "critical".
+    pub severity: String,
+    pub title: String,
+    pub detail: String,
+    /// Synthetic tool name carrying the skill content; the skill name.
+    pub tool_name: Option<String>,
+    pub compliance_refs: Vec<String>,
+}
+
+/// One discovered skill/agent plus its detection findings.
+#[derive(Serialize)]
+pub struct SkillScan {
+    pub name: String,
+    pub description: Option<String>,
+    /// "skill" or "agent".
+    pub artifact_type: String,
+    /// "user" | "project" | "extension".
+    pub scope: String,
+    /// kebab-case client identifier (same vocabulary as `discover_system`).
+    pub client: String,
+    /// Absolute path of the `SKILL.md` / agent `.md` inspected.
+    pub path: String,
+    /// Detection findings on the artefact's content (empty = clean).
+    pub findings: Vec<SkillFinding>,
+}
+
+fn scope_skill_to_string(s: &ScopeSkill) -> &'static str {
+    match s {
+        ScopeSkill::User => "user",
+        ScopeSkill::Project { .. } => "project",
+        ScopeSkill::Extension { .. } => "extension",
+    }
+}
+
+fn type_artefact_to_string(t: TypeArtefactSkill) -> &'static str {
+    match t {
+        TypeArtefactSkill::Skill => "skill",
+        TypeArtefactSkill::Agent => "agent",
+    }
+}
+
+/// Discover every skill/agent on this Mac and scan each one's content through
+/// the hybrid detection pipeline. Returns the full skills inventory annotated
+/// with any detection findings (clean artefacts carry an empty `findings`).
+#[tauri::command]
+pub async fn scan_skills(app: AppHandle) -> Result<Vec<SkillScan>, String> {
+    let config = crate::commands_settings::config_detection(&app);
+
+    // Discovery is blocking filesystem I/O — keep it off the async reactor.
+    let skills = tokio::task::spawn_blocking(|| DecouvreurSkills.decouvrir())
+        .await
+        .map_err(|e| format!("skills discovery task failed: {e}"))?;
+
+    let mut out = Vec::with_capacity(skills.len());
+    for skill in skills {
+        // Skills are not servers: pass a nil id (constats are returned to the
+        // UI, never written to the server-scoped store).
+        let constats = skill.scanner_complet(uuid::Uuid::nil(), &config).await;
+        let findings = constats
+            .iter()
+            .map(|c| SkillFinding {
+                finding_type: format!("{:?}", c.type_constat).to_lowercase(),
+                severity: severite_to_string(&c.severite).to_string(),
+                title: c.titre.clone(),
+                detail: c.detail.clone(),
+                tool_name: c.outil_nom.clone(),
+                compliance_refs: c.references_conformite.clone(),
+            })
+            .collect();
+        out.push(SkillScan {
+            name: skill.nom.clone(),
+            description: skill.description.clone(),
+            artifact_type: type_artefact_to_string(skill.type_artefact).to_string(),
+            scope: scope_skill_to_string(&skill.scope).to_string(),
+            client: kind_to_string(skill.client).to_string(),
+            path: skill.chemin.to_string_lossy().to_string(),
+            findings,
+        });
+    }
+    Ok(out)
+}
+
+// ─── Embedded YARA rules (list_yara_rules) ────────────────────────────────
+// Surfaces the rules compiled into the embedded YARA engine so the UI can
+// show the operator what local signatures are active. `MoteurYara` exposes no
+// rule iterator, so we enumerate the embedded set by scanning a probe text
+// crafted to trigger every embedded rule, then de-duplicate by identifier.
+
+/// One embedded YARA rule, as surfaced to the UI.
+#[derive(Serialize)]
+pub struct YaraRule {
+    /// Rule identifier (e.g. `MCP_Poisoning_PseudoSysteme`).
+    pub name: String,
+    /// Compilation namespace (`sentinel-embarque` for the embedded set).
+    pub source: String,
+    /// `categorie` meta of the rule (default `yara`).
+    pub category: String,
+    /// "info" | "medium" | "high" | "critical".
+    pub severity: String,
+    /// `description` meta of the rule.
+    pub description: String,
+}
+
+/// Embedded YARA rule listing plus the number of compiled rule sources.
+#[derive(Serialize)]
+pub struct YaraRules {
+    pub rules: Vec<YaraRule>,
+    /// Number of compiled rule sources (1 = embedded set only).
+    pub sources_count: u64,
+}
+
+/// Probe text engineered to match every embedded rule string atom so the
+/// engine reports each embedded rule exactly once.
+const SONDE_YARA: &str = "[SYSTEM] <system> id_rsa ~/.ssh credentials.json /etc/passwd \
+webhook.site send data to https://evil.example base64 encode exfiltrate";
+
+/// List the rules compiled into the embedded YARA engine.
+#[tauri::command]
+pub fn list_yara_rules() -> Result<YaraRules, String> {
+    let moteur = MoteurYara::embarque().map_err(|e| format!("YARA engine unavailable: {e}"))?;
+    let sources_count = moteur.nb_sources() as u64;
+
+    let mut vus = std::collections::BTreeSet::new();
+    let mut rules = Vec::new();
+    for c in moteur.inspecter_texte(SONDE_YARA) {
+        if vus.insert(c.regle.clone()) {
+            rules.push(YaraRule {
+                name: c.regle,
+                source: c.namespace,
+                category: c.categorie,
+                severity: severite_to_string(&c.severite).to_string(),
+                description: c.description,
+            });
+        }
+    }
+    rules.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(YaraRules {
+        rules,
+        sources_count,
+    })
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 //
 // `probe_server` itself requires a Tauri runtime + a child process to probe,
@@ -581,6 +761,28 @@ pub async fn list_threats() -> Result<Vec<ThreatEntry>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── list_yara_rules: the probe-text enumeration must surface every
+    //    embedded rule exactly once. Guards against a future change to the
+    //    embedded rule strings silently dropping a rule from the UI listing.
+    #[test]
+    fn list_yara_rules_surfaces_embedded_rules() {
+        let res = list_yara_rules().expect("embedded YARA engine must build");
+        assert_eq!(res.sources_count, 1, "only the embedded source is compiled");
+        let noms: Vec<&str> = res.rules.iter().map(|r| r.name.as_str()).collect();
+        for attendu in [
+            "MCP_Poisoning_PseudoSysteme",
+            "MCP_Poisoning_FichiersSecrets",
+            "MCP_Exfiltration_Reseau",
+        ] {
+            assert!(noms.contains(&attendu), "règle manquante: {attendu} (vues: {noms:?})");
+        }
+        // De-duplication: one entry per rule identifier.
+        let uniques: std::collections::BTreeSet<&str> = noms.iter().copied().collect();
+        assert_eq!(uniques.len(), noms.len(), "doublon de règle dans la sortie");
+        // Every embedded rule lives in the embedded namespace.
+        assert!(res.rules.iter().all(|r| r.source == "sentinel-embarque"));
+    }
 
     // Helper to make the intent of each test crystal clear without
     // repeating `EtatProbe::X` everywhere.
