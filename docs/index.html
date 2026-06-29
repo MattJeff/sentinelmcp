@@ -633,12 +633,13 @@
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .7A11.5 11.5 0 0 0 8.36 23.1c.58.1.79-.25.79-.56v-2.23c-3.23.7-3.91-1.37-3.91-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.78 1.2 1.78 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.58-.3-5.29-1.29-5.29-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.19-1.49 3.15-1.18 3.15-1.18.64 1.59.24 2.76.12 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.72 5.39-5.3 5.68.42.36.79 1.06.79 2.14v3.26c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg>
               View on GitHub
             </a>
-            <a class="button" href="https://github.com/MattJeff/sentinelmcp/blob/main/docs/QUICKSTART.md" target="_blank" rel="noreferrer">Read the quickstart <span aria-hidden="true">↗</span></a>
+            <a class="button" href="https://github.com/MattJeff/sentinelmcp/releases/latest" target="_blank" rel="noreferrer">Download <span aria-hidden="true">↓</span></a>
+            <a class="button" href="https://github.com/MattJeff/sentinelmcp/blob/main/docs/QUICKSTART.md" target="_blank" rel="noreferrer">Quickstart <span aria-hidden="true">↗</span></a>
           </div>
-          <div class="install-strip" aria-label="Source installation command">
+          <div class="install-strip" aria-label="Installation command">
             <span class="prompt mono">$</span>
-            <code>git clone https://github.com/MattJeff/sentinelmcp &amp;&amp; cd sentinelmcp/sentinel</code>
-            <button class="copy-button" type="button" data-copy="git clone https://github.com/MattJeff/sentinelmcp &amp;&amp; cd sentinelmcp/sentinel &amp;&amp; cargo install --path crates/sentinel-cli" aria-label="Copy installation command">
+            <code>brew install MattJeff/sentinel/sentinel</code>
+            <button class="copy-button" type="button" data-copy="brew install MattJeff/sentinel/sentinel &amp;&amp; sentinel scan" aria-label="Copy installation command">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/></svg>
             </button>
           </div>
@@ -815,18 +816,19 @@
         <div class="install-card reveal">
           <p class="label">Start with the machine in front of you</p>
           <h2>Turn Shadow MCP into an inventory.</h2>
-          <p>Build the CLI from source, run a local scan, and see what your agents can actually reach.</p>
+          <p>Install in one line, run a local scan, and see what your agents can actually reach.</p>
           <div class="terminal">
-            <div class="terminal-head"><span>INSTALL FROM SOURCE</span><button class="copy-button" type="button" data-copy="git clone https://github.com/MattJeff/sentinelmcp &amp;&amp; cd sentinelmcp/sentinel &amp;&amp; cargo install --path crates/sentinel-cli &amp;&amp; sentinel scan" aria-label="Copy all install commands"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/></svg></button></div>
-            <pre><span class="cmd">git clone</span> https://github.com/MattJeff/sentinelmcp
-<span class="cmd">cd</span> sentinelmcp/sentinel
-<span class="cmd">cargo install</span> --path crates/sentinel-cli
+            <div class="terminal-head"><span>INSTALL</span><button class="copy-button" type="button" data-copy="brew install MattJeff/sentinel/sentinel &amp;&amp; sentinel scan" aria-label="Copy all install commands"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/></svg></button></div>
+            <pre><span class="comment"># macOS / Linux — Homebrew</span>
+<span class="cmd">brew install</span> MattJeff/sentinel/sentinel
+<span class="comment"># or the one-liner:</span>
+<span class="cmd">curl</span> -fsSL https://sentinelmcp.dev/install.sh | sh
 <span class="cmd">sentinel scan</span> <span class="comment"># local, read-only</span></pre>
           </div>
-          <p class="install-note">Requires a Rust toolchain. Packaged installers are planned for the next tagged release.</p>
+          <p class="install-note">Windows &amp; all platforms: download the binary (with SHA-256) from the latest release. From source: <span class="mono">git clone &amp; cargo install --path crates/sentinel-cli</span>.</p>
           <div class="install-actions">
-            <a class="button primary" href="https://github.com/MattJeff/sentinelmcp" target="_blank" rel="noreferrer">Explore the repository <span aria-hidden="true">↗</span></a>
-            <a class="button" href="https://github.com/MattJeff/sentinelmcp/blob/main/docs/DETECTION-MATRIX.md" target="_blank" rel="noreferrer">Detection matrix</a>
+            <a class="button primary" href="https://github.com/MattJeff/sentinelmcp/releases/latest" target="_blank" rel="noreferrer">Download binaries <span aria-hidden="true">↓</span></a>
+            <a class="button" href="https://github.com/MattJeff/sentinelmcp" target="_blank" rel="noreferrer">Explore the repository <span aria-hidden="true">↗</span></a>
           </div>
         </div>
       </div>

@@ -58,26 +58,27 @@ We call the category **MCP Detection & Response (MCPDR)**.
 
 ### Install
 
-**Today — build from source** (the CLI is a single `sentinel` binary):
+**macOS / Linux** — Homebrew or the one-liner (both download a signed-checksum binary):
+
+```bash
+brew install MattJeff/sentinel/sentinel
+# or:
+curl -fsSL https://sentinelmcp.dev/install.sh | sh
+```
+
+**Any platform** — grab the binary for your OS/arch from the
+**[latest release](https://github.com/MattJeff/sentinelmcp/releases/latest)** (macOS arm64/x86_64,
+Linux arm64/x86_64, Windows x86_64), each with a `.sha256` checksum. On Windows, extract the `.tar.gz`
+and run `sentinel.exe`.
+
+**From source** (Rust toolchain):
 
 ```bash
 git clone https://github.com/MattJeff/sentinelmcp && cd sentinelmcp/sentinel
-cargo install --path crates/sentinel-cli   # or: cargo build --release -p sentinel-cli
-sentinel scan
+cargo install --path crates/sentinel-cli
 ```
 
-**Coming with the next tagged release** (tracked in [`LAUNCH.md`](LAUNCH.md) / [`packaging/`](packaging/)):
-
-```bash
-curl -fsSL https://sentinelmcp.dev/install.sh | sh   # one-liner (downloads + verifies the release binary)
-brew install MattJeff/sentinel/sentinel              # Homebrew tap
-cargo install sentinel-cli                           # crates.io
-npx sentinelmcp scan                                 # npm wrapper (cargo-dist)
-```
-
-> ℹ️ The packaged installers above are **not live yet** — they need a published release with platform
-> binaries (`cargo-dist`) and the `MattJeff/homebrew-sentinel` tap. Until then, use the source build.
-> The signed & **Apple-notarized** desktop app (`.dmg`) is on [Releases](https://github.com/MattJeff/sentinelmcp/releases/latest).
+Then run `sentinel scan`. *(`cargo install sentinel-cli` on crates.io and `npx sentinelmcp` are coming.)*
 
 ### First scan (60 seconds)
 
