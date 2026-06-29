@@ -26,7 +26,7 @@
 ### J0 — Préparation (ne rien publier)
 - [ ] **README hero** (voir `README.md`, déjà mis à jour par ce kit) + relire la promesse / les gaps honnêtes.
 - [ ] **GIF démo 15–25 s** de `sentinel scan` (outils : [VHS](https://github.com/charmbracelet/vhs), asciinema, terminalizer). Montrer la découverte multi-clients + un constat rouge.
-- [ ] **Landing GitHub Pages** (voir `landing/index.html`).
+- [ ] **Landing GitHub Pages** (`docs/index.html`, servie sur `https://mattjeff.github.io/sentinelmcp/`).
 - [ ] **Figer le chiffre benchmark** : `sentinel benchmark --json > benchmark.json` (ou `--offline`), noter `N serveurs / X% avec findings`.
 - [ ] **Réserver les namespaces** (voir § Namespaces) : crates.io, npm, `homebrew-sentinel`, `sentinel-action`.
 - [ ] **Release multi-OS** via `cargo-dist` (voir `packaging/cargo-dist.md`) → binaires + checksums + formules.
