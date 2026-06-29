@@ -29,7 +29,7 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # keyring → libdbus-sys exige la lib de dev dbus sur Linux pour compiler.
       - name: Dépendances système (Linux)
@@ -106,7 +106,7 @@ jobs:
             bundles: msi,nsis
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Dépendances système (linux)
         if: runner.os == 'Linux'
