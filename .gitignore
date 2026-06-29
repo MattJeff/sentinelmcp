@@ -62,3 +62,16 @@ ehthumbs.db
 # Artefacts locaux Claude Code (workflows/worktrees de session)
 .claude/workflows/
 .claude/worktrees/
+
+# Secrets / clés (filet de securite — ne jamais committer)
+*.pem
+*.key
+*.p8
+*.pfx
+*.keystore
+id_rsa
+id_ed25519
+*.mobileprovision
+.netrc
+credentials.json
+secrets.toml
