@@ -19,6 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Le crate `keyring` (résolution des secrets) dépend de `libdbus-sys` sur
+      # Linux → la lib de dev dbus + pkg-config sont requises pour compiler.
+      # (Sur macOS le Keychain est utilisé, sur Windows le Credential Manager :
+      # aucune dépendance système.)
+      - name: Dépendances système (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
       - name: Installer Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -43,11 +51,28 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
         working-directory: sentinel
 
-      - name: Tests
-        # --skip : test de perf (<1 ms pour 1000 lookups) trop strict pour les
-        # runners partagés GitHub en build debug — flaky en CI, gardé en local.
-        # --no-fail-fast : exercer tous les crates même si l'un échoue.
+      # Linux/macOS : suite complète (intégration incluse). Les serveurs MCP
+      # réels via `npx` sont ignorés proprement si npx est absent du runner.
+      # --skip : test de perf (<1 ms pour 1000 lookups) trop strict pour les
+      # runners partagés GitHub en build debug — flaky en CI, gardé en local.
+      - name: Tests (Linux/macOS)
+        if: runner.os != 'Windows'
         run: cargo test --workspace --no-fail-fast -- --skip lookup_o1_moins_de_1ms_pour_1000_appels
+        working-directory: sentinel
+
+      # Windows : on garantit que TOUT compile (y compris les tests), puis on
+      # exécute les tests unitaires hermétiques. Les tests d'INTÉGRATION de
+      # découverte (tests/) sont OS-dépendants par nature (faux binaires sans
+      # bit exécutable, extensions .exe, npx absent du PATH) et ne gatent donc
+      # pas la CI Windows — leur compilation, elle, est vérifiée.
+      - name: Build all-targets (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --workspace --all-targets
+        working-directory: sentinel
+
+      - name: Tests unitaires (Windows)
+        if: runner.os == 'Windows'
+        run: cargo test --workspace --lib --no-fail-fast -- --skip lookup_o1_moins_de_1ms_pour_1000_appels
         working-directory: sentinel
 
   frontend:
