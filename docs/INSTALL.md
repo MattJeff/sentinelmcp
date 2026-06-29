@@ -20,34 +20,28 @@ Windows 11.
 
 ## 1. Homebrew (macOS / Linux)
 
-La formule vit dans [`dist/homebrew/sentinel-mcp.rb`](../dist/homebrew/sentinel-mcp.rb),
-un chemin que `brew tap` ne scanne pas (Homebrew ne reconnait que `Formula/`,
-`HomebrewFormula/` ou la racine d'un depot tape). Installez-la directement
-depuis le fichier :
+Le tap dedie `MattJeff/homebrew-sentinel` est publie : la voie classique
+fonctionne directement et telecharge le binaire signe de la derniere release.
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/MattJeff/sentinelmcp/main/dist/homebrew/sentinel-mcp.rb
-brew install --formula ./sentinel-mcp.rb
+brew install MattJeff/sentinel/sentinel
 ```
 
-Pour builder depuis la branche `main` (necessite Rust) :
+Equivalent en deux temps :
 
 ```sh
-brew install --HEAD --formula ./sentinel-mcp.rb
+brew tap MattJeff/sentinel
+brew install sentinel
 ```
 
-Des qu'un tap dedie `MattJeff/homebrew-sentinelmcp` (avec la formule copiee
-dans `Formula/sentinel-mcp.rb`) sera publie, la voie classique fonctionnera :
-
-```sh
-brew tap MattJeff/sentinelmcp
-brew install sentinel-mcp
-```
+> Note : `brew install sentinelmcp` (sans le prefixe `MattJeff/sentinel/`) ne
+> fonctionne pas — la formule n'est pas dans homebrew-core, uniquement dans le
+> tap ci-dessus.
 
 ## 2. Installeur curl | bash (macOS / Linux)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MattJeff/sentinelmcp/main/scripts/install.sh | bash
+curl -fsSL https://sentinelmcp.dev/install.sh | sh
 ```
 
 L'installeur detecte l'OS et l'architecture, telecharge la derniere release,
@@ -58,7 +52,7 @@ Options via variables d'environnement :
 
 ```sh
 # Installer une version precise
-SENTINEL_VERSION=0.1.0 bash -c "$(curl -fsSL https://raw.githubusercontent.com/MattJeff/sentinelmcp/main/scripts/install.sh)"
+SENTINEL_VERSION=0.8.0 bash -c "$(curl -fsSL https://raw.githubusercontent.com/MattJeff/sentinelmcp/main/scripts/install.sh)"
 
 # Choisir le dossier d'installation
 SENTINEL_INSTALL_DIR=/opt/sentinel/bin bash -c "$(curl -fsSL https://raw.githubusercontent.com/MattJeff/sentinelmcp/main/scripts/install.sh)"
@@ -94,31 +88,31 @@ cargo install --git https://github.com/MattJeff/sentinelmcp sentinel-cli
    l'archive correspondant a votre cible, par exemple :
 
    ```sh
-   curl -fsSLO https://github.com/MattJeff/sentinelmcp/releases/download/v0.1.0/sentinel-0.1.0-aarch64-apple-darwin.tar.gz
-   curl -fsSLO https://github.com/MattJeff/sentinelmcp/releases/download/v0.1.0/sentinel-0.1.0-aarch64-apple-darwin.tar.gz.sha256
+   curl -fsSLO https://github.com/MattJeff/sentinelmcp/releases/download/v0.8.0/sentinel-0.8.0-aarch64-apple-darwin.tar.gz
+   curl -fsSLO https://github.com/MattJeff/sentinelmcp/releases/download/v0.8.0/sentinel-0.8.0-aarch64-apple-darwin.tar.gz.sha256
    ```
 
 2. Verifier le checksum :
 
    ```sh
    # macOS
-   shasum -a 256 -c sentinel-0.1.0-aarch64-apple-darwin.tar.gz.sha256
+   shasum -a 256 -c sentinel-0.8.0-aarch64-apple-darwin.tar.gz.sha256
    # Linux
-   sha256sum -c sentinel-0.1.0-aarch64-apple-darwin.tar.gz.sha256
+   sha256sum -c sentinel-0.8.0-aarch64-apple-darwin.tar.gz.sha256
    ```
 
 3. Extraire et installer :
 
    ```sh
-   tar -xzf sentinel-0.1.0-aarch64-apple-darwin.tar.gz
+   tar -xzf sentinel-0.8.0-aarch64-apple-darwin.tar.gz
    install -m 755 sentinel ~/.local/bin/sentinel
    ```
 
 Sous Windows (PowerShell, `tar` est inclus depuis Windows 10) :
 
 ```powershell
-Invoke-WebRequest https://github.com/MattJeff/sentinelmcp/releases/download/v0.1.0/sentinel-0.1.0-x86_64-pc-windows-msvc.tar.gz -OutFile sentinel.tar.gz
-Invoke-WebRequest https://github.com/MattJeff/sentinelmcp/releases/download/v0.1.0/sentinel-0.1.0-x86_64-pc-windows-msvc.tar.gz.sha256 -OutFile sentinel.tar.gz.sha256
+Invoke-WebRequest https://github.com/MattJeff/sentinelmcp/releases/download/v0.8.0/sentinel-0.8.0-x86_64-pc-windows-msvc.tar.gz -OutFile sentinel.tar.gz
+Invoke-WebRequest https://github.com/MattJeff/sentinelmcp/releases/download/v0.8.0/sentinel-0.8.0-x86_64-pc-windows-msvc.tar.gz.sha256 -OutFile sentinel.tar.gz.sha256
 
 # Verification du checksum : compare le hash calcule au hash publie
 $expected = ((Get-Content sentinel.tar.gz.sha256 -Raw).Trim() -split "\s+")[0]

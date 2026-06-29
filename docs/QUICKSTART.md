@@ -15,10 +15,10 @@ Pick one:
 curl -fsSL https://sentinelmcp.dev/install.sh | sh
 
 # Homebrew
-brew install MattJeff/sentinelmcp/sentinel-mcp
+brew install MattJeff/sentinel/sentinel
 
 # Cargo (builds from source)
-cargo install sentinel-cli
+cargo install --git https://github.com/MattJeff/sentinelmcp sentinel-cli
 ```
 
 Verify:
@@ -27,7 +27,7 @@ Verify:
 sentinel --version
 ```
 
-Pre-built binaries are published for macOS, Linux and Windows (x86_64 + ARM64) — see [INSTALL.md](INSTALL.md) for every target and SHA-256 checksum verification.
+Pre-built binaries are published for macOS and Linux (x86_64 + ARM64) and Windows (x86_64) — see [INSTALL.md](INSTALL.md) for every target and SHA-256 checksum verification.
 
 ### Discover
 

@@ -3,7 +3,7 @@
 Sentinel MCP est un outil de découverte, fingerprinting, surveillance et audit
 des serveurs MCP (Model Context Protocol) qu'un Mac de développeur expose à
 ses agents IA. Cette page liste **toutes** les fonctionnalités livrées
-jusqu'à la version 0.6 — à quoi elles servent, dans quel cas elles se
+jusqu'à la version 0.8.0 — à quoi elles servent, dans quel cas elles se
 déclenchent, et quelles questions de sécurité ou de conformité elles
 résolvent.
 
@@ -1545,7 +1545,9 @@ chiffré.
 
 ## 20. Limites connues
 
-- Couverture macOS uniquement en v0.6 (Apple Silicon — Tauri 2).
+- L'**app desktop** (Tauri 2, v0.6.0) est macOS / Apple Silicon uniquement ; le
+  **CLI**, lui, est livré pour macOS (arm64/x86_64), Linux (arm64/x86_64) et
+  Windows (x86_64).
 - Pas de plugin Cursor / Continue / Aider pour interception en flux —
   passage par le proxy mode B nécessaire si on veut capter le trafic
   HTTP runtime.

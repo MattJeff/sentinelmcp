@@ -24,7 +24,7 @@ The category Sentinel occupies is **MCP Detection & Response (MCPDR)**: continuo
 | SIEM (Splunk / Elastic / Syslog TLS) | **Native** | No (Snyk platform) | OTel/observability | No | No | No | Yes |
 | STIX 2.1 / TAXII 2.1 | **Yes** | No | No | No | No | No | Rare |
 | Signed compliance reports (Ed25519, SOC 2/ISO/OWASP/SAFE-MCP) | **Yes** | No | No | No | No | No | Dashboards |
-| Desktop multi-OS + CLI/CI | Yes (Rust, notarized) | Python CLI (uv + token) | CLI/K8s/Studio | Node CLI | Desktop | Python CLI | Agents/SaaS |
+| Desktop + multi-OS CLI/CI | CLI macOS/Linux/Windows + macOS desktop (Rust, notarized) | Python CLI (uv + token) | CLI/K8s/Studio | Node CLI | Desktop | Python CLI | Agents/SaaS |
 | License / pricing | Product | Apache-2.0 free + paid Snyk platform | Apache-2.0 free | MIT | Apache-2.0 (inactive since 08/2025) | Apache-2.0 | Enterprise $$$ |
 | Traction (GitHub stars) | — | **2,552** | 1,870 | 132 | 199 (abandoned) | 961 | Strong (enterprise GTM) |
 

@@ -26,7 +26,7 @@
 ### J0 — Préparation (ne rien publier)
 - [ ] **README hero** (voir `README.md`, déjà mis à jour par ce kit) + relire la promesse / les gaps honnêtes.
 - [ ] **GIF démo 15–25 s** de `sentinel scan` (outils : [VHS](https://github.com/charmbracelet/vhs), asciinema, terminalizer). Montrer la découverte multi-clients + un constat rouge.
-- [ ] **Landing GitHub Pages** (`docs/index.html`, servie sur `https://mattjeff.github.io/sentinelmcp/`).
+- [ ] **Landing GitHub Pages** (`docs/index.html`, servie sur `https://sentinelmcp.dev` via Cloudflare).
 - [ ] **Figer le chiffre benchmark** : `sentinel benchmark --json > benchmark.json` (ou `--offline`), noter `N serveurs / X% avec findings`.
 - [ ] **Réserver les namespaces** (voir § Namespaces) : crates.io, npm, `homebrew-sentinel`, `sentinel-action`.
 - [ ] **Release multi-OS** via `cargo-dist` (voir `packaging/cargo-dist.md`) → binaires + checksums + formules.
@@ -163,7 +163,7 @@ L'action existe déjà et est complète : [`action/action.yml`](action/action.ym
 - **Mesurer** : stars/jour, installs (brew/npm/`cargo install`/Action runs), position front-page HN/PH, calls design-partners bookés, trafic landing.
 - **Garde-fou #1** : ne publier **aucune** stat non vérifiée. Utiliser les chiffres `sentinel benchmark` réels.
 - **Garde-fou #2** : répondre vite et avec humilité aux faux positifs signalés (un EDR crédible assume ses limites).
-- **Risque produit** : la CI GitHub Actions est actuellement bloquée par la facturation du compte — la régler avant le pic de trafic (les visiteurs cliquent le badge CI).
+- **Garde-fou CI** : le badge CI est public et cliqué par les visiteurs — la CI GitHub Actions est désormais **verte**, la garder ainsi avant et pendant le pic de trafic.
 
 ---
 

@@ -28,7 +28,7 @@ Everything a developer or a single machine/CI needs. No account, no telemetry, n
 | Tool poisoning (40+ patterns + Unicode anti-smuggling + line-jumping + YARA + optional **local** LLM judge) | ✅ Free & open |
 | Lookalikes/confusables, lethal-trifecta, supply-chain rug-pull, offline CVE, skills scanning | ✅ Free & open |
 | Real-time stdio proxy (tool-output scanning, approve-before-run) | ✅ Free & open |
-| `sentinel audit` + **GitHub Action**, desktop app + CLI (macOS/Linux/Windows) | ✅ Free & open |
+| `sentinel audit` + **GitHub Action**, desktop app (macOS) + CLI (macOS/Linux/Windows) | ✅ Free & open |
 | **SIEM** (Splunk/Elastic/Syslog TLS), **STIX 2.1 / TAXII 2.1**, **Ed25519-signed compliance reports** | ✅ Free & open |
 | `sentinel benchmark`, `sentinel report`, Prometheus `/metrics` | ✅ Free & open |
 

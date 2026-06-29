@@ -7,7 +7,7 @@ Sentinel discovers every MCP server your AI agents expose across <b>14 clients</
 </p>
 
 <p align="center">
-  <a href="https://github.com/MattJeff/sentinelmcp/releases/latest"><img src="https://img.shields.io/badge/release-v0.8-blue" alt="Release"></a>
+  <a href="https://github.com/MattJeff/sentinelmcp/releases/latest"><img src="https://img.shields.io/badge/release-v0.8.0-blue" alt="Release"></a>
   <a href="https://github.com/MattJeff/sentinelmcp/actions"><img src="https://img.shields.io/badge/CI-passing-brightgreen" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="License"></a>
   <a href="#quickstart"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20%7C%20CI-orange" alt="Platform"></a>
@@ -15,10 +15,11 @@ Sentinel discovers every MCP server your AI agents expose across <b>14 clients</
 </p>
 
 ```bash
-# Build from source — works today (packaged installs ship with the next release).
-git clone https://github.com/MattJeff/sentinelmcp && cd sentinelmcp/sentinel
-cargo install --path crates/sentinel-cli   # installs the `sentinel` binary
-sentinel scan                              # 100% local, read-only — ~8s
+# Install (macOS / Linux) — downloads a signed-checksum binary, 100% local
+brew install MattJeff/sentinel/sentinel
+# or: curl -fsSL https://sentinelmcp.dev/install.sh | sh
+
+sentinel scan   # read-only — fingerprints every MCP server across your AI clients (~8s)
 ```
 
 <p align="center">
@@ -225,7 +226,7 @@ discovery (14 clients) ──► scan (stdio/HTTP capture, tools/list parser, pr
 | `sentinel-stix` / `sentinel-taxii` | STIX 2.1 serialization, TAXII 2.1 client |
 | `sentinel-cli` | Command-line interface (scan, report, list…) |
 
-The desktop app is signed **Developer ID** and **notarized by Apple** (macOS / Apple Silicon in v0.6). The CLI runs anywhere Rust runs and slots into CI.
+The desktop app is signed **Developer ID** and **notarized by Apple** (macOS / Apple Silicon). The CLI runs anywhere Rust runs (macOS, Linux, Windows) and slots into CI.
 
 For the complete feature reference (every page, detector, setting and Tauri command), see **[sentinel/FEATURES.md](sentinel/FEATURES.md)**.
 
