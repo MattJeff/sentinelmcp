@@ -51,27 +51,28 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
         working-directory: sentinel
 
-      # Linux/macOS : suite complète (intégration incluse). Les serveurs MCP
-      # réels via `npx` sont ignorés proprement si npx est absent du runner.
+      # macOS : suite COMPLÈTE (intégration incluse). Les tests d'intégration de
+      # découverte (tests/) reposent sur des chemins de config spécifiques à
+      # macOS (« ~/Library/Application Support/… ») ; ils passent ici.
       # --skip : test de perf (<1 ms pour 1000 lookups) trop strict pour les
       # runners partagés GitHub en build debug — flaky en CI, gardé en local.
-      - name: Tests (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Tests (macOS — suite complète)
+        if: runner.os == 'macOS'
         run: cargo test --workspace --no-fail-fast -- --skip lookup_o1_moins_de_1ms_pour_1000_appels
         working-directory: sentinel
 
-      # Windows : on garantit que TOUT compile (y compris les tests), puis on
+      # Linux & Windows : on garantit que TOUT compile (tests inclus), puis on
       # exécute les tests unitaires hermétiques. Les tests d'INTÉGRATION de
-      # découverte (tests/) sont OS-dépendants par nature (faux binaires sans
-      # bit exécutable, extensions .exe, npx absent du PATH) et ne gatent donc
-      # pas la CI Windows — leur compilation, elle, est vérifiée.
-      - name: Build all-targets (Windows)
-        if: runner.os == 'Windows'
+      # découverte sont OS-dépendants par nature (chemins macOS, faux binaires
+      # sans bit exécutable / extension .exe, npx absent du PATH) et ne gatent
+      # donc pas ces deux OS — leur compilation, elle, est bien vérifiée.
+      - name: Build all-targets (Linux/Windows)
+        if: runner.os != 'macOS'
         run: cargo build --workspace --all-targets
         working-directory: sentinel
 
-      - name: Tests unitaires (Windows)
-        if: runner.os == 'Windows'
+      - name: Tests unitaires (Linux/Windows)
+        if: runner.os != 'macOS'
         run: cargo test --workspace --lib --no-fail-fast -- --skip lookup_o1_moins_de_1ms_pour_1000_appels
         working-directory: sentinel
 

@@ -190,6 +190,10 @@ jobs:
   release:
     name: Draft GitHub Release
     needs: [cli, tauri]
+    # La release sort dès que les binaires CLI multi-OS sont prêts, MÊME si le
+    # job desktop (tauri) échoue — utile quand les secrets Apple de notarisation
+    # ne sont pas configurés. Le .dmg signé s'ajoute seulement si tauri réussit.
+    if: ${{ always() && needs.cli.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Télécharger tous les artefacts
