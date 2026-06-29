@@ -27,6 +27,15 @@ use tracing::warn;
 
 use crate::lookalikes::{EntreeRegistre, SignatureOutil};
 
+/// URL par défaut de l'API REST du registre **officiel** MCP
+/// (`registry.modelcontextprotocol.io`). C'est la source faisant désormais
+/// autorité : elle renvoie un objet `{ "servers": [...] }` directement
+/// exploitable par [`parser_registry_json`]. Tentée en premier par
+/// [`lister_serveurs`] ; en cas d'échec (réseau, statut non-2xx, JSON
+/// invalide ou liste vide) on retombe sur le dépôt GitHub historique.
+pub const MCP_REGISTRY_OFFICIAL_API_URL: &str =
+    "https://registry.modelcontextprotocol.io/v0/servers?limit=100";
+
 /// URL « raw » par défaut du fichier `registry.json` (étape 1).
 pub const MCP_REGISTRY_RAW_URL: &str =
     "https://raw.githubusercontent.com/modelcontextprotocol/servers/main/registry.json";
@@ -41,10 +50,62 @@ const TIMEOUT_REQUETE: Duration = Duration::from_secs(8);
 /// User-Agent envoyé aux endpoints GitHub (l'API en exige un explicite).
 const USER_AGENT: &str = "sentinel-detect/0.1 (+https://github.com/sentinel-mcp)";
 
-/// Récupère la liste des serveurs du registre officiel MCP via les URLs
-/// par défaut (raw `registry.json` puis repli sur l'API README).
+/// Récupère la liste des serveurs du registre officiel MCP.
+///
+/// Stratégie en deux temps :
+///   1. l'API REST faisant autorité (`registry.modelcontextprotocol.io`) ;
+///   2. à défaut (échec ou liste vide), repli sur le dépôt GitHub
+///      `modelcontextprotocol/servers` (raw `registry.json` puis README).
 pub async fn lister_serveurs() -> Vec<EntreeRegistre> {
+    let officiel = lister_serveurs_depuis_api(MCP_REGISTRY_OFFICIAL_API_URL).await;
+    if !officiel.is_empty() {
+        return officiel;
+    }
     lister_serveurs_depuis(MCP_REGISTRY_RAW_URL, MCP_REGISTRY_README_API_URL).await
+}
+
+/// Interroge l'API REST du registre officiel MCP et parse le corps avec
+/// [`parser_registry_json`] (qui reconnaît la forme `{ "servers": [...] }`).
+///
+/// Variante paramétrable utilisée par `lister_serveurs` et par les tests
+/// d'intégration (wiremock). Toute défaillance (réseau, statut non-2xx,
+/// corps illisible ou JSON invalide) produit un Vec vide — jamais de
+/// panique, jamais de propagation d'erreur.
+pub async fn lister_serveurs_depuis_api(url: &str) -> Vec<EntreeRegistre> {
+    let client = match reqwest::Client::builder()
+        .timeout(TIMEOUT_REQUETE)
+        .user_agent(USER_AGENT)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(erreur = %e, "mcp-registry : client HTTP (API officielle) impossible");
+            return Vec::new();
+        }
+    };
+
+    let reponse = match client.get(url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(erreur = %e, url = %url, "mcp-registry : échec requête API officielle");
+            return Vec::new();
+        }
+    };
+
+    if !reponse.status().is_success() {
+        warn!(statut = %reponse.status(), url = %url, "mcp-registry : statut HTTP non-2xx sur l'API officielle");
+        return Vec::new();
+    }
+
+    let texte = match reponse.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            warn!(erreur = %e, "mcp-registry : lecture du corps de l'API officielle impossible");
+            return Vec::new();
+        }
+    };
+
+    parser_registry_json(&texte)
 }
 
 /// Variante paramétrable de `lister_serveurs` — utilisée par les tests
@@ -475,5 +536,91 @@ mod base64_decode {
             assert_eq!(decode_standard("Zm9vYmFy").unwrap(), b"foobar");
             assert_eq!(decode_standard("").unwrap(), b"");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_fixtures {
+    use super::*;
+
+    /// Échantillon réaliste de `GET /v0/servers` du registre officiel
+    /// (`registry.modelcontextprotocol.io`) : objet `{ "servers": [...] }` où
+    /// chaque entrée porte un `name` (identifiant inversé) + `description`, le
+    /// dépôt étant niché dans `repository` (donc pas de `url` au niveau
+    /// racine — `url` reste `None`, ce qui est attendu).
+    const FIXTURE_OFFICIEL: &str = r#"{
+      "servers": [
+        {
+          "id": "0f9c0000-0000-0000-0000-000000000000",
+          "name": "io.github.modelcontextprotocol/server-filesystem",
+          "description": "Secure file operations with configurable access controls.",
+          "repository": { "url": "https://github.com/modelcontextprotocol/servers", "source": "github" },
+          "version_detail": { "version": "1.0.0", "is_latest": true }
+        },
+        {
+          "name": "io.github.example/postgres-mcp",
+          "description": "Read-only Postgres access for LLMs.",
+          "repository": { "url": "https://github.com/example/postgres-mcp", "source": "github" }
+        }
+      ],
+      "metadata": { "next_cursor": "abc", "count": 2 }
+    }"#;
+
+    #[test]
+    fn parse_api_officielle() {
+        let entrees = parser_registry_json(FIXTURE_OFFICIEL);
+        assert_eq!(entrees.len(), 2);
+        assert_eq!(entrees[0].registre, "mcp-registry");
+        assert_eq!(
+            entrees[0].nom,
+            "io.github.modelcontextprotocol/server-filesystem"
+        );
+        assert_eq!(
+            entrees[0].description.as_deref(),
+            Some("Secure file operations with configurable access controls.")
+        );
+        assert_eq!(entrees[1].nom, "io.github.example/postgres-mcp");
+    }
+
+    /// Échantillon réaliste du README du dépôt `modelcontextprotocol/servers`
+    /// (liste à puces Markdown ; les outils sont énumérés sur la ligne de
+    /// prose suivant l'entrée du serveur).
+    const FIXTURE_README: &str = r#"
+## 🌟 Reference Servers
+
+- **[Filesystem](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem)** - Secure file operations.
+  Exposes `read_file`, `write_file` and `list_directory`.
+- **[Git](https://github.com/modelcontextprotocol/servers/tree/main/src/git)** — Tools to read and search Git repos.
+
+## 🤝 Third-Party Servers
+
+- [Brave Search](https://example.com/brave) - Web and local search via Brave.
+"#;
+
+    #[test]
+    fn parse_readme_markdown_fixture() {
+        let entrees = parser_readme_markdown(FIXTURE_README);
+        let noms: Vec<&str> = entrees.iter().map(|e| e.nom.as_str()).collect();
+        assert_eq!(noms, vec!["Filesystem", "Git", "Brave Search"]);
+
+        // Les outils énumérés sous Filesystem sont rattachés à cette entrée,
+        // dans l'ordre d'apparition.
+        let outils: Vec<&str> = entrees[0]
+            .outils
+            .as_ref()
+            .expect("Filesystem doit porter des outils")
+            .iter()
+            .map(|o| o.nom.as_str())
+            .collect();
+        assert_eq!(outils, vec!["read_file", "write_file", "list_directory"]);
+
+        // Git n'énumère aucun outil → `outils: None`.
+        assert!(entrees[1].outils.is_none());
+    }
+
+    #[test]
+    fn json_invalide_renvoie_vide() {
+        assert!(parser_registry_json("pas du json").is_empty());
+        assert!(parser_registry_json("{\"autre\": 1}").is_empty());
     }
 }

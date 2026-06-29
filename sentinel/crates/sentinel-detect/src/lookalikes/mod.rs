@@ -391,6 +391,183 @@ impl SourceRegistre for SourceMcpSo {
 }
 
 // ---------------------------------------------------------------------------
+// Connecteur par défaut, agrégation multi-registres et cache disque
+// ---------------------------------------------------------------------------
+
+use sentinel_store::registry_cache::CacheRegistres;
+use tracing::warn;
+
+/// TTL par défaut du cache disque des registres : 24 heures. Au-delà, une
+/// entrée est considérée périmée et déclenche une nouvelle interrogation
+/// réseau (le cache périmé reste néanmoins servi en mode hors-ligne si le
+/// réseau est indisponible — cf. [`interroger_source_avec_cache`]).
+pub const TTL_CACHE_REGISTRES_SECS: i64 = 24 * 3600;
+
+/// Construit un [`ConnecteurRegistres`] peuplé des quatre sources publiques
+/// réelles, dans l'ordre : PulseMCP, registre officiel MCP, Smithery, mcp.so.
+/// C'est le point d'entrée standard pour alimenter le benchmark de sosies.
+pub fn connecteur_par_defaut() -> ConnecteurRegistres {
+    let mut connecteur = ConnecteurRegistres::nouveau();
+    connecteur.ajouter(SourcePulseMCP::nouveau());
+    connecteur.ajouter(SourceMcpRegistry::nouveau());
+    connecteur.ajouter(SourceSmithery::nouveau());
+    connecteur.ajouter(SourceMcpSo::nouveau());
+    connecteur
+}
+
+/// Agrège les quatre registres publics en une liste **dédupliquée**
+/// d'`EntreeRegistre`, interrogés en parallèle (fan-out borné par le timeout
+/// global de [`ConnecteurRegistres::interroger_tous`]).
+///
+/// Robustesse : tout registre en échec contribue zéro entrée (jamais de
+/// panique, jamais d'erreur propagée) — la liste agrège simplement ce qui a
+/// pu être collecté. Sans réseau, renvoie un Vec vide.
+pub async fn lister_tous_les_serveurs() -> Vec<EntreeRegistre> {
+    let connecteur = connecteur_par_defaut();
+    let resultats = connecteur.interroger_tous().await;
+    let toutes: Vec<EntreeRegistre> = resultats
+        .into_iter()
+        .flat_map(|(_, res)| res.unwrap_or_default())
+        .collect();
+    dedupliquer(toutes)
+}
+
+/// Variante **cache-aware** de [`lister_tous_les_serveurs`] : chaque registre
+/// est servi depuis le cache disque `cache` s'il est frais (âge < `ttl_secs`),
+/// sinon interrogé sur le réseau puis remis en cache. En cas d'échec réseau,
+/// un cache périmé (s'il existe) est servi en dégradé — permettant un mode
+/// hors-ligne. Le résultat agrégé est dédupliqué.
+///
+/// `ttl_secs` recommandé : [`TTL_CACHE_REGISTRES_SECS`].
+pub async fn lister_tous_les_serveurs_avec_cache(
+    cache: &CacheRegistres,
+    ttl_secs: i64,
+) -> Vec<EntreeRegistre> {
+    let connecteur = connecteur_par_defaut();
+    let mut toutes = Vec::new();
+    for source in &connecteur.sources {
+        let entrees = interroger_source_avec_cache(cache, source, ttl_secs).await;
+        toutes.extend(entrees);
+    }
+    dedupliquer(toutes)
+}
+
+/// Interroge une source unique en passant par le cache disque, avec garantie
+/// de non-panique :
+///
+/// 1. cache frais (< `ttl_secs`) → désérialisé et renvoyé **sans réseau** ;
+/// 2. sinon la source est interrogée ; un résultat non vide est remis en
+///    cache (écriture best-effort, jamais fatale) puis renvoyé ;
+/// 3. si la source échoue (Vec vide), un cache périmé éventuel est servi en
+///    dégradé (mode hors-ligne) ; à défaut, Vec vide.
+///
+/// Le payload est stocké en JSON sérialisé (`Vec<EntreeRegistre>`). Exposé
+/// pour permettre des tests hors-ligne du comportement de cache via une
+/// [`SourceStatique`] et un cache `:memory:`.
+pub async fn interroger_source_avec_cache(
+    cache: &CacheRegistres,
+    source: &Arc<dyn SourceRegistre>,
+    ttl_secs: i64,
+) -> Vec<EntreeRegistre> {
+    let nom = source.nom();
+
+    // 1. Cache frais → service direct, sans toucher au réseau.
+    if cache.est_frais(nom, ttl_secs).unwrap_or(false) {
+        if let Ok(Some((payload, _))) = cache.lire(nom) {
+            if let Ok(entrees) = serde_json::from_slice::<Vec<EntreeRegistre>>(&payload) {
+                return entrees;
+            }
+        }
+    }
+
+    // 2. Interrogation de la source (réseau, ou données injectées en test).
+    let entrees = source.lister().await.unwrap_or_default();
+    if !entrees.is_empty() {
+        match serde_json::to_vec(&entrees) {
+            Ok(bytes) => {
+                if let Err(e) = cache.ecrire(nom, &bytes) {
+                    warn!(registre = nom, erreur = %e, "registres : écriture du cache impossible");
+                }
+            }
+            Err(e) => {
+                warn!(registre = nom, erreur = %e, "registres : sérialisation pour le cache impossible")
+            }
+        }
+        return entrees;
+    }
+
+    // 3. Échec → service d'un cache périmé si présent (mode hors-ligne dégradé).
+    if let Ok(Some((payload, _))) = cache.lire(nom) {
+        if let Ok(entrees) = serde_json::from_slice::<Vec<EntreeRegistre>>(&payload) {
+            warn!(
+                registre = nom,
+                "registres : interrogation infructueuse, service du cache périmé"
+            );
+            return entrees;
+        }
+    }
+
+    Vec::new()
+}
+
+/// Déduplique une liste d'`EntreeRegistre` agrégée depuis plusieurs registres.
+///
+/// Clé de déduplication : le **nom normalisé** (minuscules, espaces de bord
+/// rognés). Un même serveur publié sur plusieurs registres (donc au nom
+/// identique) est fusionné en une seule entrée ; on conserve la plus riche
+/// (présence d'outils prioritaire, puis d'une description non vide). L'ordre
+/// de première apparition des clés est préservé pour un résultat
+/// déterministe. Les entrées au nom vide sont ignorées.
+///
+/// Choix volontairement conservateur : on ne fusionne que les noms
+/// **exactement** identiques (après normalisation). Les variantes proches
+/// (typosquats) restent distinctes — c'est précisément le signal que le
+/// benchmark de sosies cherche à exploiter.
+fn dedupliquer(entrees: Vec<EntreeRegistre>) -> Vec<EntreeRegistre> {
+    use std::collections::HashMap;
+
+    let mut ordre: Vec<String> = Vec::new();
+    let mut par_cle: HashMap<String, EntreeRegistre> = HashMap::new();
+
+    for entree in entrees {
+        let cle = entree.nom.trim().to_lowercase();
+        if cle.is_empty() {
+            continue;
+        }
+        match par_cle.get_mut(&cle) {
+            Some(existante) => {
+                if richesse(&entree) > richesse(existante) {
+                    *existante = entree;
+                }
+            }
+            None => {
+                ordre.push(cle.clone());
+                par_cle.insert(cle, entree);
+            }
+        }
+    }
+
+    ordre
+        .into_iter()
+        .filter_map(|cle| par_cle.remove(&cle))
+        .collect()
+}
+
+/// Score d'information d'une entrée : +2 si elle porte des outils non vides,
+/// +1 si elle porte une description non vide. Sert d'arbitre lors de la
+/// déduplication de deux entrées au même nom.
+fn richesse(entree: &EntreeRegistre) -> u8 {
+    let mut score = 0;
+    if entree.outils.as_ref().is_some_and(|o| !o.is_empty()) {
+        score += 2;
+    }
+    if entree.description.as_ref().is_some_and(|d| !d.is_empty()) {
+        score += 1;
+    }
+    score
+}
+
+// ---------------------------------------------------------------------------
 // Source statique — injection de test
 // ---------------------------------------------------------------------------
 
@@ -530,5 +707,121 @@ mod tests {
         // Aller-retour serde
         let retour: EntreeRegistre = serde_json::from_value(json).expect("désérialisation ok");
         assert_eq!(retour, entree);
+    }
+
+    // -----------------------------------------------------------------------
+    // Déduplication et cache (entièrement hors-ligne)
+    // -----------------------------------------------------------------------
+
+    use std::path::PathBuf;
+
+    /// Fabrique une entrée de test concise.
+    fn entree(
+        nom: &str,
+        registre: &str,
+        desc: Option<&str>,
+        avec_outils: bool,
+    ) -> EntreeRegistre {
+        EntreeRegistre {
+            registre: registre.to_string(),
+            nom: nom.to_string(),
+            description: desc.map(|s| s.to_string()),
+            auteur: None,
+            url: None,
+            outils: if avec_outils {
+                Some(vec![SignatureOutil {
+                    nom: "t".to_string(),
+                    enums_tries: vec![],
+                    description_empreinte: String::new(),
+                }])
+            } else {
+                None
+            },
+        }
+    }
+
+    #[test]
+    fn dedup_fusionne_les_noms_identiques_en_gardant_le_plus_riche() {
+        let toutes = vec![
+            entree("github-mcp", "pulsemcp", None, false),
+            // Même nom (à la casse près), entrée plus riche : doit l'emporter.
+            entree("Github-MCP", "smithery", Some("desc"), true),
+            entree("filesystem", "mcp.so", Some("fs"), false),
+        ];
+        let dedup = dedupliquer(toutes);
+        assert_eq!(dedup.len(), 2);
+
+        let gh = dedup
+            .iter()
+            .find(|e| e.nom.eq_ignore_ascii_case("github-mcp"))
+            .unwrap();
+        assert_eq!(gh.registre, "smithery");
+        assert!(gh.outils.is_some());
+
+        // Ordre de première apparition des clés préservé.
+        assert!(dedup[0].nom.eq_ignore_ascii_case("github-mcp"));
+        assert_eq!(dedup[1].nom, "filesystem");
+    }
+
+    #[test]
+    fn dedup_ignore_les_noms_vides() {
+        let toutes = vec![
+            entree("   ", "x", None, false),
+            entree("ok", "x", None, false),
+        ];
+        assert_eq!(dedupliquer(toutes).len(), 1);
+    }
+
+    #[test]
+    fn dedup_conserve_les_variantes_proches() {
+        // Un typosquat ne doit PAS être fusionné avec l'original.
+        let toutes = vec![
+            entree("github-mcp", "pulsemcp", None, false),
+            entree("github-mcpp", "mcp.so", None, false),
+        ];
+        assert_eq!(dedupliquer(toutes).len(), 2);
+    }
+
+    #[tokio::test]
+    async fn cache_sert_le_frais_sans_reinterroger_la_source() {
+        let cache = CacheRegistres::nouveau(PathBuf::from(":memory:")).unwrap();
+        let source_pleine =
+            SourceStatique::nouveau("reg", vec![entree("a", "reg", Some("d"), false)]);
+
+        // 1er appel : miss → interrogation de la source → mise en cache.
+        let r1 = interroger_source_avec_cache(&cache, &source_pleine, 3600).await;
+        assert_eq!(r1.len(), 1);
+
+        // 2e appel avec une source VIDE (simulant un réseau ko) mais cache
+        // frais → on sert le cache sans interroger la source.
+        let source_vide = SourceStatique::nouveau("reg", vec![]);
+        let r2 = interroger_source_avec_cache(&cache, &source_vide, 3600).await;
+        assert_eq!(r2.len(), 1);
+        assert_eq!(r2[0].nom, "a");
+    }
+
+    #[tokio::test]
+    async fn cache_perime_servi_en_mode_hors_ligne() {
+        let cache = CacheRegistres::nouveau(PathBuf::from(":memory:")).unwrap();
+        let source_pleine =
+            SourceStatique::nouveau("reg", vec![entree("a", "reg", Some("d"), false)]);
+
+        // Remplit le cache.
+        let _ = interroger_source_avec_cache(&cache, &source_pleine, 3600).await;
+
+        // ttl = 0 → jamais frais ; source vide (réseau ko) → repli sur le
+        // cache périmé.
+        let source_vide = SourceStatique::nouveau("reg", vec![]);
+        let r = interroger_source_avec_cache(&cache, &source_vide, 0).await;
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].nom, "a");
+    }
+
+    #[tokio::test]
+    async fn aucun_cache_et_source_vide_renvoie_vide() {
+        let cache = CacheRegistres::nouveau(PathBuf::from(":memory:")).unwrap();
+        let source_vide = SourceStatique::nouveau("reg", vec![]);
+        let r = interroger_source_avec_cache(&cache, &source_vide, 3600).await;
+        assert!(r.is_empty());
     }
 }

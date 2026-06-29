@@ -97,6 +97,37 @@ pub async fn lister_serveurs() -> Vec<EntreeRegistre> {
     lister_serveurs_depuis(PULSEMCP_DEFAULT_URL).await
 }
 
+/// Convertit un serveur PulseMCP brut en `(EntreeRegistre, slug)`. Le slug
+/// (ou à défaut l'id) sert ensuite à construire l'URL de détail pour
+/// l'enrichissement par outils. Fonction pure : aucune requête réseau.
+fn convertir(s: ServeurPulse) -> (EntreeRegistre, Option<String>) {
+    let slug = s.slug.or(s.id);
+    let entree = EntreeRegistre {
+        registre: "pulsemcp".to_string(),
+        nom: s.name,
+        description: s.short_description,
+        auteur: None,
+        url: None,
+        outils: None,
+    };
+    (entree, slug)
+}
+
+/// Parse un payload JSON de liste PulseMCP en entrées de base, SANS
+/// enrichissement par détail (les entrées gardent donc `outils: None`).
+/// Aucune requête réseau — fonction pure et testable hors-ligne. Renvoie un
+/// Vec vide si le JSON est invalide ou si le champ `servers` est absent
+/// (jamais de panique). Sert aussi à ré-hydrater un payload mis en cache.
+pub fn parser_payload(texte: &str) -> Vec<EntreeRegistre> {
+    match serde_json::from_str::<ReponsePulse>(texte) {
+        Ok(corps) => corps.servers.into_iter().map(|s| convertir(s).0).collect(),
+        Err(e) => {
+            warn!(erreur = %e, "pulsemcp : payload JSON invalide (parser_payload)");
+            Vec::new()
+        }
+    }
+}
+
 /// Variante paramétrable de `lister_serveurs` — utilisée par les tests
 /// d'intégration pour pointer vers un serveur wiremock.
 pub async fn lister_serveurs_depuis(url: &str) -> Vec<EntreeRegistre> {
@@ -149,22 +180,8 @@ async fn lister_et_enrichir(url: &str) -> Vec<EntreeRegistre> {
         .ok();
 
     // Prépare les entrées de base puis enrichit en parallèle.
-    let entrees: Vec<(EntreeRegistre, Option<String>)> = corps
-        .servers
-        .into_iter()
-        .map(|s| {
-            let slug = s.slug.clone().or_else(|| s.id.clone());
-            let entree = EntreeRegistre {
-                registre: "pulsemcp".to_string(),
-                nom: s.name,
-                description: s.short_description,
-                auteur: None,
-                url: None,
-                outils: None,
-            };
-            (entree, slug)
-        })
-        .collect();
+    let entrees: Vec<(EntreeRegistre, Option<String>)> =
+        corps.servers.into_iter().map(convertir).collect();
 
     // Sans base ni client de détail, on renvoie tel quel.
     let (base, client_detail) = match (base, client_detail) {
@@ -230,5 +247,60 @@ async fn recuperer_outils(
         None
     } else {
         Some(outils)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Échantillon réaliste de la réponse `GET /v0/servers` de l'API
+    /// publique PulseMCP (champs réellement renvoyés en production : `name`,
+    /// `short_description`, `package_registry`, `package_name`…).
+    const FIXTURE: &str = r#"{
+      "servers": [
+        {
+          "name": "Brave Search",
+          "url": "https://www.pulsemcp.com/servers/brave-search",
+          "external_url": null,
+          "short_description": "Search the web using the Brave Search API.",
+          "source_code_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search",
+          "github_stars": 1234,
+          "package_registry": "npm",
+          "package_name": "@modelcontextprotocol/server-brave-search",
+          "package_download_count": 98765
+        },
+        {
+          "name": "Filesystem",
+          "short_description": "Secure file operations with configurable access controls.",
+          "package_registry": "npm",
+          "package_name": "@modelcontextprotocol/server-filesystem"
+        }
+      ],
+      "next": "https://api.pulsemcp.com/v0/servers?offset=100&count_per_page=100",
+      "total_count": 5123
+    }"#;
+
+    #[test]
+    fn parse_fixture_reelle() {
+        let entrees = parser_payload(FIXTURE);
+        assert_eq!(entrees.len(), 2);
+        assert_eq!(entrees[0].registre, "pulsemcp");
+        assert_eq!(entrees[0].nom, "Brave Search");
+        assert_eq!(
+            entrees[0].description.as_deref(),
+            Some("Search the web using the Brave Search API.")
+        );
+        assert_eq!(entrees[1].nom, "Filesystem");
+        // Les entrées de liste ne portent pas d'outils tant que le détail
+        // n'a pas été interrogé.
+        assert!(entrees[0].outils.is_none());
+    }
+
+    #[test]
+    fn json_invalide_ou_vide_renvoie_vide() {
+        assert!(parser_payload("{ pas du json").is_empty());
+        // `servers` absent → ReponsePulse avec champ par défaut vide.
+        assert!(parser_payload("{}").is_empty());
     }
 }

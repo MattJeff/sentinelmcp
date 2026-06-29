@@ -18,6 +18,7 @@ use sentinel_store::Store;
 use crate::channels::CanalEmetteur;
 use crate::dedup::DedupAntiBruit;
 use crate::enrichment::EnrichisseurAlerte;
+use crate::metrics::{label_severite, RegistreMetriques};
 use crate::severity::MatriceSeverite;
 
 /// Intervalle de polling par défaut (en secondes).
@@ -30,6 +31,9 @@ pub struct MoteurAlertes {
     pub canaux: Vec<Arc<dyn CanalEmetteur>>,
     pub severite: MatriceSeverite,
     pub dedup: std::sync::Mutex<DedupAntiBruit>,
+    /// Registre d'observabilité (latence d'envoi par canal, alertes émises).
+    /// Partagé via `Arc` afin que la CLI puisse l'exposer en `/metrics`.
+    pub registre: Arc<RegistreMetriques>,
 }
 
 impl MoteurAlertes {
@@ -40,12 +44,19 @@ impl MoteurAlertes {
             canaux: Vec::new(),
             severite: MatriceSeverite::par_defaut(),
             dedup: std::sync::Mutex::new(DedupAntiBruit::default()),
+            registre: Arc::new(RegistreMetriques::nouveau()),
         }
     }
 
     /// Enregistre un nouveau canal d'émission.
     pub fn ajouter_canal(&mut self, canal: Arc<dyn CanalEmetteur>) {
         self.canaux.push(canal);
+    }
+
+    /// Référence partagée vers le registre de métriques d'observabilité.
+    /// Permet de construire un export Prometheus runtime (latence/alertes).
+    pub fn registre_metriques(&self) -> Arc<RegistreMetriques> {
+        self.registre.clone()
     }
 
     /// Traite un seul constat : enrichit, déduplique, émet vers tous les canaux.
@@ -100,7 +111,17 @@ impl MoteurAlertes {
             }
 
             // Émission : une erreur de canal n'interrompt pas les suivants.
-            let envoyee = match canal.emettre(&alerte).await {
+            // Mesure additive de la latence d'envoi (observabilité), sans
+            // changer le comportement : on entoure l'appel d'un `Instant`.
+            let debut_envoi = std::time::Instant::now();
+            let resultat_envoi = canal.emettre(&alerte).await;
+            let duree_envoi = debut_envoi.elapsed();
+            self.registre
+                .observer_latence_canal(canal.nom(), duree_envoi);
+            // Comptabilise l'alerte effectivement traitée (post-dédup) par sévérité.
+            self.registre.incr_alerte(label_severite(alerte.severite));
+
+            let envoyee = match resultat_envoi {
                 Ok(()) => {
                     info!(
                         alerte_id = %alerte.id,

@@ -7,10 +7,12 @@
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
-    response::Html,
+    http::header,
+    response::{Html, IntoResponse},
     routing::get,
     Json, Router,
 };
+use sentinel_alerts::metrics::{rendre_prometheus, Metriques, CONTENT_TYPE_PROMETHEUS};
 use sentinel_protocol::{Couleur, Outil, ServeurId, StatutServeur, Transport};
 use sentinel_store::Store;
 use std::sync::Arc;
@@ -164,6 +166,7 @@ impl TableauBord {
     ///   GET /api/cartes              → liste toutes les cartes
     ///   GET /api/cartes/{couleur}    → liste filtrée par couleur (vert|orange|rouge)
     ///   GET /api/detail/{id}         → détail d'un serveur par UUID
+    ///   GET /metrics                 → métriques d'observabilité Prometheus
     ///   GET /                        → page HTML minimaliste
     pub async fn servir(&self, port: u16) -> Result<()> {
         let store = Arc::new(self.store.clone());
@@ -172,6 +175,7 @@ impl TableauBord {
             .route("/api/cartes", get(handle_cartes))
             .route("/api/cartes/:couleur", get(handle_cartes_couleur))
             .route("/api/detail/:id", get(handle_detail))
+            .route("/metrics", get(handle_metrics))
             .with_state(store);
 
         let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port).parse()?;
@@ -212,6 +216,24 @@ async fn handle_detail(
     let serveur_id: ServeurId = id.parse().map_err(|_| format!("UUID invalide : {}", id))?;
     let tb = TableauBord::nouveau((*store).clone());
     tb.detail(serveur_id).map(Json).map_err(|e| e.to_string())
+}
+
+/// Expose les métriques d'observabilité au format Prometheus
+/// (`text/plain; version=0.0.4`).
+///
+/// Construites en **lecture seule** depuis le store (serveurs, constats,
+/// alertes, outils). En cas d'erreur de collecte, renvoie un commentaire
+/// Prometheus (toujours 200, content-type stable) plutôt qu'une erreur HTTP,
+/// pour ne pas casser un scraper.
+async fn handle_metrics(State(store): State<Arc<Store>>) -> impl IntoResponse {
+    let corps = match store.stats_metriques() {
+        Ok(stats) => rendre_prometheus(&Metriques::depuis_stats_store(&stats)),
+        Err(e) => format!("# erreur de collecte des métriques: {}\n", e),
+    };
+    (
+        [(header::CONTENT_TYPE, CONTENT_TYPE_PROMETHEUS)],
+        corps,
+    )
 }
 
 fn parse_couleur(s: &str) -> Option<Couleur> {

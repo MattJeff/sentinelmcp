@@ -10,6 +10,7 @@ import {
   type BaselineSummary,
   type ComplianceCoverage,
   type ComplianceReference,
+  type CveFinding,
   type DeclaredServer,
   type DiscoveredClientKind,
   type DiscoveryReport,
@@ -17,7 +18,10 @@ import {
   type EnforcementRestoreResult,
   type ExecutiveSummary,
   type Finding,
+  type GateConfig,
   type Investigation,
+  type PendingApproval,
+  type RogueSocketReport,
   type LiveStatus,
   type LiveTick,
   type LookalikeMatch,
@@ -204,6 +208,38 @@ export const api = {
   stopProxy: () => call<void>(COMMANDS.stopProxy),
   /** Snapshot of the proxy task (running flag, port, upstream, events seen). */
   proxyStatus: () => call<ProxyStatus>(COMMANDS.proxyStatus),
+  /**
+   * Approve-before-run gate (Vague D, opt-in via `gate.enforce`).
+   *
+   * Read the persisted gate policy (enforce + risk threshold). Detection-only
+   * with the strictest threshold by default; the proxy keeps relaying
+   * bit-exact until the operator opts into enforce.
+   */
+  getGateConfig: () => call<GateConfig>(COMMANDS.getGateConfig),
+  /** Persist the gate policy. Rejects an unknown `seuil`. Returns the saved config. */
+  setGateConfig: (config: GateConfig) =>
+    call<GateConfig>(COMMANDS.setGateConfig, { config }),
+  /**
+   * List calls awaiting operator approval — derived from the store's open
+   * "approve-before-run" findings, merged with any demands the gate pushed
+   * live. Sorted most-recent first.
+   */
+  listPendingApprovals: () => call<PendingApproval[]>(COMMANDS.listPendingApprovals),
+  /** Approve a held call by id (acknowledges the underlying finding). */
+  approveCall: (id: string) => call<void>(COMMANDS.approveCall, { id }),
+  /** Deny a held call by id (acknowledges the underlying finding). */
+  denyCall: (id: string) => call<void>(COMMANDS.denyCall, { id }),
+  /**
+   * Run a runtime discovery sweep and return the listening sockets observed
+   * out-of-inventory ("NeighborJack", F2). Best-effort (`lsof`/`ss`); the
+   * report is simply empty on a host without those tools.
+   */
+  listRogueSockets: () => call<RogueSocketReport>(COMMANDS.listRogueSockets),
+  /**
+   * Confront the inventory against the embedded MCP CVE database. Only stdio
+   * servers with a pinned version (`@org/pkg@1.2.3`) are checked. Fully local.
+   */
+  listCveFindings: () => call<CveFinding[]>(COMMANDS.listCveFindings),
   /**
    * Dispatch a synthetic alert through the SIEM sink described by `cfg`.
    * Returns successfully when the sink accepts the payload; throws on any
@@ -504,6 +540,92 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
   }
   if (name === COMMANDS.stopProxy) {
     return Promise.resolve(undefined as unknown as T);
+  }
+  // Approve-before-run gate mocks: detection-only config + a small pending
+  // queue so the Runtime page renders in browser dev mode without a backend.
+  if (name === COMMANDS.getGateConfig || name === COMMANDS.setGateConfig) {
+    const args = (_args ?? {}) as { config?: GateConfig };
+    const result: GateConfig =
+      name === COMMANDS.setGateConfig && args.config
+        ? args.config
+        : { enforce: false, seuil: 'high' };
+    return Promise.resolve(result as unknown as T);
+  }
+  if (name === COMMANDS.listPendingApprovals) {
+    const result: PendingApproval[] = [
+      {
+        id: '33333333-3333-3333-3333-333333333333',
+        server_id: '22222222-2222-2222-2222-222222222222',
+        tool: 'send_webhook',
+        risk_level: 'high',
+        reason:
+          '[temps réel — approve-before-run] Appel NON relayé (mode enforce). Écriture externe portant un secret.',
+        title: 'Appel retenu pour approbation — risque élevé (outil « send_webhook »)',
+        requested_at: new Date().toISOString(),
+        held: true,
+        source: 'store',
+        state: 'pending',
+      },
+    ];
+    return Promise.resolve(result as unknown as T);
+  }
+  if (name === COMMANDS.approveCall || name === COMMANDS.denyCall) {
+    return Promise.resolve(undefined as unknown as T);
+  }
+  // Rogue sockets mock: one loopback (clean) + one bind-all out-of-inventory
+  // socket flagged as a NeighborJack finding.
+  if (name === COMMANDS.listRogueSockets) {
+    const result: RogueSocketReport = {
+      sockets: [
+        {
+          protocol: 'tcp',
+          address: '127.0.0.1',
+          port: 3000,
+          pid: 12345,
+          process: 'node',
+          bind_all_interfaces: false,
+        },
+        {
+          protocol: 'tcp',
+          address: '0.0.0.0',
+          port: 9000,
+          pid: 54321,
+          process: 'python',
+          bind_all_interfaces: true,
+        },
+      ],
+      findings: [
+        {
+          server_id: '44444444-4444-4444-4444-444444444444',
+          severity: 'medium',
+          title: 'Socket en écoute sur toutes interfaces hors inventaire (port 9000)',
+          detail:
+            'Un socket tcp écoute sur 0.0.0.0:9000 (processus `python` (pid 54321)), exposé à tout le réseau local, sans correspondance dans l’inventaire MCP connu.',
+          compliance_refs: ['OWASP MCP09', 'shadow-mcp'],
+        },
+      ],
+      observed_count: 2,
+      rogue_count: 1,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
+  // CVE findings mock: one known-vulnerable pinned package so the Runtime page
+  // has a supply-chain row to render in browser dev mode.
+  if (name === COMMANDS.listCveFindings) {
+    const result: CveFinding[] = [
+      {
+        server_id: '55555555-5555-5555-5555-555555555555',
+        package: 'mcp-remote',
+        version: '0.1.15',
+        cve_id: 'CVE-2025-6514',
+        affected_range: '>=0.0.5, <0.1.16',
+        cvss: 9.6,
+        severity: 'critical',
+        summary: 'Mock CVE entry for browser dev mode (mcp-remote command injection).',
+        references: ['CVE-2025-6514', 'https://nvd.nist.gov/vuln/detail/CVE-2025-6514'],
+      },
+    ];
+    return Promise.resolve(result as unknown as T);
   }
   // Enforcement mock: pretend we rewrote the config and dropped a backup
   // next to it. Real backend (V8) returns the actual paths.

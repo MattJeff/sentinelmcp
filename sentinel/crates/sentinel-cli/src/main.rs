@@ -6,6 +6,8 @@
 //!   2 = erreur d'exécution
 
 mod cmd_audit;
+mod cmd_benchmark;
+mod cmd_metrics;
 mod cmd_monitor;
 mod cmd_report;
 mod cmd_scan;
@@ -113,6 +115,27 @@ enum Cmd {
         #[arg(long)]
         db: Option<PathBuf>,
     },
+    /// Exposition Prometheus des compteurs du store (textfile collector) :
+    /// serveurs, outils, constats, alertes et répartitions. stdout scrappable.
+    Metrics {
+        /// Chemin de la base SQLite (défaut : la base de l'app desktop).
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
+    /// Benchmark public « on a scanné N serveurs » : agrège les registres MCP
+    /// publics (ou un échantillon embarqué hors-ligne) et applique la
+    /// détection statique sur les métadonnées pour produire des statistiques
+    /// réelles (proportion de serveurs avec constat, répartition par
+    /// catégorie/sévérité).
+    Benchmark {
+        /// N'interroge aucun réseau : utilise l'échantillon embarqué
+        /// déterministe (source signalée, couverture limitée).
+        #[arg(long)]
+        offline: bool,
+        /// Sortie JSON machine-readable.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[tokio::main]
@@ -170,6 +193,8 @@ async fn main() -> ExitCode {
         Cmd::Report { format, output, db } => {
             cmd_report::executer(format == FormatRapport::Pdf, &output, db, quiet).await
         }
+        Cmd::Metrics { db } => cmd_metrics::executer(db, quiet),
+        Cmd::Benchmark { offline, json } => cmd_benchmark::executer(offline, json, quiet).await,
     };
 
     match resultat {

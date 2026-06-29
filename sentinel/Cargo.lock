@@ -3175,6 +3175,7 @@ dependencies = [
  "keyring",
  "printpdf",
  "rand 0.8.6",
+ "sentinel-alerts",
  "sentinel-detect",
  "sentinel-protocol",
  "sentinel-scan",

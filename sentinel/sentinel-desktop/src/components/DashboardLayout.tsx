@@ -28,6 +28,7 @@ import {
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
+  ShieldHalf,
   Telescope,
   X,
 } from 'lucide-react';
@@ -46,6 +47,7 @@ import ReportPage from '../pages/ReportPage';
 import CompliancePage from '../pages/CompliancePage';
 import ScanPage from '../pages/ScanPage';
 import ApprovalsPage from '../pages/ApprovalsPage';
+import RuntimeDefensePage from '../pages/RuntimeDefensePage';
 import SettingsPage from '../pages/SettingsPage';
 import TimelinePage from '../pages/TimelinePage';
 import TrustGraphPage from '../pages/TrustGraphPage';
@@ -58,6 +60,7 @@ export type NavId =
   | 'scan'
   | 'alerts'
   | 'approvals'
+  | 'runtime'
   | 'trust-graph'
   | 'timeline'
   | 'compliance'
@@ -78,6 +81,7 @@ const NAV: NavItem[] = [
   { id: 'scan', label: 'Live Scan', icon: Activity },
   { id: 'alerts', label: 'Alerts', icon: AlertCircle },
   { id: 'approvals', label: 'Approvals', icon: CheckSquare },
+  { id: 'runtime', label: 'Runtime defenses', icon: ShieldHalf },
   { id: 'trust-graph', label: 'Trust graph', icon: Network },
   { id: 'timeline', label: 'Time travel', icon: Clock },
   { id: 'compliance', label: 'Compliance', icon: BarChart3 },
@@ -182,6 +186,7 @@ export default function DashboardLayout({
                 {active === 'scan' && <ScanPage />}
                 {active === 'alerts' && <AlertsPage />}
                 {active === 'approvals' && <ApprovalsPage />}
+                {active === 'runtime' && <RuntimeDefensePage />}
                 {active === 'trust-graph' && <TrustGraphPage />}
                 {active === 'timeline' && <TimelinePage />}
                 {active === 'compliance' && <CompliancePage />}
@@ -575,6 +580,8 @@ function labelSubtitle(id: NavId): string {
       return 'Rug-pulls, poisoning, exfiltration — with the diff that triggered them.';
     case 'approvals':
       return 'Mark each server approved, to investigate, or blocked.';
+    case 'runtime':
+      return 'Live defenses — approve-before-run gate, rogue sockets, and known CVEs.';
     case 'trust-graph':
       return 'Who can reach what on this Mac — and how badly it bleeds if compromised.';
     case 'timeline':

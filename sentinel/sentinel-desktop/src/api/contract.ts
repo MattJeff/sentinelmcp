@@ -655,6 +655,112 @@ export interface ProxyStatus {
   events_seen: number;
 }
 
+// ─── Runtime defenses (Vague D) — approve-before-run / rogue sockets / CVE ──
+// Surfaced by the Runtime page: the gate policy + queue of calls held for
+// approval, the listening sockets observed out-of-inventory ("NeighborJack"),
+// and CVE/supply-chain matches against the declared inventory. Mirrors
+// `src-tauri/src/commands_runtime.rs`.
+
+/**
+ * Approve-before-run gate policy, persisted on disk (`gate.json`) and cached
+ * in `AppState`. `enforce` OFF + `seuil` "high" by default (detection only,
+ * strictest threshold) so the proxy keeps relaying bit-exact until the
+ * operator opts in.
+ */
+export interface GateConfig {
+  /** `false` (default) = detection only; `true` = hold high-risk calls. */
+  enforce: boolean;
+  /** Risk threshold triggering retention: "low" | "medium" | "high". */
+  seuil: 'low' | 'medium' | 'high' | string;
+}
+
+/**
+ * One call awaiting operator approval. Derived from the store's open
+ * "approve-before-run" findings (`source === 'store'`) or pushed live by the
+ * gate (`source === 'live'`).
+ */
+export interface PendingApproval {
+  /** UUID of the underlying store finding when `source === 'store'`. */
+  id: string;
+  /** Server the call targets (UUID). */
+  server_id: string;
+  /** Tool name when known. */
+  tool: string | null;
+  /** "info" | "medium" | "high" | "critical". */
+  risk_level: string;
+  /** Human-readable reason (no raw argument content). */
+  reason: string;
+  /** Title of the underlying finding. */
+  title: string;
+  /** ISO-8601 timestamp of the request. */
+  requested_at: string;
+  /** `true` if the call was actually held (blocked); `false` for an advisory. */
+  held: boolean;
+  /** "store" (derived from a persisted finding) or "live" (pushed by the gate). */
+  source: 'store' | 'live' | string;
+  /** "pending" | "approved" | "denied". */
+  state: 'pending' | 'approved' | 'denied' | string;
+}
+
+/** One listening TCP socket observed on the host, normalised for the UI. */
+export interface RogueSocket {
+  /** "tcp" (IPv4) or "tcp6" (IPv6). */
+  protocol: string;
+  /** Bind address as observed (`0.0.0.0`, `127.0.0.1`, `::`, `*`…). */
+  address: string;
+  port: number;
+  pid: number | null;
+  process: string | null;
+  /** `true` if the socket is bound to all interfaces (exposed to the LAN). */
+  bind_all_interfaces: boolean;
+}
+
+/** One "NeighborJack" finding — a bind-all socket out of inventory. */
+export interface RogueSocketFinding {
+  /** Stable identity derived from the observed address:port (UUID). */
+  server_id: string;
+  severity: string;
+  title: string;
+  detail: string;
+  compliance_refs: string[];
+}
+
+/** Result of `list_rogue_sockets`: observed sockets + out-of-inventory findings. */
+export interface RogueSocketReport {
+  /** All observed listening sockets (context). */
+  sockets: RogueSocket[];
+  /** The "NeighborJack" findings — sockets exposed out of inventory. */
+  findings: RogueSocketFinding[];
+  observed_count: number;
+  rogue_count: number;
+}
+
+/**
+ * One CVE/supply-chain match on an inventory server, from the embedded MCP
+ * CVE database. Only stdio servers with a version pinned in their command line
+ * (`@org/pkg@1.2.3`) are checked — no version means no finding (anti-false-positive).
+ */
+export interface CveFinding {
+  /** Server in the inventory (UUID). */
+  server_id: string;
+  /** Package identity that matched. */
+  package: string;
+  /** Detected version (pinned in the config). */
+  version: string;
+  /** CVE identifier (e.g. `CVE-2025-6514`). */
+  cve_id: string;
+  /** Affected range, human-readable (e.g. `>=0.0.5, <0.1.16`). */
+  affected_range: string;
+  /** CVSS base score. */
+  cvss: number;
+  /** "info" | "medium" | "high" | "critical". */
+  severity: string;
+  /** Human-readable vulnerability summary. */
+  summary: string;
+  /** References (CVE id + NVD/GHSA URLs). */
+  references: string[];
+}
+
 // ─── Hybrid detection surfacing (V0.6) ─────────────────────────────────────
 
 /**
@@ -776,6 +882,13 @@ export const COMMANDS = {
   startProxy: 'start_proxy',
   stopProxy: 'stop_proxy',
   proxyStatus: 'proxy_status',
+  getGateConfig: 'get_gate_config',
+  setGateConfig: 'set_gate_config',
+  listPendingApprovals: 'list_pending_approvals',
+  approveCall: 'approve_call',
+  denyCall: 'deny_call',
+  listRogueSockets: 'list_rogue_sockets',
+  listCveFindings: 'list_cve_findings',
   siemTestSend: 'siem_test_send',
   siemSaveConfig: 'siem_save_config',
   siemGetConfig: 'siem_get_config',
