@@ -19,7 +19,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
-dirs = "5"
+dirs = "6"
 walkdir = "2"
 toml = "0.8"
 serde_yaml = "0.9"

@@ -22,7 +22,7 @@ ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-dirs = "5"
+dirs = "6"
 printpdf = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
