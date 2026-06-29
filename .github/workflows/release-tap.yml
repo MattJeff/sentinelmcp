@@ -1,0 +1,31 @@
+name: Update Homebrew tap
+
+# Quand une release est PUBLIÉE (la draft créée par release.yml est publiée à la
+# main), met à jour la formule du tap MattJeff/homebrew-sentinel avec la version
+# et les SHA-256 des binaires de la release → `brew install` fonctionne aussitôt.
+#
+# Pré-requis (une seule fois) : créer un PAT avec droit d'écriture sur le repo
+# MattJeff/homebrew-sentinel et l'ajouter en secret `HOMEBREW_TAP_TOKEN` ici.
+# Sans ce secret, le job ne fait rien (no-op explicite).
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  tap:
+    name: Bump tap formula
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mettre à jour la formule
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN absent — mise à jour du tap ignorée. Ajoute le secret pour automatiser brew."
+            exit 0
+          fi
+          bash scripts/release-tap.sh "${{ github.event.release.tag_name }}"
