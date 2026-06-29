@@ -69,9 +69,10 @@ sentinel scan
 **Coming with the next tagged release** (tracked in [`LAUNCH.md`](LAUNCH.md) / [`packaging/`](packaging/)):
 
 ```bash
-brew install MattJeff/sentinel/sentinel    # Homebrew tap
-cargo install sentinel-cli                 # crates.io
-npx sentinelmcp scan                       # npm wrapper (cargo-dist)
+curl -fsSL https://sentinelmcp.dev/install.sh | sh   # one-liner (downloads + verifies the release binary)
+brew install MattJeff/sentinel/sentinel              # Homebrew tap
+cargo install sentinel-cli                           # crates.io
+npx sentinelmcp scan                                 # npm wrapper (cargo-dist)
 ```
 
 > ℹ️ The packaged installers above are **not live yet** — they need a published release with platform
