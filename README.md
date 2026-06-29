@@ -15,8 +15,10 @@ Sentinel discovers every MCP server your AI agents expose across <b>14 clients</
 </p>
 
 ```bash
-# Find every MCP server on this machine in ~8 seconds — 100% local, read-only.
-brew install MattJeff/sentinel/sentinel && sentinel scan
+# Build from source — works today (packaged installs ship with the next release).
+git clone https://github.com/MattJeff/sentinelmcp && cd sentinelmcp/sentinel
+cargo install --path crates/sentinel-cli   # installs the `sentinel` binary
+sentinel scan                              # 100% local, read-only — ~8s
 ```
 
 <p align="center">
@@ -29,6 +31,7 @@ brew install MattJeff/sentinel/sentinel && sentinel scan
   <a href="docs/QUICKSTART.md">Quickstart</a> ·
   <a href="docs/COMPARISON.md">vs. the field</a> ·
   <a href="docs/DETECTION-MATRIX.md">Detection matrix</a> ·
+  <a href="PRICING.md">Pricing</a> ·
   <a href="LAUNCH.md">Launch kit</a>
 </p>
 
@@ -55,18 +58,25 @@ We call the category **MCP Detection & Response (MCPDR)**.
 
 ### Install
 
+**Today — build from source** (the CLI is a single `sentinel` binary):
+
 ```bash
-# One-liner
-curl -fsSL https://sentinelmcp.dev/install.sh | sh
-
-# Homebrew
-brew install MattJeff/sentinelmcp/sentinel-mcp
-
-# Cargo
-cargo install sentinel-cli
+git clone https://github.com/MattJeff/sentinelmcp && cd sentinelmcp/sentinel
+cargo install --path crates/sentinel-cli   # or: cargo build --release -p sentinel-cli
+sentinel scan
 ```
 
-Or grab the signed & **Apple-notarized** desktop app (`.dmg`) from [Releases](https://github.com/MattJeff/sentinelmcp/releases/latest) — installs with zero Gatekeeper warnings. CLI binaries are published for macOS, Linux and Windows (x86_64 + ARM64); see **[docs/INSTALL.md](docs/INSTALL.md)** for all targets and checksum verification.
+**Coming with the next tagged release** (tracked in [`LAUNCH.md`](LAUNCH.md) / [`packaging/`](packaging/)):
+
+```bash
+brew install MattJeff/sentinel/sentinel    # Homebrew tap
+cargo install sentinel-cli                 # crates.io
+npx sentinelmcp scan                       # npm wrapper (cargo-dist)
+```
+
+> ℹ️ The packaged installers above are **not live yet** — they need a published release with platform
+> binaries (`cargo-dist`) and the `MattJeff/homebrew-sentinel` tap. Until then, use the source build.
+> The signed & **Apple-notarized** desktop app (`.dmg`) is on [Releases](https://github.com/MattJeff/sentinelmcp/releases/latest).
 
 ### First scan (60 seconds)
 

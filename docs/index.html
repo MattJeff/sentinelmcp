@@ -58,7 +58,10 @@
 
   <section>
     <h2>Scan your machine in ~8 seconds</h2>
-    <pre>brew install MattJeff/sentinel/sentinel &amp;&amp; sentinel scan</pre>
+    <pre>git clone https://github.com/MattJeff/sentinelmcp &amp;&amp; cd sentinelmcp/sentinel
+cargo install --path crates/sentinel-cli
+sentinel scan</pre>
+    <p class="center" style="color:var(--muted);font-size:13px">Packaged installs (<code>brew</code> / <code>cargo install</code> / <code>npx</code>) ship with the next release.</p>
     <p class="center" style="color:var(--muted)">Static scanners tell you a server looked safe <b>once</b>.
       Sentinel tells you the moment it <b>changes</b>.</p>
   </section>

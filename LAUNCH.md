@@ -118,12 +118,14 @@ Show HN: Sentinel – a local, read-only EDR for MCP servers (Rust, zero cloud)
 > speaks Splunk/Elastic, STIX/TAXII and ships Ed25519-signed compliance reports. Repo:
 > https://github.com/MattJeff/sentinelmcp — happy to give you a 1-line blurb if useful.
 
-### Pricing — 3 tiers
+### Pricing — open-core (détail complet dans [`PRICING.md`](PRICING.md))
 | Tier | Prix | Inclus |
 |---|---|---|
-| **Local** | Gratuit (MIT) | Découverte 14 clients, empreintes SHA-256 + drift, 40+ patterns + smuggling/line-jumping + YARA, lethal-trifecta + CVE, approve-before-run, desktop + CLI + GitHub Action. 1 machine, sans compte, sans télémétrie. |
-| **Team** | ~19 $/dev/mo (annuel) | Baselines partagées, policies & allow/deny, historique de drift, alertes Slack/webhook, SSO. *(Sous Snyk ~25 $/dev, Socket ~25–50 $/dev.)* |
-| **Enterprise** | Sur devis | SIEM (Splunk/Elastic/Syslog TLS), STIX/TAXII, rapports signés, support, déploiement. |
+| **Local** | Gratuit (MIT, **pour toujours**) | **Tout l'outil local** : découverte 14 clients, empreintes + drift, toutes les détections, approve-before-run, **SIEM + STIX/TAXII + rapports signés**, desktop + CLI + GitHub Action. 1 machine, sans compte, sans télémétrie. |
+| **Team** | ~19 $/dev/mo (annuel) | Couche **nouvelle** multi-utilisateurs : baselines partagées cross-machine, policies & allow/deny centralisées, historique/audit org-wide, fleet dashboard, SSO/RBAC. *(Sous Snyk ~25 $/dev.)* |
+| **Enterprise** | Sur devis | Control plane managé/hébergé, SAML/SCIM, feed threat-intel curé, SLAs, support, déploiement. |
+
+> ⚠️ **Rien de ce qui est déjà open (SIEM/STIX/rapports signés) n'est regaté** — le payant = la couche équipe/managée *nouvelle*. Et **on ne gate rien semaine 1** : gratuit total au lancement, le payant arrive après validation par les design partners.
 
 ---
 
