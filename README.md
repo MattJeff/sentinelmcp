@@ -1,15 +1,36 @@
-# Sentinel MCP
+<h1 align="center">🛡️ Sentinel MCP</h1>
 
-> **EDR for your AI agents' MCP servers.**
+<p align="center"><b>The EDR for MCP servers.</b> &nbsp;100&nbsp;% local · read-only by default · written in Rust.</p>
 
-[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/MattJeff/sentinelmcp/actions)
-[![Release](https://img.shields.io/badge/release-v0.6-blue)](https://github.com/MattJeff/sentinelmcp/releases/latest)
-[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20CLI%20%7C%20CI-orange)](#quickstart)
+<p align="center">
+Sentinel discovers every MCP server your AI agents expose across <b>14 clients</b> (Claude Desktop, Claude&nbsp;Code, Cursor, Windsurf, Continue, Zed, VS&nbsp;Code, Aider, Goose, Codex…), takes a <b>canonical SHA-256 fingerprint</b> of each, and flags <b>rug-pulls, tool poisoning, typosquats and exfiltration combos</b> — before they reach your agent. No cloud. Your server inventory never leaves your machine.
+</p>
 
-Sentinel MCP discovers every Model Context Protocol (MCP) server your machine exposes to its AI agents — across **14 AI clients** (Claude Desktop, Claude Code CLI, Cursor, Windsurf, Continue, Zed, VS Code, Aider, Goose, Codex, Antigravity, LM Studio, Open WebUI, Sketch) — actively probes each one, fingerprints its tool surface with a canonical SHA-256, watches for drift across sessions, and speaks the language of your SOC: **Splunk, Elastic, Syslog TLS, STIX 2.1, TAXII 2.1**, and Ed25519-signed compliance reports mapped to SOC 2, ISO 27001, OWASP MCP and SAFE-MCP.
+<p align="center">
+  <a href="https://github.com/MattJeff/sentinelmcp/releases/latest"><img src="https://img.shields.io/badge/release-v0.8-blue" alt="Release"></a>
+  <a href="https://github.com/MattJeff/sentinelmcp/actions"><img src="https://img.shields.io/badge/CI-passing-brightgreen" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="License"></a>
+  <a href="#quickstart"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20%7C%20CI-orange" alt="Platform"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/built%20with-Rust-orange" alt="Rust"></a>
+</p>
 
-**100 % local. Zero cloud. Read-only by default.**
+```bash
+# Find every MCP server on this machine in ~8 seconds — 100% local, read-only.
+brew install MattJeff/sentinel/sentinel && sentinel scan
+```
+
+<p align="center">
+  <i>Static scanners tell you a server looked safe <b>once</b>. Sentinel tells you the moment it <b>changes</b>.</i><br>
+  <b>MCP Detection &amp; Response (MCPDR)</b> — the only local EDR for MCP that speaks your SOC's language:
+  Splunk · Elastic · Syslog&nbsp;TLS · STIX&nbsp;2.1 · TAXII&nbsp;2.1 · Ed25519-signed compliance reports (SOC&nbsp;2 · ISO&nbsp;27001 · OWASP&nbsp;MCP · SAFE-MCP).
+</p>
+
+<p align="center">
+  <a href="docs/QUICKSTART.md">Quickstart</a> ·
+  <a href="docs/COMPARISON.md">vs. the field</a> ·
+  <a href="docs/DETECTION-MATRIX.md">Detection matrix</a> ·
+  <a href="LAUNCH.md">Launch kit</a>
+</p>
 
 ---
 

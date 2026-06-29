@@ -1,12 +1,12 @@
 name: 'Sentinel MCP Audit'
 description: >-
-  Audit statique des configurations MCP d'un dépôt (poisoning, typosquats /
-  sosies) via le CLI Sentinel. Produit un Job Summary, des annotations et
-  échoue selon la sévérité des constats.
+  Static security audit of your repo's MCP configs (tool poisoning, typosquats,
+  insecure transport, hardcoded secrets) using the local-first Sentinel CLI.
+  Posts a Job Summary, file annotations, and fails the job by severity.
 author: 'MattJeff'
 branding:
   icon: 'shield'
-  color: 'purple'
+  color: 'red'
 
 inputs:
   path:
