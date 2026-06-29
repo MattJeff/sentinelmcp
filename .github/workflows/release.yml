@@ -21,8 +21,11 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
+          # x86_64 (Intel) est CROSS-COMPILÉ sur le runner ARM (macos-latest) :
+          # le toolchain macOS est universel, et les runners macos-13 (Intel)
+          # sont rares → file d'attente chronique qui bloquait la release.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-pc-windows-msvc

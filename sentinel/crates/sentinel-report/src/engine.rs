@@ -15,11 +15,14 @@ use crate::compliance::MoteurConformite;
 use crate::pdf::{ContenuPdf, RenduPdf};
 use crate::signature::SignataireBundle;
 
-/// Service du trousseau OS hébergeant la clé de signature des rapports.
-const SERVICE_TROUSSEAU: &str = "sentinel-mcp";
-/// Compte (clé logique) de la graine Ed25519 dans le trousseau OS.
-const COMPTE_CLE_SIGNATURE: &str = "report-signing-key";
-/// Variable d'environnement d'opt-out du trousseau (CI / headless) : `=1`.
+/// Nom du fichier de la graine Ed25519 de signature, sous le répertoire de
+/// config OS (`dirs::config_dir()/sentinel/`). Un FICHIER local (permissions
+/// 0600 sur unix) plutôt que le trousseau OS : aucune invite de permission
+/// bloquante (le Trousseau macOS / Secret Service Linux ouvrent une fenêtre
+/// GUI qui fige un CLI non-interactif), portable, et toujours 100 % local.
+const FICHIER_CLE_SIGNATURE: &str = "report-signing.key";
+/// Variable d'environnement d'opt-out de la persistance (CI / headless) : `=1`.
+/// Nom historique conservé pour compatibilité.
 const ENV_DESACTIVATION_TROUSSEAU: &str = "SENTINEL_NO_KEYRING";
 
 /// Orchestre l'ensemble du pipeline de rapport.
@@ -394,7 +397,7 @@ impl GenerateurRapport {
     }
 
     /// Résout le signataire : signataire injecté en priorité, sinon clé
-    /// persistée du trousseau OS (ou éphémère si indisponible).
+    /// persistée en fichier local (ou éphémère si indisponible).
     fn resoudre_signataire(&self) -> SignataireBundle {
         if let Some(s) = &self.signataire {
             // Reconstruit un signataire indépendant depuis la graine injectée.
@@ -404,7 +407,7 @@ impl GenerateurRapport {
         Self::charger_cle_persistee_ou_ephemere()
     }
 
-    /// Charge la graine Ed25519 depuis le trousseau OS (créée et persistée au
+    /// Charge la graine Ed25519 depuis le fichier de clé local (créé et persisté au
     /// 1er lancement). Si le trousseau est indisponible — ou explicitement
     /// désactivé via `SENTINEL_NO_KEYRING=1` (CI / headless) — génère une clé
     /// éphémère pour ce run et loggue un avertissement explicite.
@@ -419,47 +422,63 @@ impl GenerateurRapport {
             return SignataireBundle::generer();
         }
 
-        match Self::cle_depuis_trousseau() {
+        match Self::cle_depuis_fichier() {
             Ok(Some(signataire)) => signataire,
             Ok(None) => {
                 // 1er lancement : on génère la clé puis on la persiste.
                 let signataire = SignataireBundle::generer();
-                if let Err(e) = Self::persister_cle_trousseau(&signataire) {
+                if let Err(e) = Self::persister_cle_fichier(&signataire) {
                     warn!(
-                        "Persistance de la clé de signature dans le trousseau échouée : {e} \
+                        "Persistance de la clé de signature échouée : {e} \
                          — clé éphémère pour ce run"
                     );
                 }
                 signataire
             }
             Err(e) => {
-                warn!("Trousseau indisponible ({e}) — clé de signature éphémère pour ce run");
+                warn!("Clé de signature illisible ({e}) — clé éphémère pour ce run");
                 SignataireBundle::generer()
             }
         }
     }
 
-    /// Lit la graine Ed25519 (hex) stockée dans le trousseau OS, le cas échéant.
-    fn cle_depuis_trousseau() -> Result<Option<SignataireBundle>> {
-        let entree = keyring::Entry::new(SERVICE_TROUSSEAU, COMPTE_CLE_SIGNATURE)?;
-        match entree.get_password() {
+    /// Chemin du fichier de clé de signature : `dirs::config_dir()/sentinel/<fichier>`.
+    fn chemin_cle_signature() -> Option<std::path::PathBuf> {
+        dirs::config_dir().map(|d| d.join("sentinel").join(FICHIER_CLE_SIGNATURE))
+    }
+
+    /// Lit la graine Ed25519 (hex) depuis le fichier de clé, le cas échéant.
+    /// Aucune invite système : simple lecture de fichier (non bloquant).
+    fn cle_depuis_fichier() -> Result<Option<SignataireBundle>> {
+        let Some(chemin) = Self::chemin_cle_signature() else {
+            return Ok(None);
+        };
+        match std::fs::read_to_string(&chemin) {
             Ok(graine_hex) => {
                 let graine = hex::decode(graine_hex.trim()).map_err(|e| {
-                    anyhow::anyhow!("graine de signature invalide dans le trousseau : {e}")
+                    anyhow::anyhow!("graine de signature invalide dans {} : {e}", chemin.display())
                 })?;
                 Ok(Some(SignataireBundle::depuis_bytes(&graine)?))
             }
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(anyhow::anyhow!("lecture du trousseau échouée : {e}")),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(anyhow::anyhow!("lecture de {} échouée : {e}", chemin.display())),
         }
     }
 
-    /// Persiste la graine Ed25519 (encodée en hex) dans le trousseau OS.
-    fn persister_cle_trousseau(signataire: &SignataireBundle) -> Result<()> {
-        let entree = keyring::Entry::new(SERVICE_TROUSSEAU, COMPTE_CLE_SIGNATURE)?;
-        entree
-            .set_password(&hex::encode(&signataire.cle_secrete))
-            .map_err(|e| anyhow::anyhow!("écriture du trousseau échouée : {e}"))?;
+    /// Persiste la graine Ed25519 (hex) dans le fichier de clé, en restreignant
+    /// les permissions à 0600 sur les systèmes unix.
+    fn persister_cle_fichier(signataire: &SignataireBundle) -> Result<()> {
+        let chemin = Self::chemin_cle_signature()
+            .ok_or_else(|| anyhow::anyhow!("répertoire de configuration introuvable"))?;
+        if let Some(parent) = chemin.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&chemin, hex::encode(&signataire.cle_secrete))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&chemin, std::fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 
