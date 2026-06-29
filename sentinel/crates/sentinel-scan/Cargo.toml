@@ -3,6 +3,11 @@ name = "sentinel-scan"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Sentinel MCP — capture stdio/HTTP, normalisation, détection de signature MCP, parsing tools/list et inférence de portée"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mcp", "security", "scanner", "audit", "stdio"]
+categories = ["development-tools", "network-programming"]
 
 [dependencies]
 sentinel-protocol = { workspace = true }

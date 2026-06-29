@@ -3,6 +3,11 @@ name = "sentinel-detect"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Sentinel MCP — moteur de détection : empreinte canonique, rug-pull, tool poisoning, exfiltration, sosies, règles YARA"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mcp", "security", "detection", "yara", "rugpull"]
+categories = ["development-tools"]
 
 [dependencies]
 sentinel-protocol = { workspace = true }

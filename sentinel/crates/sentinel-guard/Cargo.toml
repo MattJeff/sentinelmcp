@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Sentinel MCP — garde stdio temps réel : relais transparent, détection de dérive tools/list, blocage optionnel"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mcp", "security", "guard", "proxy", "stdio"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "sentinel-guard"

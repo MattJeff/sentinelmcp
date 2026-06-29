@@ -2,6 +2,12 @@
 name = "sentinel-taxii"
 version.workspace = true
 edition = "2021"
+license.workspace = true
+description = "Sentinel MCP — client TAXII 2.1 pour publier des bundles STIX vers une collection (discovery, auth, retries, pagination)"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["taxii", "stix", "security", "threat-intel", "cti"]
+categories = ["web-programming::http-client", "network-programming"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

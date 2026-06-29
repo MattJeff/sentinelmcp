@@ -2,6 +2,12 @@
 name = "sentinel-stix"
 version.workspace = true
 edition = "2021"
+license.workspace = true
+description = "Sentinel MCP — génération de bundles STIX 2.1 (SDO/SCO/SRO) à partir de l'état Sentinel (serveurs, constats, threat intel)"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mcp", "security", "stix", "threat-intel", "cti"]
+categories = ["encoding", "development-tools"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -9,8 +15,8 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
-sentinel-store = { path = "../sentinel-store" }
-sentinel-protocol = { path = "../sentinel-protocol" }
+sentinel-store = { workspace = true }
+sentinel-protocol = { workspace = true }
 sentinel-discovery = { workspace = true }
 
 [dev-dependencies]

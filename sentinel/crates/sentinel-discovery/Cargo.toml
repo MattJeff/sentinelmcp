@@ -3,6 +3,11 @@ name = "sentinel-discovery"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Sentinel MCP — découverte des clients IA compatibles MCP (Claude Desktop, Cursor, Windsurf, VS Code…) et de leurs serveurs déclarés"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mcp", "security", "discovery", "ai", "inventory"]
+categories = ["development-tools", "command-line-utilities"]
 
 [dependencies]
 sentinel-protocol = { workspace = true }

@@ -3,6 +3,11 @@ name = "sentinel-store"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Sentinel MCP — store local embarqué SQLite : inventaire, baselines, historique des contacts, constats et alertes"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mcp", "security", "sqlite", "storage", "database"]
+categories = ["database", "development-tools"]
 
 [dependencies]
 sentinel-protocol = { workspace = true }

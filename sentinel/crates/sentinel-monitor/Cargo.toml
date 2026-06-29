@@ -3,6 +3,11 @@ name = "sentinel-monitor"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Sentinel MCP — surveillance continue : baselines, journal d'activité, détection de dérive intra/inter-session et de nouveaux serveurs"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mcp", "security", "monitoring", "drift", "baseline"]
+categories = ["development-tools"]
 
 [dependencies]
 sentinel-protocol = { workspace = true }

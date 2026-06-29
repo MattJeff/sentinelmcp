@@ -25,14 +25,14 @@ repository = "https://github.com/MattJeff/sentinelmcp"
 homepage = "https://github.com/MattJeff/sentinelmcp"
 
 [workspace.dependencies]
-sentinel-protocol = { path = "crates/sentinel-protocol" }
-sentinel-store = { path = "crates/sentinel-store" }
-sentinel-scan = { path = "crates/sentinel-scan" }
-sentinel-monitor = { path = "crates/sentinel-monitor" }
-sentinel-detect = { path = "crates/sentinel-detect" }
-sentinel-alerts = { path = "crates/sentinel-alerts" }
-sentinel-report = { path = "crates/sentinel-report" }
-sentinel-discovery = { path = "crates/sentinel-discovery" }
+sentinel-protocol = { path = "crates/sentinel-protocol", version = "0.8.0" }
+sentinel-store = { path = "crates/sentinel-store", version = "0.8.0" }
+sentinel-scan = { path = "crates/sentinel-scan", version = "0.8.0" }
+sentinel-monitor = { path = "crates/sentinel-monitor", version = "0.8.0" }
+sentinel-detect = { path = "crates/sentinel-detect", version = "0.8.0" }
+sentinel-alerts = { path = "crates/sentinel-alerts", version = "0.8.0" }
+sentinel-report = { path = "crates/sentinel-report", version = "0.8.0" }
+sentinel-discovery = { path = "crates/sentinel-discovery", version = "0.8.0" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
