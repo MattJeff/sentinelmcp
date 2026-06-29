@@ -25,7 +25,12 @@ const DISTANCE_MAX: usize = 32;
 pub fn filtre_grossier(e: &EvenementBrut) -> bool {
     // Sérialisation compacte du payload Value déjà parsé : gratuit car
     // serde_json::to_string est O(n) et évite toute allocation répétée.
-    let brut = serde_json::to_string(&e.payload).unwrap_or_default();
+    let brut = serde_json::to_string(&e.payload).unwrap_or_else(|err| {
+        // Échec rare : on conserve le fallback (chaîne vide → message écarté)
+        // mais on le trace pour ne plus rejeter silencieusement.
+        tracing::warn!(erreur = %err, "échec de sérialisation du payload dans le filtre grossier — message écarté");
+        String::new()
+    });
     filtre_grossier_bytes(brut.as_bytes())
 }
 

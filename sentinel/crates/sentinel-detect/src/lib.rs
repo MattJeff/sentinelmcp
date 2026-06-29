@@ -16,7 +16,7 @@ pub use canonical::canonicaliser_json;
 pub use fingerprint::{empreinte_outil, empreinte_serveur, empreintes_par_outil};
 pub use diff::{diff_outils, RenduDiff};
 pub use rugpull::DetecteurRugPull;
-pub use poisoning::{InspecteurPoisoning, ConstatPoisoning};
+pub use poisoning::{ConfigDetection, ConstatPoisoning, InspecteurPoisoning};
 pub use exfiltration::DetecteurExfiltration;
 pub use sampling::{ConfigSampling, DetecteurSampling, NatureSignalSampling, SignalSampling};
 pub use lookalikes::ConnecteurRegistres;

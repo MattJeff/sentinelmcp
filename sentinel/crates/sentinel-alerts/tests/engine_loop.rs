@@ -163,6 +163,34 @@ async fn dedup_empeche_doublon_meme_constat() {
 }
 
 // ---------------------------------------------------------------------------
+// Régression B9 : un mutex de dédup empoisonné ne bloque pas l'émission
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn dedup_mutex_empoisonne_ne_bloque_pas_lemission() {
+    let mut moteur = MoteurAlertes::nouveau(store_vide());
+    let (canal, buf) = CanalMock::nouveau("dashboard");
+    moteur.ajouter_canal(Arc::new(canal));
+
+    // Empoisonne volontairement le mutex de déduplication (panic garde tenu).
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _g = moteur.dedup.lock().unwrap();
+        panic!("empoisonnement volontaire du mutex dedup");
+    }));
+    assert!(r.is_err(), "le panic doit empoisonner le mutex");
+    assert!(moteur.dedup.is_poisoned(), "le mutex dedup doit être empoisonné");
+
+    // Sans le correctif (.expect), `traiter_constat` paniquerait ici.
+    let constat = constat_test(TypeConstat::ShadowMcp);
+    let ids = moteur
+        .traiter_constat(&constat)
+        .await
+        .expect("traiter_constat doit survivre à un mutex empoisonné");
+    assert_eq!(ids.len(), 1, "l'alerte doit tout de même être émise");
+    assert_eq!(buf.lock().unwrap().len(), 1, "le canal doit avoir reçu l'alerte");
+}
+
+// ---------------------------------------------------------------------------
 // Test 3 : un canal en erreur n'interrompt pas les autres canaux
 // ---------------------------------------------------------------------------
 

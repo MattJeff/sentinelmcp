@@ -98,6 +98,31 @@ pub struct ComplianceReference {
     pub url: Option<String>,
 }
 
+/// One row of the OWASP MCP / ASI coverage matrix surfaced to the Compliance
+/// page. Mirrors `sentinel_report::compliance::CouvertureCategorie`.
+#[derive(Serialize)]
+pub struct ComplianceCoverageRow {
+    pub framework: String,
+    pub identifier: String,
+    pub title: String,
+    /// Coverage level: "yes" (dedicated detector), "partial" (heuristic /
+    /// indirect) or "no" (out of EDR scope — claimed blind spot).
+    pub level: String,
+    pub justification: String,
+}
+
+/// Full coverage matrix returned by `compliance_coverage`, with roll-up
+/// counts per level so the UI can render a summary without re-tallying.
+#[derive(Serialize)]
+pub struct ComplianceCoverage {
+    /// Version tag of the underlying coverage table.
+    pub version: String,
+    pub matrix: Vec<ComplianceCoverageRow>,
+    pub covered: u64,
+    pub partial: u64,
+    pub not_covered: u64,
+}
+
 #[derive(Serialize)]
 pub struct ReportBundle {
     pub executive_summary_md: String,
@@ -951,6 +976,48 @@ pub async fn compliance_references() -> Result<Vec<ComplianceReference>, String>
     refs.sort_by(|a, b| a.identifier.cmp(&b.identifier));
     refs.dedup_by(|a, b| a.identifier == b.identifier);
     Ok(refs)
+}
+
+/// Return the OWASP MCP Top 10 + OWASP ASI coverage matrix
+/// (`MoteurConformite::matrice_couverture`) plus per-level roll-up counts.
+/// Powers the honesty-first coverage table on the Compliance page.
+#[tauri::command]
+pub async fn compliance_coverage() -> Result<ComplianceCoverage, String> {
+    use sentinel_report::compliance::{self, MoteurConformite, NiveauCouverture};
+
+    let mut matrix = Vec::new();
+    let (mut covered, mut partial, mut not_covered) = (0u64, 0u64, 0u64);
+    for c in MoteurConformite::matrice_couverture() {
+        let level = match c.niveau {
+            NiveauCouverture::Oui => {
+                covered += 1;
+                "yes"
+            }
+            NiveauCouverture::Partiel => {
+                partial += 1;
+                "partial"
+            }
+            NiveauCouverture::Non => {
+                not_covered += 1;
+                "no"
+            }
+        };
+        matrix.push(ComplianceCoverageRow {
+            framework: c.cadre.to_string(),
+            identifier: c.identifiant.to_string(),
+            title: c.titre.to_string(),
+            level: level.to_string(),
+            justification: c.justification.to_string(),
+        });
+    }
+
+    Ok(ComplianceCoverage {
+        version: compliance::VERSION_TABLE.to_string(),
+        matrix,
+        covered,
+        partial,
+        not_covered,
+    })
 }
 
 #[tauri::command]

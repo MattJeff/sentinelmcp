@@ -129,6 +129,115 @@ fn audit_dossier_sans_config_retourne_0() {
     assert_eq!(out.status.code(), Some(0));
 }
 
+// ─── audit D11 : transport / secrets / injection + flags hybrides ─────────
+
+#[test]
+fn audit_transport_http_signale_transport_en_clair() {
+    let tmp = tempfile::tempdir().unwrap();
+    ecrire(
+        &tmp.path().join(".vscode/mcp.json"),
+        r#"{ "servers": { "api": { "type": "http", "url": "http://mcp.evil.example.com/sse" } } }"#,
+    );
+    let out = executer(&["audit", tmp.path().to_str().unwrap(), "--json"]);
+    let code = out.status.code().unwrap();
+    assert!(code == 0 || code == 1, "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(json["constats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["type"] == "transport"));
+}
+
+#[test]
+fn audit_secret_en_clair_retourne_1_et_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    ecrire(
+        &tmp.path().join("mcp.json"),
+        r#"{ "mcpServers": { "gh": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": { "GITHUB_TOKEN": "ghp_0123456789abcdefghijklmnopqrstuvwxyz" }
+        } } }"#,
+    );
+    let out = executer(&["audit", tmp.path().to_str().unwrap(), "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let constats = json["constats"].as_array().unwrap();
+    assert!(constats
+        .iter()
+        .any(|c| c["type"] == "secret" && c["serveur"] == "gh"));
+}
+
+#[test]
+fn audit_secret_indirect_ne_declenche_pas() {
+    let tmp = tempfile::tempdir().unwrap();
+    ecrire(
+        &tmp.path().join("mcp.json"),
+        r#"{ "mcpServers": { "gh": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+        } } }"#,
+    );
+    let out = executer(&["audit", tmp.path().to_str().unwrap(), "--json"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(json["constats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|c| c["type"] != "secret"));
+}
+
+#[test]
+fn audit_flag_yara_route_vers_le_moteur() {
+    let tmp = tempfile::tempdir().unwrap();
+    ecrire(
+        &tmp.path().join("mcp.json"),
+        r#"{ "mcpServers": { "h": { "command": "npx", "env": { "X": "read ~/.ssh/id_rsa" } } } }"#,
+    );
+
+    // --yara (défaut) : un motif YARA embarqué (référence ~/.ssh) est signalé.
+    let out = executer(&["audit", tmp.path().to_str().unwrap(), "--json", "--yara"]);
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(
+        json["constats"].as_array().unwrap().iter().any(|c| c["type"] == "yara"),
+        "le flag --yara doit router vers le moteur YARA"
+    );
+
+    // --no-yara : aucun constat YARA, l'audit tourne quand même.
+    let out = executer(&["audit", tmp.path().to_str().unwrap(), "--json", "--no-yara"]);
+    let code = out.status.code().unwrap();
+    assert!(code == 0 || code == 1, "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(
+        json["constats"].as_array().unwrap().iter().all(|c| c["type"] != "yara"),
+        "--no-yara doit désactiver le moteur YARA"
+    );
+}
+
+#[test]
+fn scan_accepte_les_flags_hybrides() {
+    // Le flag --yara / --llm-url ne doit pas casser le scan (sans --probe,
+    // le pipeline hybride n'est pas exercé mais les flags sont acceptés).
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("sentinel.db");
+    let out = executer(&[
+        "scan",
+        "--json",
+        "--no-yara",
+        "--llm-url",
+        "http://localhost:11434",
+        "--db",
+        db.to_str().unwrap(),
+    ]);
+    let code = out.status.code().unwrap();
+    assert!(code == 0 || code == 1, "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("sortie --json invalide");
+    assert!(json["constats"].is_array());
+}
+
 // ─── scan ────────────────────────────────────────────────────────────────
 
 #[test]

@@ -8,6 +8,7 @@ import clsx from 'clsx';
 
 import type { Alert, Severity } from '../api/contract';
 import DiffViewer from './DiffViewer';
+import { CategoryBadge } from '../lib/findingCategory';
 
 export interface AlertRowProps {
   alert: Alert;
@@ -76,12 +77,18 @@ export default function AlertRow({ alert, onResolve }: AlertRowProps) {
           className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 flex-1 min-w-0 text-left rounded-lg focus-visible:outline-none focus-visible:shadow-focus"
           aria-expanded={open}
         >
-          {/* Row 1 (narrow) / left (wide): severity dot + pill */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Row 1 (narrow) / left (wide): severity dot + pill + attack category */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <span className={clsx('dot', SEVERITY_DOT[alert.severity])} aria-hidden />
             <span className={clsx('badge', SEVERITY_PILL[alert.severity])}>
               {SEVERITY_LABEL[alert.severity]}
             </span>
+            <CategoryBadge
+              severity={alert.severity}
+              title={alert.title}
+              detail={alert.message}
+              diff={alert.diff}
+            />
           </div>
 
           {/* Row 2 (narrow) / center (wide): title + message */}

@@ -323,3 +323,159 @@ fn markdown_section_liste_vide_pas_de_lignes_donnees() {
         lignes_tableau
     );
 }
+
+// ---------------------------------------------------------------------------
+// D10 — Test 10 : references_frameworks estampille les bons IDs par type
+// ---------------------------------------------------------------------------
+
+#[test]
+fn frameworks_poisoning_inclut_owasp_safe_atlas() {
+    let ids = MoteurConformite::references_frameworks(&TypeConstat::Poisoning);
+    assert!(ids.contains(&"MCP03"), "Poisoning → OWASP MCP03, obtenu : {:?}", ids);
+    assert!(ids.contains(&"SAFE-T1001"), "Poisoning → SAFE-T1001, obtenu : {:?}", ids);
+    assert!(
+        ids.contains(&"ATLAS AML.T0051"),
+        "Poisoning → ATLAS AML.T0051 (prompt injection), obtenu : {:?}",
+        ids
+    );
+    // Faux positif à éviter : le poisoning n'est pas un rug-pull.
+    assert!(
+        !ids.contains(&"SAFE-T1201"),
+        "Poisoning ne doit PAS porter SAFE-T1201 (rug-pull), obtenu : {:?}",
+        ids
+    );
+}
+
+#[test]
+fn frameworks_rugpull_et_sosie_mitre() {
+    let rug = MoteurConformite::references_frameworks(&TypeConstat::RugPull);
+    assert!(rug.contains(&"SAFE-T1201"), "RugPull → SAFE-T1201, obtenu : {:?}", rug);
+    assert!(
+        rug.contains(&"ATT&CK T1195"),
+        "RugPull → ATT&CK T1195 (supply chain), obtenu : {:?}",
+        rug
+    );
+
+    let sosie = MoteurConformite::references_frameworks(&TypeConstat::Sosie);
+    assert!(
+        sosie.contains(&"ATT&CK T1036"),
+        "Sosie → ATT&CK T1036 (masquerading), obtenu : {:?}",
+        sosie
+    );
+    assert!(sosie.contains(&"MCP09"), "Sosie → OWASP MCP09, obtenu : {:?}", sosie);
+}
+
+#[test]
+fn frameworks_exfiltration_et_elicitation() {
+    let exfil = MoteurConformite::references_frameworks(&TypeConstat::Exfiltration);
+    assert!(
+        exfil.contains(&"ATT&CK T1567"),
+        "Exfiltration → ATT&CK T1567 (exfil over web service), obtenu : {:?}",
+        exfil
+    );
+
+    let elic = MoteurConformite::references_frameworks(&TypeConstat::ElicitationSensible);
+    assert!(
+        elic.contains(&"ATT&CK T1598"),
+        "ElicitationSensible → ATT&CK T1598 (phishing for information), obtenu : {:?}",
+        elic
+    );
+}
+
+#[test]
+fn frameworks_autre_vide() {
+    // Cas négatif : un constat non catégorisé ne porte aucune correspondance.
+    let ids = MoteurConformite::references_frameworks(&TypeConstat::Autre);
+    assert!(ids.is_empty(), "Autre ne doit porter aucun référentiel, obtenu : {:?}", ids);
+}
+
+#[test]
+fn frameworks_shadow_alias_nouveau_serveur() {
+    // Cohérence : ShadowMcp et NouveauServeur partagent le même estampillage.
+    assert_eq!(
+        MoteurConformite::references_frameworks(&TypeConstat::ShadowMcp),
+        MoteurConformite::references_frameworks(&TypeConstat::NouveauServeur),
+    );
+}
+
+#[test]
+fn frameworks_markdown_liste_types_presents() {
+    let constats = vec![
+        constat_simple(TypeConstat::Poisoning, "poison"),
+        constat_simple(TypeConstat::Poisoning, "poison 2 (doublon de type)"),
+        constat_simple(TypeConstat::Exfiltration, "exfil"),
+    ];
+    let md = MoteurConformite::frameworks_markdown(&constats);
+
+    assert!(md.contains("Correspondances multi-référentiels"));
+    assert!(md.contains("ATLAS AML.T0051"), "section frameworks :\n{}", md);
+    assert!(md.contains("ATT&CK T1567"), "section frameworks :\n{}", md);
+
+    // Déduplication par type : Poisoning ne doit apparaître qu'une seule fois.
+    let occurrences = md.matches("Poisoning").count();
+    assert_eq!(occurrences, 1, "Poisoning dédupliqué attendu, section :\n{}", md);
+}
+
+// ---------------------------------------------------------------------------
+// P3 — Test 11 : matrice de couverture honnête (OWASP MCP / ASI)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn matrice_couverture_couvre_les_dix_owasp_mcp_et_dix_asi() {
+    let matrice = MoteurConformite::matrice_couverture();
+    let nb_mcp = matrice.iter().filter(|c| c.cadre == "OWASP MCP").count();
+    let nb_asi = matrice.iter().filter(|c| c.cadre == "OWASP ASI").count();
+    assert_eq!(nb_mcp, 10, "10 catégories OWASP MCP attendues");
+    assert_eq!(nb_asi, 10, "10 catégories OWASP ASI attendues");
+}
+
+#[test]
+fn matrice_couverture_asi06_est_un_angle_mort() {
+    // Honnêteté assumée : la mémoire persistante (ASI06) est un « Non ».
+    let matrice = MoteurConformite::matrice_couverture();
+    let asi06 = matrice
+        .iter()
+        .find(|c| c.identifiant == "ASI06")
+        .expect("ASI06 doit figurer dans la matrice");
+    assert_eq!(
+        asi06.niveau,
+        sentinel_report::compliance::NiveauCouverture::Non,
+        "ASI06 (mémoire persistante) doit être déclaré non couvert"
+    );
+
+    // Cas positif symétrique : le serveur fantôme (MCP09) est bien couvert.
+    let mcp09 = matrice
+        .iter()
+        .find(|c| c.identifiant == "MCP09")
+        .expect("MCP09 doit figurer dans la matrice");
+    assert_eq!(
+        mcp09.niveau,
+        sentinel_report::compliance::NiveauCouverture::Oui,
+        "MCP09 (shadow server) doit être déclaré couvert"
+    );
+}
+
+#[test]
+fn matrice_couverture_markdown_lisible_pour_auditeur() {
+    let md = MoteurConformite::matrice_couverture_markdown();
+    assert!(md.contains("## Matrice de couverture"), "titre attendu :\n{}", md);
+    assert!(md.contains("| Cadre | ID | Catégorie | Couverture | Justification |"));
+    assert!(md.contains("MCP09"));
+    assert!(md.contains("ASI06"));
+    // La légende des niveaux doit être présente pour le RSSI.
+    assert!(md.contains("Oui") && md.contains("Partiel") && md.contains("Non"));
+}
+
+#[test]
+fn matrice_couverture_json_structuree() {
+    let v = MoteurConformite::matrice_couverture_json();
+    let cats = v["categories"].as_array().expect("categories doit être un tableau");
+    assert_eq!(cats.len(), 20, "20 catégories attendues (10 MCP + 10 ASI)");
+    // Chaque entrée porte les champs attendus.
+    let asi06 = cats
+        .iter()
+        .find(|c| c["identifiant"] == "ASI06")
+        .expect("ASI06 doit être présent dans le JSON");
+    assert_eq!(asi06["couverture"], "Non");
+    assert!(asi06["justification"].is_string());
+}

@@ -3,7 +3,7 @@
 Sentinel MCP est un outil de découverte, fingerprinting, surveillance et audit
 des serveurs MCP (Model Context Protocol) qu'un Mac de développeur expose à
 ses agents IA. Cette page liste **toutes** les fonctionnalités livrées
-jusqu'à la version 0.3 — à quoi elles servent, dans quel cas elles se
+jusqu'à la version 0.6 — à quoi elles servent, dans quel cas elles se
 déclenchent, et quelles questions de sécurité ou de conformité elles
 résolvent.
 
@@ -15,6 +15,23 @@ résolvent.
 > **portée user vs project** détectée sur les configs MCP, le sink
 > **Syslog TCP / TCP+TLS (RFC 5425)** et un **command palette** clavier
 > (`⌘K`) + une **icône menubar** avec compteur d'alertes ouvertes.
+
+> Note v0.6 : la **détection hybride** est désormais réellement câblée et
+> exposée. Le pipeline `InspecteurPoisoning::inspecter_complet` agrège, dans
+> l'ordre : patterns regex + **anti-smuggling Unicode** (zero-width, contrôles
+> bidi, bloc Tags, ANSI) + normalisation **NFKC** + **line-jumping**, puis le
+> moteur **YARA** embarqué (yara-x), puis un **juge LLM local optionnel**
+> (Ollama, zéro-cloud, désactivé par défaut). Réglable en **CLI**
+> (`sentinel scan` / nouveau `sentinel audit <chemin>`, flags
+> `--yara`/`--no-yara`/`--llm`/`--llm-url`) et dans l'**app**
+> (Settings → Detection engines). Cette version ajoute aussi :
+> l'**attestation supply-chain** npm (intégrité SHA-512, mainteneurs, version
+> épinglée) et le **rug-pull par version** (cas Postmark) ; les **confusables
+> Unicode** (skeleton UTS#39) dans la détection de sosies ; le **scan de
+> sécurité des skills/agents** ; l'**auditeur statique** transport/secrets/
+> injection (`sentinel audit`) ; la **signature Ed25519 réellement appliquée**
+> (clé scellée dans le trousseau OS, PDF inclus) ; et un mapping conformité
+> élargi (OWASP ASI06, MITRE ATT&CK / ATLAS).
 
 Le document n'est pas un manuel d'API ni un guide d'installation. C'est la
 référence à donner à un auditeur, un acheteur ou un nouveau membre de
@@ -99,7 +116,7 @@ Sentinel.
 
 ## 2. Architecture fonctionnelle
 
-L'application est composée de onze crates Rust regroupées dans un
+L'application est composée de douze crates Rust regroupées dans un
 workspace et d'une UI Tauri 2 + React 19.
 
 | Crate                | Rôle                                                         |
@@ -108,7 +125,8 @@ workspace et d'une UI Tauri 2 + React 19.
 | sentinel-store       | Persistance SQLite (serveurs, outils, baselines, constats, tags, scopes) — migrations V1/V2/V3 |
 | sentinel-scan        | Capture stdio + HTTP, parseur `tools/list`, mode proxy B     |
 | sentinel-monitor     | Boucle de surveillance continue, baselines, dérive           |
-| sentinel-detect      | Détecteurs (empreinte, rug-pull, poisoning, sosies)          |
+| sentinel-detect      | Détecteurs : empreinte, rug-pull, poisoning **hybride** (patterns + anti-smuggling Unicode/NFKC + YARA + juge LLM Ollama optionnel), sosies + confusables |
+| sentinel-guard       | Wrapper stdio transparent (relais bit-exact, dérive, `--block` sur rug-pull critique) |
 | sentinel-alerts      | Moteur d'alertes (sévérité, canaux, déduplication), sinks Splunk / Elastic / Syslog UDP/TCP/TLS |
 | sentinel-report      | Génération PDF + JSON, signature Ed25519, mapping conformité |
 | sentinel-discovery   | Lecture des configs des 14 clients IA, threat intel feed (bundled + remote refresh + cache) |
@@ -773,6 +791,26 @@ jamais vide.
 Au-delà de la fenêtre, les enregistrements sont purgés à chaque
 démarrage.
 
+### Section Detection engines (v0.6)
+
+Carte qui pilote les moteurs du pipeline de détection hybride. Les deux
+moteurs tournent **entièrement en local** (zéro cloud) :
+
+- **YARA signatures** : toggle, **ON par défaut**. Applique les règles YARA
+  embarquées (yara-x) à la surface textuelle de chaque outil. La carte
+  affiche aussi la **liste en lecture seule des règles embarquées**
+  (commande `list_yara_rules`).
+- **Local LLM judge (Ollama)** : toggle, **OFF par défaut**. Quand activé,
+  un second avis sémantique est demandé à un modèle que vous hébergez
+  vous-même.
+- **LLM endpoint** : URL de base du serveur Ollama local (défaut :
+  `http://localhost:11434`).
+
+Aucune surface d'outil ni constat ne quitte la machine : le juge LLM ne
+parle qu'à l'URL locale que vous renseignez. Les mêmes réglages sont
+exposés en CLI via `--yara`/`--no-yara`/`--llm`/`--llm-url` sur
+`sentinel scan` et `sentinel audit`. Champs `settings.detection.{yara,llm,llmUrl}`.
+
 ### Section Privacy
 
 - **Inspection-in-flight only** : Sentinel n'enregistre jamais le
@@ -973,7 +1011,7 @@ approuvée. Si différence :
 - assigne sévérité selon ampleur et nature du changement
 - mappe sur SAFE-T1201 et OWASP MCP09
 
-### Détecteur de tool poisoning
+### Détecteur de tool poisoning (pipeline hybride)
 
 Scanne chaque description d'outil et chaque docstring renvoyé par le
 serveur, à la recherche de motifs suspects :
@@ -982,6 +1020,18 @@ serveur, à la recherche de motifs suspects :
 - instructions de chargement réseau hostile,
 - injection de prompt cachée (« ignore previous instructions », « read
   the contents of … and send via … »).
+
+Depuis v0.6, le détecteur n'est plus seulement des regex : `inspecter_texte`
+applique d'abord l'**anti-smuggling Unicode** sur le texte BRUT (zero-width
+U+200B–200D/FEFF, contrôles bidi U+202A–202E/2066–2069, bloc Tags
+U+E0000–E007F, ANSI ESC U+001B → catégorie `smuggling-unicode`, sévérité
+Haute), puis **normalise en NFKC** avant les regex (déjoue les variantes
+« fullwidth »/homoglyphes, ex. `ｉｇｎｏｒｅ` → `ignore`), et inclut une
+catégorie **`line_jumping`** (instructions injectées après coupure de ligne,
+Trail of Bits). La NFKC n'altère jamais l'empreinte canonique : elle ne
+s'applique qu'au chemin de détection. Le pipeline complet
+`inspecter_complet` chaîne ensuite **YARA** puis le **juge LLM** optionnel
+(voir plus bas).
 
 Mappe sur SAFE-T1001 et OWASP MCP03.
 
@@ -997,6 +1047,43 @@ critique. Mappe sur SAFE-T1001.
 Pour chaque serveur déclaré, calcule similarité Jaro-Winkler combinée
 nom + description avec chaque entrée du registre public. Tout match >
 0.85 avec un nom différent est remonté avec sévérité critical/high/medium.
+
+Depuis v0.6, la similarité de nom est **consciente des confusables
+Unicode** (`similarite_nom_confusables`) : on calcule le « skeleton » UTS#39
+des deux noms (repli des homoglyphes cyrillique/grec et chiffres lookalike)
+et on prend le maximum des scores brut et skeleton. Un spoofing visuel
+(`pаypal` avec un « а » cyrillique) remonte ainsi à ~1.0 sans dégrader le
+score de deux noms réellement distincts. Le détecteur intra-inventaire
+(`intra_inventory::detecter_sosies_intra`) compare en plus les serveurs
+déclarés deux à deux (mêmes outils sous un nom voisin).
+
+### Attestation supply-chain et rug-pull par version
+
+Pour chaque serveur lancé via `npx`, `discovery::supply_chain` résout le
+vrai paquet npm et l'**atteste** auprès du registre public : existence,
+intégrité **SHA-512** du tarball, mainteneurs, date de publication,
+téléchargements hebdomadaires, version épinglée. En comparant deux
+attestations successives (`comparer_attestation`), Sentinel détecte un
+**rug-pull supply-chain par version** — le cas **Postmark**, où un paquet
+réputé republie un artefact altéré alors que la surface d'outils MCP est
+inchangée : même version + empreinte SHA-512 différente = **Critique**
+(re-publication/tampering, npm garantissant l'immutabilité d'une version) ;
+version disponible différente = **Haute**. Les commandes non-npm (uvx, git,
+binaire local) renvoient `NonNpm` sans faux positif.
+
+### Auditeur statique (sentinel audit)
+
+Le sous-commande CLI `sentinel audit <chemin>` scanne un dépôt/dossier sans
+probing ni store (conçue pour la CI). Au-delà du poisoning et des sosies,
+elle ajoute trois contrôles statiques sur les configs MCP trouvées :
+- **transport en clair** : endpoint `http://` vers un hôte distant (loopback
+  exemptée) → OWASP MCP07 ;
+- **secret en dur** : valeur de secret structurée (préfixes fournisseurs
+  connus : `sk-`, `ghp_`, `xox*`, `AKIA`, `AIza`…), jamais une valeur
+  quelconque, et les références indirectes (`${VAR}`, `op://`, `vault:`,
+  `changeme`) sont explicitement épargnées → OWASP MCP05 ;
+- **injection shell** : métacaractères chaînés vers un shell/binaire réseau
+  dans un argument → OWASP MCP01.
 
 ### Empreinte par outil et par serveur
 
@@ -1022,8 +1109,10 @@ textuelle de chaque outil (description + `inputSchema` sérialisé) :
 - métadonnées de règle (`description`, `categorie`, `severite`)
   reprises dans le constat, timeout de scan de 2 s par outil.
 
-Moteur de bibliothèque (`sentinel-detect::yara`), exposition UI/CLI à
-venir.
+Exposé (v0.6) : moteur `sentinel-detect::yara`, activé par défaut dans le
+pipeline hybride `InspecteurPoisoning::inspecter_complet`, réglable en CLI
+(`--yara`/`--no-yara`) et dans l'app (Settings → Detection engines, avec la
+liste en lecture seule des règles embarquées via `list_yara_rules`).
 
 ### Juge LLM local (optionnel, désactivé par défaut)
 
@@ -1037,8 +1126,10 @@ angles morts sémantiques des regex et des règles YARA :
 - verdict converti en constat Poisoning de sévérité Haute (un verdict
   LLM est un signal, pas une preuve).
 
-Moteur de bibliothèque (`sentinel-detect::llm_judge`), exposition
-UI/CLI à venir.
+Exposé (v0.6) : moteur `sentinel-detect::llm_judge`, **opt-in** en CLI
+(`--llm`, URL via `--llm-url`) et dans l'app (Settings → Detection engines,
+toggle « Local LLM judge (Ollama) » + endpoint). Désactivé par défaut →
+aucun appel réseau tant que l'opérateur ne l'active pas.
 
 ### Proxy stdio temps réel (mode détection)
 
@@ -1072,15 +1163,40 @@ Le mapping est natif et défini dans `sentinel-report` (mod
 
 ### OWASP MCP
 
+- **MCP01 — injection** : métacaractères shell dans un argument de config
+  (auditeur statique `sentinel audit`).
 - **MCP03 — Tool Poisoning** : description d'outil hostile, instructions
   cachées.
+- **MCP05 — secret en dur** : valeur de secret structurée dans la config
+  (auditeur statique).
+- **MCP07 — transport non sécurisé** : endpoint `http://` distant en clair
+  (auditeur statique).
 - **MCP09 — Shadow MCP Server** : serveur déclaré mais non identifié,
   ou serveur ayant subtilement changé d'identité.
+
+### OWASP ASI (Agentic Security Initiative)
+
+- **ASI06 — persistance de contexte / poisoning mémoire** : injection
+  persistante via sampling (« add to your next response »), instructions de
+  persistance mémoire. Volet « provenance des écritures mémoire » assumé
+  comme angle mort (capteur fichiers v-next).
 
 ### SAFE-MCP
 
 - **SAFE-T1001 — Tool Description Poisoning**
 - **SAFE-T1201 — Rug Pull / Tool Behavior Change**
+
+### MITRE ATT&CK / ATLAS
+
+Estampillés via `references_frameworks` **quand la technique est clairement
+applicable** (jamais d'identifiant inventé) :
+
+- **ATT&CK T1195 — Supply Chain Compromise** (serveur fantôme, rug-pull).
+- **ATT&CK T1036 — Masquerading** (sosie / typosquatting).
+- **ATT&CK T1567 — Exfiltration Over Web Service** (exfiltration).
+- **ATT&CK T1598 — Phishing for Information** (elicitation de secrets).
+- **ATLAS AML.T0051 — LLM Prompt Injection** (poisoning, injection
+  persistante via sampling).
 
 ### SOC 2
 
@@ -1228,12 +1344,24 @@ chiffré.
 
 ## 20. Limites connues
 
-- Couverture macOS uniquement en v0.3 (Apple Silicon — Tauri 2).
+- Couverture macOS uniquement en v0.6 (Apple Silicon — Tauri 2).
 - Pas de plugin Cursor / Continue / Aider pour interception en flux —
   passage par le proxy mode B nécessaire si on veut capter le trafic
   HTTP runtime.
 - Pas de mode multi-machine : un Sentinel par poste de travail
   développeur.
+- L'enforcement reste **advisory** et au niveau config : pas encore de
+  porte « approve-before-run » qui retiendrait un `tools/call` en ligne
+  (le guard sait bloquer une dérive critique de `tools/list`, pas chaque
+  appel d'outil).
+- Le juge LLM exige un **Ollama local** installé par l'opérateur ; sans
+  lui, le pipeline reste purement patterns + YARA (aucune dégradation,
+  aucun appel réseau).
+- L'attestation supply-chain couvre **npm/npx** ; uvx (Python), git et
+  binaires locaux renvoient `NonNpm` (intégrité non vérifiée).
+- Le matching threat-intel repose sur un flux curaté (bundled + refresh
+  optionnel), pas un registre live de paquets malveillants synchronisé en
+  continu.
 - Lookalike scan n'agrège pas encore les similarités sur les enums
   d'outils — uniquement nom + description, plus l'overlap d'outils.
 - L'auto-refresh du threat feed se déclenche au plus une fois par
@@ -1258,6 +1386,9 @@ L'application expose ses commandes regroupées par module :
 - **Enforcement** : `enforcement_remove_server`, `enforcement_restore`.
 - **Proxy** : `start_proxy`, `stop_proxy`, `proxy_status`.
 - **Lookalikes** : `scan_lookalikes`.
+- **Detection engines** : `list_yara_rules` (liste en lecture seule des
+  règles YARA embarquées ; toggles YARA/LLM + endpoint persistés dans
+  `settings.detection`).
 - **Tags** : `server_set_tags`, `server_list_tags`.
 - **Threat feed** : `threat_feed_refresh`, `threat_feed_status`.
 - **SIEM** : `siem_test_send`, `siem_save_config`, `siem_get_config`,

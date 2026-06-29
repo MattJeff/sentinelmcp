@@ -39,7 +39,9 @@ impl DetecteurNouveauxServeurs {
             return None;
         }
 
-        let mut signales = self.deja_signales.lock().expect("mutex empoisonné");
+        // Récupération sur mutex empoisonné : un panic ailleurs ne doit pas
+        // empêcher la détection de nouveaux serveurs.
+        let mut signales = self.deja_signales.lock().unwrap_or_else(|e| e.into_inner());
         if signales.contains(&observe.endpoint) {
             return None;
         }

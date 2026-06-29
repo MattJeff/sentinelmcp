@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/useToast';
 import AuthorizationGate from '@/components/discovery/AuthorizationGate';
 import ClientCard from '@/components/discovery/ClientCard';
 import LookalikePanel from '@/components/discovery/LookalikePanel';
+import SkillsPanel from '@/components/discovery/SkillsPanel';
 import ThreatPanel from '@/components/discovery/ThreatPanel';
 
 /**
@@ -197,6 +198,12 @@ export default function DiscoveryPage() {
 
       {authorized && (
         <>
+          <section className="space-y-4" aria-labelledby="discovery-skill-security">
+            <h3 id="discovery-skill-security" className="section-heading">
+              Skill security
+            </h3>
+            <SkillsPanel />
+          </section>
           <section className="space-y-4" aria-labelledby="discovery-threat-intel">
             <h3 id="discovery-threat-intel" className="section-heading">
               Threat intel

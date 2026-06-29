@@ -10,7 +10,7 @@ import { invoke } from '@tauri-apps/api/core';
 import ScanRunner, { type ScanMode } from '@/components/ScanRunner';
 import LiveLog, { type LogEntry } from '@/components/LiveLog';
 import { api, onScanProgress } from '@/api/tauri';
-import type { ScanProgress } from '@/api/contract';
+import { COMMANDS, type ScanProgress } from '@/api/contract';
 
 // ─── Proxy capture (mode B) status ───────────────────────────────────────
 
@@ -23,14 +23,16 @@ interface ProxyStatus {
 
 async function fetchProxyStatus(): Promise<ProxyStatus> {
   try {
-    return await invoke<ProxyStatus>('proxy_status');
+    return await invoke<ProxyStatus>(COMMANDS.proxyStatus);
   } catch {
     return { running: false, port: null, upstream: null, events_seen: 0 };
   }
 }
 
 async function stopProxyCmd(): Promise<void> {
-  await invoke('proxy_stop');
+  // Le nom de la commande doit venir du contrat : le backend expose
+  // `stop_proxy` (et non `proxy_stop`), sinon l'invoke échoue à l'exécution.
+  await invoke(COMMANDS.stopProxy);
 }
 
 type Status = 'idle' | 'running' | 'finished' | 'error';

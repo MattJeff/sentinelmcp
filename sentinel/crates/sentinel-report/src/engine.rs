@@ -11,12 +11,25 @@ use sentinel_store::Store;
 use tracing::{info, warn};
 
 use crate::compliance::MoteurConformite;
+use crate::pdf::{ContenuPdf, RenduPdf};
+use crate::signature::SignataireBundle;
+
+/// Service du trousseau OS hébergeant la clé de signature des rapports.
+const SERVICE_TROUSSEAU: &str = "sentinel-mcp";
+/// Compte (clé logique) de la graine Ed25519 dans le trousseau OS.
+const COMPTE_CLE_SIGNATURE: &str = "report-signing-key";
+/// Variable d'environnement d'opt-out du trousseau (CI / headless) : `=1`.
+const ENV_DESACTIVATION_TROUSSEAU: &str = "SENTINEL_NO_KEYRING";
 
 /// Orchestre l'ensemble du pipeline de rapport.
 pub struct GenerateurRapport {
     pub store: Store,
     pub periode_debut: DateTime<Utc>,
     pub periode_fin: DateTime<Utc>,
+    /// Signataire explicite injecté (prioritaire sur la clé persistée).
+    signataire: Option<SignataireBundle>,
+    /// Active la signature Ed25519 du bundle (vrai par défaut).
+    signer: bool,
 }
 
 /// Bundle d'évidence complet retourné au demandeur.
@@ -41,6 +54,8 @@ impl GenerateurRapport {
             store,
             periode_debut: DateTime::from_timestamp(0, 0).unwrap_or_else(Utc::now),
             periode_fin: Utc::now(),
+            signataire: None,
+            signer: true,
         }
     }
 
@@ -48,6 +63,21 @@ impl GenerateurRapport {
     pub fn avec_periode(mut self, debut: DateTime<Utc>, fin: DateTime<Utc>) -> Self {
         self.periode_debut = debut;
         self.periode_fin = fin;
+        self
+    }
+
+    /// Injecte un signataire Ed25519 explicite (prioritaire sur la clé
+    /// persistée dans le trousseau). Réactive la signature si elle avait été
+    /// désactivée.
+    pub fn avec_signataire(mut self, signataire: SignataireBundle) -> Self {
+        self.signataire = Some(signataire);
+        self.signer = true;
+        self
+    }
+
+    /// Désactive la signature : le bundle est produit sans signature Ed25519.
+    pub fn sans_signature(mut self) -> Self {
+        self.signer = false;
         self
     }
 
@@ -204,6 +234,15 @@ impl GenerateurRapport {
         md.push_str("| SAFE-MCP | SAFE-T1001 | Tool Poisoning |\n");
         md.push_str("| SAFE-MCP | SAFE-T1201 | Rug Pull |\n");
         md.push('\n');
+
+        // D10 — estampillage multi-référentiels par type de constat présent.
+        md.push_str(&MoteurConformite::frameworks_markdown(constats));
+        md.push_str("\n\n");
+
+        // P3 — matrice de couverture honnête (OWASP MCP / ASI) pour l'auditeur.
+        md.push_str(&MoteurConformite::matrice_couverture_markdown());
+        md.push('\n');
+
         md
     }
 
@@ -302,6 +341,8 @@ impl GenerateurRapport {
                 "serveurs_vert": serveurs.iter().filter(|s| s.couleur == Couleur::Vert).count(),
                 "constats_ouverts": constats.len(),
             },
+            // P3 — matrice de couverture OWASP MCP / ASI (honnête, angles morts inclus).
+            "matrice_couverture": MoteurConformite::matrice_couverture_json(),
         })
     }
 
@@ -309,22 +350,132 @@ impl GenerateurRapport {
     //  Étape 8 — signature (optionnelle, mode dégradé si non configurée) //
     // ------------------------------------------------------------------ //
 
-    fn tenter_signature(
+    fn signer_payload(
+        &self,
         payload: &[u8],
     ) -> (Option<Vec<u8>>, Option<DateTime<Utc>>, Option<Vec<u8>>) {
-        // En l'absence d'une clé injectée, on opère en mode dégradé :
-        // signature = None, sans crash.
-        let _ = payload;
-        (None, None, None)
+        // Signature désactivée explicitement (cf. `sans_signature`).
+        if !self.signer {
+            return (None, None, None);
+        }
+        let signataire = self.resoudre_signataire();
+        let signe = signataire.signer_bundle(payload.to_vec());
+        (
+            Some(signe.signature),
+            Some(signe.horodatage),
+            Some(signe.cle_publique),
+        )
+    }
+
+    /// Construit le payload signé de façon **non ambiguë** : chaque section est
+    /// un champ JSON nommé et distinctement délimité. Deux contenus logiquement
+    /// différents ne peuvent donc pas produire le même payload (pas de collision
+    /// de signature, contrairement à une simple concaténation). Exposé pour
+    /// permettre la vérification a posteriori avec
+    /// [`crate::signature::verifier_signature`] à partir des champs publics du
+    /// [`BundleRapport`].
+    pub fn payload_signature(
+        resume_exec: &str,
+        mapping_conformite: &str,
+        json_export: &serde_json::Value,
+    ) -> Vec<u8> {
+        let objet = serde_json::json!({
+            "resume_exec": resume_exec,
+            "mapping_conformite": mapping_conformite,
+            "json_export": json_export,
+        });
+        // Sérialisation déterministe ; payload vide en cas d'échec improbable.
+        serde_json::to_vec(&objet).unwrap_or_default()
+    }
+
+    /// Résout le signataire : signataire injecté en priorité, sinon clé
+    /// persistée du trousseau OS (ou éphémère si indisponible).
+    fn resoudre_signataire(&self) -> SignataireBundle {
+        if let Some(s) = &self.signataire {
+            // Reconstruit un signataire indépendant depuis la graine injectée.
+            return SignataireBundle::depuis_bytes(&s.cle_secrete)
+                .unwrap_or_else(|_| SignataireBundle::generer());
+        }
+        Self::charger_cle_persistee_ou_ephemere()
+    }
+
+    /// Charge la graine Ed25519 depuis le trousseau OS (créée et persistée au
+    /// 1er lancement). Si le trousseau est indisponible — ou explicitement
+    /// désactivé via `SENTINEL_NO_KEYRING=1` (CI / headless) — génère une clé
+    /// éphémère pour ce run et loggue un avertissement explicite.
+    fn charger_cle_persistee_ou_ephemere() -> SignataireBundle {
+        // Opt-out explicite : clé éphémère sans toucher au trousseau.
+        if std::env::var(ENV_DESACTIVATION_TROUSSEAU)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            == Some("1")
+        {
+            return SignataireBundle::generer();
+        }
+
+        match Self::cle_depuis_trousseau() {
+            Ok(Some(signataire)) => signataire,
+            Ok(None) => {
+                // 1er lancement : on génère la clé puis on la persiste.
+                let signataire = SignataireBundle::generer();
+                if let Err(e) = Self::persister_cle_trousseau(&signataire) {
+                    warn!(
+                        "Persistance de la clé de signature dans le trousseau échouée : {e} \
+                         — clé éphémère pour ce run"
+                    );
+                }
+                signataire
+            }
+            Err(e) => {
+                warn!("Trousseau indisponible ({e}) — clé de signature éphémère pour ce run");
+                SignataireBundle::generer()
+            }
+        }
+    }
+
+    /// Lit la graine Ed25519 (hex) stockée dans le trousseau OS, le cas échéant.
+    fn cle_depuis_trousseau() -> Result<Option<SignataireBundle>> {
+        let entree = keyring::Entry::new(SERVICE_TROUSSEAU, COMPTE_CLE_SIGNATURE)?;
+        match entree.get_password() {
+            Ok(graine_hex) => {
+                let graine = hex::decode(graine_hex.trim()).map_err(|e| {
+                    anyhow::anyhow!("graine de signature invalide dans le trousseau : {e}")
+                })?;
+                Ok(Some(SignataireBundle::depuis_bytes(&graine)?))
+            }
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(anyhow::anyhow!("lecture du trousseau échouée : {e}")),
+        }
+    }
+
+    /// Persiste la graine Ed25519 (encodée en hex) dans le trousseau OS.
+    fn persister_cle_trousseau(signataire: &SignataireBundle) -> Result<()> {
+        let entree = keyring::Entry::new(SERVICE_TROUSSEAU, COMPTE_CLE_SIGNATURE)?;
+        entree
+            .set_password(&hex::encode(&signataire.cle_secrete))
+            .map_err(|e| anyhow::anyhow!("écriture du trousseau échouée : {e}"))?;
+        Ok(())
     }
 
     // ------------------------------------------------------------------ //
     //  Étape 9 — PDF (optionnel, échec silencieux)                       //
     // ------------------------------------------------------------------ //
 
-    fn tenter_pdf(_contenu_md: &str) -> Option<std::path::PathBuf> {
-        // RenduPdf::produire n'est pas encore implémenté ; on renvoie None.
-        None
+    fn tenter_pdf(contenu: &ContenuPdf) -> Option<std::path::PathBuf> {
+        let nom = format!(
+            "sentinel-rapport-{}.pdf",
+            Utc::now().format("%Y%m%d-%H%M%S-%3f")
+        );
+        let chemin = std::env::temp_dir().join(nom);
+        match RenduPdf::produire_contenu(contenu, &chemin) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                // Échec loggué (jamais silencieux) ; le bundle reste produit.
+                warn!("Génération du PDF échouée : {e} — rapport produit sans PDF");
+                None
+            }
+        }
     }
 
     // ------------------------------------------------------------------ //
@@ -379,19 +530,24 @@ impl GenerateurRapport {
             self.periode_fin,
         );
 
-        // 8. Signature (mode dégradé si clé absente).
-        let payload_signature = format!(
-            "{}{}{}",
-            resume_exec_md, mapping_conformite_md, json_export
-        );
+        // 8. Signature Ed25519 (clé persistée par défaut, payload non ambigu).
+        let payload_signature =
+            Self::payload_signature(&resume_exec_md, &mapping_conformite_md, &json_export);
         let (signature_ed25519, signature_horodatage, cle_publique) =
-            Self::tenter_signature(payload_signature.as_bytes());
+            self.signer_payload(&payload_signature);
 
-        // 9. PDF (échec silencieux).
-        let pdf_path = Self::tenter_pdf(&format!(
-            "{}\n{}\n{}\n{}\n{}",
-            resume_exec_md, inventaire_md, journal_md, mapping_conformite_md, plan_remediation_md
-        ));
+        // 9. PDF (échec loggué, jamais silencieux).
+        let contenu_pdf = ContenuPdf {
+            titre: "Rapport de conformité — Sentinel MCP".to_string(),
+            sous_titre: "Bundle d'évidence MCP09 / MCP03".to_string(),
+            resume_exec: resume_exec_md.clone(),
+            inventaire: inventaire_md.clone(),
+            journal: journal_md.clone(),
+            mapping_conformite: mapping_conformite_md.clone(),
+            plan_remediation: plan_remediation_md.clone(),
+            horodatage: Utc::now().to_rfc3339(),
+        };
+        let pdf_path = Self::tenter_pdf(&contenu_pdf);
 
         info!("Bundle rapport généré avec succès");
 

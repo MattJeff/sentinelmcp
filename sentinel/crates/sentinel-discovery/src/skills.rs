@@ -19,10 +19,16 @@
 //!       - `~/.claude/plugins/**/agents/*.md`
 //!
 //! Chaque artefact est parsé (frontmatter YAML + corps Markdown), puis son
-//! contenu **intégral** (frontmatter compris) passe dans
-//! [`InspecteurPoisoning::inspecter_texte`] (crate `sentinel-detect`) pour
-//! détecter le poisoning de skills : instructions cachées, exfiltration de
-//! secrets, caractères invisibles, …
+//! contenu **intégral** (frontmatter compris) est scanné par le pipeline LOCAL
+//! et hors-ligne de `sentinel-detect` — patterns regex + anti-smuggling Unicode
+//! + line-jumping ([`InspecteurPoisoning::inspecter_texte`]) ET règles YARA
+//! embarquées ([`MoteurYara`]) — pour détecter le poisoning de skills :
+//! instructions cachées, exfiltration de secrets, caractères invisibles, …
+//! (~26-36 % des skills publics sont vulnérables — ClawHub).
+//!
+//! Pour produire des [`Constat`] formels prêts pour le store (et activer le
+//! juge LLM optionnel), [`inspecter_skill_complet`] / [`SkillDecouvert::scanner_complet`]
+//! réutilisent l'API de détection **complète** `InspecteurPoisoning::inspecter_complet`.
 //!
 //! La sortie ([`SkillDecouvert`]) est rattachée au modèle de découverte
 //! existant : chaque skill porte le [`ClientKind`] auquel il appartient et
@@ -31,8 +37,9 @@
 
 use crate::model::{ClientDecouvert, ClientKind};
 use crate::sources::os_paths::ContexteOs;
-use sentinel_detect::InspecteurPoisoning;
-use sentinel_protocol::Severite;
+use once_cell::sync::Lazy;
+use sentinel_detect::{ConfigDetection, InspecteurPoisoning, MoteurYara};
+use sentinel_protocol::{Constat, Outil, ServeurId, Severite};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -335,6 +342,52 @@ pub fn rattacher_aux_clients(clients: &mut Vec<ClientDecouvert>, skills: Vec<Ski
 }
 
 // ---------------------------------------------------------------------------
+// Détection complète store-ready (API publique)
+// ---------------------------------------------------------------------------
+
+/// Scanne le contenu textuel d'un skill/agent via le pipeline de détection
+/// **complet** de `sentinel-detect`
+/// ([`InspecteurPoisoning::inspecter_complet`] : patterns + anti-smuggling +
+/// line-jumping + YARA, plus juge LLM local optionnel selon `config`) et
+/// retourne des [`Constat`] formels prêts pour le store, rattachés au skill via
+/// `outil_nom`.
+///
+/// Le contenu est présenté comme un outil synthétique dont la `description`
+/// porte le texte intégral (frontmatter compris). Asynchrone car le juge LLM
+/// optionnel l'est ; avec [`ConfigDetection::default`] (`llm: None`) aucun appel
+/// réseau n'est émis — détection 100 % locale.
+pub async fn inspecter_skill_complet(
+    nom: &str,
+    contenu: &str,
+    serveur_id: ServeurId,
+    config: &ConfigDetection,
+) -> Vec<Constat> {
+    let outil = outil_synthetique(nom, contenu);
+    InspecteurPoisoning::inspecter_complet(std::slice::from_ref(&outil), serveur_id, config).await
+}
+
+impl SkillDecouvert {
+    /// Relit le fichier du skill/agent sur disque et le scanne via le pipeline
+    /// **complet** ([`inspecter_skill_complet`]), produisant des [`Constat`]
+    /// store-ready.
+    ///
+    /// Renvoie un `Vec` vide (sans erreur) si le fichier n'est plus lisible — un
+    /// artefact disparu n'est pas une menace. `serveur_id` rattache les constats
+    /// à l'entité du store choisie par l'appelant.
+    pub async fn scanner_complet(
+        &self,
+        serveur_id: ServeurId,
+        config: &ConfigDetection,
+    ) -> Vec<Constat> {
+        let contenu = match std::fs::read_to_string(&self.chemin) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        inspecter_skill_complet(&self.nom, &contenu, serveur_id, config).await
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Privé — scan des dossiers
 // ---------------------------------------------------------------------------
 
@@ -470,6 +523,69 @@ fn scanner_plugins(dossier: &Path, out: &mut Vec<SkillDecouvert>, vus: &mut BTre
     }
 }
 
+/// Moteur YARA embarqué, compilé une seule fois et partagé par tous les scans
+/// de skills/agents (les règles sont coûteuses à compiler ; le scan d'un texte
+/// est bon marché). `None` si la compilation échoue — le scan retombe alors sur
+/// les patterns regex seuls, l'échec étant journalisé une fois.
+static MOTEUR_YARA: Lazy<Option<MoteurYara>> = Lazy::new(|| match MoteurYara::embarque() {
+    Ok(m) => Some(m),
+    Err(e) => {
+        tracing::warn!(erreur = %e, "skills : moteur YARA indisponible, scan patterns seul");
+        None
+    }
+});
+
+/// Construit l'outil synthétique présentant le texte intégral d'un skill/agent
+/// (frontmatter compris) à la détection de `sentinel-detect`, qui raisonne en
+/// termes d'[`Outil`] MCP. La `description` porte le contenu ; l'`input_schema`
+/// est nul (un skill n'expose pas de schéma d'entrée MCP).
+fn outil_synthetique(nom: &str, contenu: &str) -> Outil {
+    Outil {
+        nom: nom.to_string(),
+        description: Some(contenu.to_string()),
+        input_schema: serde_json::Value::Null,
+        meta: BTreeMap::new(),
+    }
+}
+
+/// Scan LOCAL complet du texte d'un skill/agent : patterns regex + anti-smuggling
+/// Unicode + line-jumping ([`InspecteurPoisoning::inspecter_texte`]) ET règles
+/// YARA embarquées ([`MoteurYara`]). Synchrone et hors-ligne — utilisé pendant
+/// la découverte pour peupler [`SkillDecouvert::constats_poisoning`]. Le juge
+/// LLM (asynchrone, opt-in) n'est PAS invoqué ici : voir [`inspecter_skill_complet`].
+fn scanner_texte_skill(nom: &str, contenu: &str) -> Vec<ConstatSkillTexte> {
+    // 1. Patterns + smuggling + line-jumping (texte brut puis NFKC).
+    let mut constats: Vec<ConstatSkillTexte> = InspecteurPoisoning::inspecter_texte(contenu)
+        .into_iter()
+        .map(|(pattern, categorie, extrait, severite)| ConstatSkillTexte {
+            pattern,
+            categorie,
+            extrait,
+            severite,
+        })
+        .collect();
+
+    // 2. Règles YARA embarquées, sur la surface de l'outil synthétique.
+    if let Some(moteur) = MOTEUR_YARA.as_ref() {
+        let outil = outil_synthetique(nom, contenu);
+        for c in moteur.inspecter(std::slice::from_ref(&outil)) {
+            let extrait = if c.description.is_empty() {
+                format!("règle YARA « {} » déclenchée", c.regle)
+            } else {
+                c.description.clone()
+            };
+            constats.push(ConstatSkillTexte {
+                pattern: format!("yara:{}", c.regle),
+                categorie: c.categorie,
+                extrait,
+                severite: c.severite,
+            });
+        }
+    }
+
+    constats
+}
+
 /// Parse un fichier de skill/agent et applique l'inspection de poisoning sur
 /// son contenu intégral (frontmatter compris : un `allowed-tools` ou une
 /// `description` empoisonnés doivent aussi déclencher).
@@ -504,15 +620,7 @@ fn analyser_artefact(
         .cloned()
         .filter(|s| !s.trim().is_empty());
 
-    let constats_poisoning = InspecteurPoisoning::inspecter_texte(&contenu)
-        .into_iter()
-        .map(|(pattern, categorie, extrait, severite)| ConstatSkillTexte {
-            pattern,
-            categorie,
-            extrait,
-            severite,
-        })
-        .collect();
+    let constats_poisoning = scanner_texte_skill(&nom, &contenu);
 
     let mut notes = Vec::new();
     if let Some(e) = erreur_fm {

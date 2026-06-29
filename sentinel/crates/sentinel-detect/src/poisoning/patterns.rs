@@ -1,7 +1,7 @@
 //! Bibliothèque de patterns de poisoning — agent 3.6.
 //! Couvre SAFE-T1001 (Tool Poisoning) / OWASP MCP03.
 //!
-//! Huit catégories :
+//! Neuf catégories :
 //!   1. instructions_imperatives — manipulation directe du modèle (Haute)
 //!   2. chemins_sensibles        — accès fichiers secrets (Critique)
 //!   3. balises_pseudo_systeme   — injection de contexte privilégié (Critique)
@@ -10,6 +10,9 @@
 //!   6. injection_commande       — métacaractères shell + binaire réseau/shell (Critique)
 //!   7. persistance_memoire      — persistance mémoire / réponse suivante, OWASP ASI06 (Haute)
 //!   8. demande_secrets          — demande de mot de passe / clé API / paiement / PII (Critique)
+//!   9. line_jumping             — ingénierie sociale « line-jumping » (Trail of Bits) :
+//!                                 instruction de secret, pression conformité, fausse
+//!                                 identité système, urgence en MAJUSCULES (Haute)
 
 use sentinel_protocol::Severite;
 
@@ -338,6 +341,87 @@ pub fn bibliotheque() -> Vec<Pattern> {
             categorie: "demande_secrets",
             regex: r"(?i)\b(social\s+security\s+number|ssn|passport\s+number)\b",
             severite: Severite::Critique,
+        },
+
+        // ── 9. LINE-JUMPING (ingénierie sociale — Trail of Bits) ─────────────
+        //
+        // Le « line-jumping » désigne une description d'outil qui injecte des
+        // instructions destinées au modèle (et non à l'utilisateur) pour
+        // « sauter la file » du flux conversationnel : se faire passer pour le
+        // système, exiger le secret vis-à-vis de l'utilisateur, invoquer une
+        // fausse obligation de conformité, ou marteler l'urgence en MAJUSCULES.
+        // Sévérité Haute : signal d'ingénierie sociale fort, mais moins
+        // déterministe qu'un chemin de secret ou une balise pseudo-système.
+
+        // Instruction de dissimulation vis-à-vis de l'utilisateur (anglais) :
+        // « do not tell the user », « without informing the user », etc.
+        Pattern {
+            nom: "secret_ne_pas_dire_user_en",
+            categorie: "line_jumping",
+            regex: r"(?i)\b(do\s+not|don't|never|without)\s+(tell|telling|inform|informing|notify|notifying|reveal|revealing|mention|mentioning|warn|warning)\b.{0,20}\b(the\s+)?(user|anyone|them|him|her)\b",
+            severite: Severite::Haute,
+        },
+        // Instruction de dissimulation vis-à-vis de l'utilisateur (français) :
+        // « n'informe pas l'utilisateur », « ne préviens pas l'utilisateur ».
+        Pattern {
+            nom: "secret_ne_pas_dire_user_fr",
+            categorie: "line_jumping",
+            regex: r"(?i)\b(ne\s+(dis|signale|mentionne|révèle|montre|préviens|indique)|n['']?\s*(informe|avertis|indique))\b.{0,25}utilisateur",
+            severite: Severite::Haute,
+        },
+        // Action explicitement secrète/furtive : ces adverbes sont quasi
+        // exclusivement adversariaux dans une description d'outil légitime.
+        Pattern {
+            nom: "agir_secretement",
+            categorie: "line_jumping",
+            regex: r"(?i)\b(secretly|covertly|stealthily|surreptitiously|discreetly|secrètement|discrètement|en\s+secret)\b",
+            severite: Severite::Haute,
+        },
+        // Pression de (fausse) conformité : « REQUIRED FOR GDPR/SOC 2 compliance ».
+        // On exige le couple obligation + référentiel pour limiter les faux
+        // positifs (un simple « required » est trivialement bénin).
+        Pattern {
+            nom: "pression_conformite",
+            categorie: "line_jumping",
+            regex: r"(?i)\b(required|mandatory|compulsory|obligatoire|requis|nécessaire)\b.{0,40}\b(gdpr|rgpd|soc\s*-?\s*2|hipaa|pci[\s-]?dss|pci|compliance|conformité|regulatory|regulation|audit)\b",
+            severite: Severite::Haute,
+        },
+        // Variante « NOT OPTIONAL » : seulement à proximité d'un référentiel de
+        // conformité (sinon « not optional » apparaît dans des schémas légitimes).
+        Pattern {
+            nom: "pression_conformite_non_optionnel",
+            categorie: "line_jumping",
+            regex: r"(?i)\b(gdpr|rgpd|soc\s*-?\s*2|hipaa|pci|compliance|conformité|audit|policy|regulation)\b.{0,40}\bnot\s+optional\b",
+            severite: Severite::Haute,
+        },
+        // Fausse identité système / OS : l'outil prétend être le système
+        // d'exploitation, l'administrateur ou un processus privilégié.
+        // Le préfixe d'auto-désignation (« i am », « as your »…) évite les faux
+        // positifs du type « returns the operating system version ».
+        Pattern {
+            nom: "fausse_identite_systeme",
+            categorie: "line_jumping",
+            regex: r"(?i)\b(i\s+am|i'm|this\s+is|speaking\s+as|acting\s+as|posing\s+as|as\s+your)\s+(the\s+|an?\s+)?(operating\s+system|system\s+administrator|sysadmin|root\s+user|os\s+kernel|system\s+process)\b",
+            severite: Severite::Haute,
+        },
+        // Urgence en MAJUSCULES dirigée vers le modèle (« URGENT: YOU MUST … »).
+        // Sensible à la casse (pas de drapeau (?i)) : on cible le « cri » en
+        // capitales, et on exige l'impératif « YOU MUST/NEED TO… » pour éviter
+        // les en-têtes d'avertissement bénins (« WARNING: THIS DELETES DATA »).
+        Pattern {
+            nom: "urgence_majuscules",
+            categorie: "line_jumping",
+            regex: r"\b(URGENT|CRITICAL|MANDATORY|IMMEDIATELY|EMERGENCY|ALERT|WARNING)\b[^a-z\n]{0,30}\bYOU\s+(MUST|NEED\s+TO|HAVE\s+TO|SHALL)\b",
+            severite: Severite::Haute,
+        },
+        // « ignore (all|previous|any) instructions » — complète le pattern
+        // `ignore_instructions_precedentes` (qui exige « previous/prior/… ») en
+        // couvrant « ignore all instructions » et « ignore instructions ».
+        Pattern {
+            nom: "ignore_toutes_instructions",
+            categorie: "line_jumping",
+            regex: r"(?i)\bignore\s+(all\s+|any\s+)?(of\s+)?(the\s+)?(previous\s+|prior\s+|preceding\s+|above\s+|earlier\s+)?instructions\b",
+            severite: Severite::Haute,
         },
     ]
 }

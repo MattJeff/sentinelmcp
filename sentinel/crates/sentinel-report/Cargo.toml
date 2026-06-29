@@ -21,6 +21,7 @@ ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 printpdf = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

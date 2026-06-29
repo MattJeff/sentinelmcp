@@ -173,11 +173,43 @@ impl MoteurSurveillance {
     }
 
     /// Empreinte SHA-256 du payload JSON canonicalisé (clés triées).
+    ///
+    /// La canonicalisation (réf. agent 3.1, `sentinel_detect::canonicaliser_json`)
+    /// garantit un ordre de clés déterministe : un même `tools/list` produit
+    /// toujours la MÊME empreinte, ce qui évite les faux positifs de drift /
+    /// rug-pull (B7). Cette fonction est infaillible par construction, il n'y a
+    /// donc plus de repli silencieux sur une chaîne vide (B8).
     fn empreinte_payload(payload: &serde_json::Value) -> Empreinte {
         use sha2::{Digest, Sha256};
-        let canonical = serde_json::to_string(payload).unwrap_or_default();
+        let canonical = sentinel_detect::canonicaliser_json(payload);
         let hash = Sha256::digest(canonical.as_bytes());
         Empreinte::new(hex::encode(hash))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Régression B7 : l'empreinte d'un payload `tools/list` ne doit pas dépendre
+    // de l'ordre des clés JSON. Deux Values logiquement identiques mais à ordre
+    // de clés différent doivent produire la MÊME empreinte (canonicalisation).
+    #[test]
+    fn empreinte_payload_independante_ordre_cles() {
+        let p1 = serde_json::json!({
+            "result": { "tools": [ { "name": "a", "description": "x" } ] },
+            "jsonrpc": "2.0"
+        });
+        let p2 = serde_json::json!({
+            "jsonrpc": "2.0",
+            "result": { "tools": [ { "description": "x", "name": "a" } ] }
+        });
+
+        assert_eq!(
+            MoteurSurveillance::empreinte_payload(&p1),
+            MoteurSurveillance::empreinte_payload(&p2),
+            "deux payloads logiquement identiques doivent partager la même empreinte"
+        );
     }
 }
 

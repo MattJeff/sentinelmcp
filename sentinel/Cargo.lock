@@ -3029,6 +3029,8 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "once_cell",
+ "regex",
  "sentinel-alerts",
  "sentinel-detect",
  "sentinel-discovery",
@@ -3071,6 +3073,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "unicode-normalization",
  "uuid",
  "wiremock",
  "yara-x",
@@ -3135,6 +3138,7 @@ dependencies = [
  "chrono",
  "futures",
  "hex",
+ "sentinel-detect",
  "sentinel-protocol",
  "sentinel-report",
  "sentinel-store",
@@ -3168,6 +3172,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "hex",
+ "keyring",
  "printpdf",
  "rand 0.8.6",
  "sentinel-detect",
@@ -3968,6 +3973,15 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-width"

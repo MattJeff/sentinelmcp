@@ -121,6 +121,45 @@ fn empreinte_diverge_detection_correcte() {
     assert!(different, "empreinte modifiée doit diverger");
 }
 
+// Régression B7 : l'empreinte d'un outil ne dépend pas de l'ordre des clés du
+// `input_schema`. Deux schémas logiquement identiques mais à ordre de clés
+// différent doivent produire la MÊME empreinte (canonicalisation), sinon on
+// génère de faux positifs de drift / rug-pull.
+#[test]
+fn empreinte_outil_independante_ordre_cles() {
+    let store = store_memoire();
+    let serveur_id = Uuid::new_v4();
+    inserer_serveur(&store, serveur_id);
+
+    let gestionnaire = GestionnaireBaselines::nouveau(store);
+
+    let outil_ordre_a = Outil {
+        nom: "calc".to_string(),
+        description: Some("desc".to_string()),
+        input_schema: serde_json::json!({ "alpha": 1, "beta": 2, "gamma": 3 }),
+        meta: Default::default(),
+    };
+    let outil_ordre_b = Outil {
+        nom: "calc".to_string(),
+        description: Some("desc".to_string()),
+        input_schema: serde_json::json!({ "gamma": 3, "beta": 2, "alpha": 1 }),
+        meta: Default::default(),
+    };
+
+    let b1 = gestionnaire
+        .approuver(serveur_id, vec![outil_ordre_a], empreinte("s"), "alice")
+        .expect("approbation A");
+    let b2 = gestionnaire
+        .approuver(serveur_id, vec![outil_ordre_b], empreinte("s"), "alice")
+        .expect("approbation B");
+
+    assert_eq!(
+        b1.empreintes_outils.get("calc"),
+        b2.empreintes_outils.get("calc"),
+        "l'empreinte outil doit être stable malgré l'ordre des clés du input_schema"
+    );
+}
+
 // Test 4 : deux baselines successives conservent les deux (historique complet).
 #[test]
 fn deux_baselines_successives_conservent_historique() {

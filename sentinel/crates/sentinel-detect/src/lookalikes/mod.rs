@@ -290,7 +290,9 @@ impl ConnecteurRegistres {
         // dans le délai ou non, on récupère le contenu du collecteur partagé.
         let _ = tokio::time::timeout(Duration::from_secs(30), fanout).await;
 
-        let mut guard = collecteur.lock().expect("mutex empoisonné");
+        // Mutex potentiellement empoisonné si une tâche de fan-out a paniqué :
+        // on récupère malgré tout les données déjà collectées plutôt que de propager le panic.
+        let mut guard = collecteur.lock().unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *guard)
     }
 }

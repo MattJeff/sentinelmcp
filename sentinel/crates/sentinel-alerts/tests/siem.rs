@@ -5,8 +5,8 @@
 
 use chrono::Utc;
 use sentinel_alerts::{
-    AdaptateurStandard, ContratSiem, gravite_siem,
-    vers_cef, vers_leef, vers_ecs_json,
+    AdaptateurStandard, ContratSiem, EnregistrementSiem, gravite_siem,
+    vers_cef, vers_leef, vers_ecs_json, vers_enregistrement_avec_references,
 };
 use sentinel_protocol::{
     Alerte, CanalAlerte, Severite,
@@ -221,4 +221,74 @@ fn test_enregistrement_serialisable_json() {
     assert!(json.contains("\"gravite\""),             "clé gravite absente");
     assert!(json.contains("\"HIGH\""),               "valeur gravite incorrecte");
     assert!(json.contains("\"horodatage_iso8601\""), "clé horodatage absente");
+}
+
+// ─── Test 8 (B10) : gravité inconnue → repli prudent sur la plus haute ──────
+//
+// Une `EnregistrementSiem` construite avec une gravité hors nomenclature ne
+// doit pas être silencieusement mappée à 0 (un critique mal mappé passerait
+// inaperçu) mais à 10 (CRITICAL) dans CEF comme dans ECS.
+
+#[test]
+fn test_gravite_inconnue_repli_prudent() {
+    let e = EnregistrementSiem {
+        source: "sentinel-mcp",
+        categorie: "autre",
+        gravite: "INCONNUE",
+        message: "événement à gravité non mappée".to_string(),
+        references: Vec::new(),
+        horodatage_iso8601: "2026-01-01T00:00:00.000Z".to_string(),
+        alerte_id: "id-test".to_string(),
+        diff: None,
+    };
+
+    // CEF : le 7e segment (gravité numérique) doit être 10, pas 0.
+    let cef = vers_cef(&e);
+    let sans_echap = cef.replace("\\|", "\u{0}");
+    let segments: Vec<&str> = sans_echap.splitn(8, '|').collect();
+    assert_eq!(
+        segments.get(6).copied(),
+        Some("10"),
+        "gravité inconnue → 10 attendu, segments={:?}",
+        segments
+    );
+
+    // ECS : event.severity doit être 10.
+    let ecs = vers_ecs_json(&e);
+    assert_eq!(
+        ecs["event"]["severity"].as_u64(),
+        Some(10),
+        "event.severity doit être 10 pour une gravité inconnue"
+    );
+}
+
+// ─── Test 9 (B10) : références de conformité propagées dans les 3 formats ────
+
+#[test]
+fn test_references_conformite_propagees() {
+    let a = alerte_de_test(
+        "shadow-mcp détecté",
+        "serveur inconnu",
+        Severite::Critique,
+        None,
+    );
+    let refs = vec!["OWASP-MCP09".to_string(), "SAFE-T1001".to_string()];
+    let enreg = vers_enregistrement_avec_references(&a, &refs);
+
+    assert_eq!(enreg.references, refs, "les références doivent être portées");
+
+    // ECS : related.compliance présent et complet.
+    let ecs = vers_ecs_json(&enreg);
+    let compliance = ecs["related"]["compliance"]
+        .as_array()
+        .expect("related.compliance absent");
+    assert!(compliance.iter().any(|v| v == "OWASP-MCP09"));
+    assert!(compliance.iter().any(|v| v == "SAFE-T1001"));
+
+    // CEF et LEEF doivent aussi mentionner les références.
+    let cef = vers_cef(&enreg);
+    assert!(cef.contains("OWASP-MCP09"), "référence absente du CEF : {}", cef);
+    assert!(cef.contains("Compliance"), "label Compliance absent du CEF : {}", cef);
+    let leef = vers_leef(&enreg);
+    assert!(leef.contains("compliance=OWASP-MCP09,SAFE-T1001"), "références absentes du LEEF : {}", leef);
 }

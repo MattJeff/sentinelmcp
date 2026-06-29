@@ -15,6 +15,104 @@ use strsim::jaro_winkler;
 use super::{EntreeRegistre, SignatureOutil};
 
 // ---------------------------------------------------------------------------
+// Confusables Unicode (esprit UTS#39) — repli des homoglyphes
+// ---------------------------------------------------------------------------
+
+/// Table pragmatique de confusables Unicode (« skeleton » au sens UTS#39).
+///
+/// On replie les homoglyphes les plus courants — cyrillique, grec, variantes
+/// pleine largeur (fullwidth) et quelques chiffres lookalike — vers leur
+/// représentant latin de base, casse préservée. Le but n'est PAS
+/// l'exhaustivité de `confusables.txt` mais de couvrir les vecteurs de
+/// spoofing réalistes sur des noms de paquets / serveurs MCP, tout en gardant
+/// un risque de faux positif négligeable (on ne replie jamais deux lettres
+/// latines distinctes l'une sur l'autre).
+mod confusables {
+    /// Replie un seul caractère vers son représentant latin si c'est un
+    /// confusable connu, sinon le renvoie inchangé.
+    pub(super) fn replier(c: char) -> char {
+        // Variantes pleine largeur U+FF01..=U+FF5E → ASCII (soustraction de
+        // 0xFEE0), puis repli éventuel du résultat (ex. chiffre pleine
+        // largeur qui retombe sur un chiffre lookalike).
+        if ('\u{FF01}'..='\u{FF5E}').contains(&c) {
+            let ascii = char::from_u32(c as u32 - 0xFEE0).unwrap_or(c);
+            return replier(ascii);
+        }
+        match c {
+            // — Chiffres lookalike (rendu sans-serif) —
+            '0' => 'o',
+            '1' => 'l',
+            // — Cyrillique minuscule → latin —
+            '\u{0430}' => 'a', // а
+            '\u{0435}' => 'e', // е
+            '\u{043E}' => 'o', // о
+            '\u{0440}' => 'p', // р
+            '\u{0441}' => 'c', // с
+            '\u{0443}' => 'y', // у
+            '\u{0445}' => 'x', // х
+            '\u{043A}' => 'k', // к
+            '\u{0455}' => 's', // ѕ
+            '\u{0456}' => 'i', // і
+            '\u{0458}' => 'j', // ј
+            '\u{0475}' => 'v', // ѵ
+            '\u{0501}' => 'd', // ԁ
+            '\u{051B}' => 'q', // ԛ
+            '\u{051D}' => 'w', // ԝ
+            // — Cyrillique majuscule → latin —
+            '\u{0410}' => 'A', // А
+            '\u{0412}' => 'B', // В
+            '\u{0415}' => 'E', // Е
+            '\u{0405}' => 'S', // Ѕ
+            '\u{0406}' => 'I', // І
+            '\u{0408}' => 'J', // Ј
+            '\u{041A}' => 'K', // К
+            '\u{041C}' => 'M', // М
+            '\u{041D}' => 'H', // Н
+            '\u{041E}' => 'O', // О
+            '\u{0420}' => 'P', // Р
+            '\u{0421}' => 'C', // С
+            '\u{0422}' => 'T', // Т
+            '\u{0423}' => 'Y', // У
+            '\u{0425}' => 'X', // Х
+            // — Grec minuscule → latin —
+            '\u{03B1}' => 'a', // α
+            '\u{03B5}' => 'e', // ε
+            '\u{03B9}' => 'i', // ι
+            '\u{03BA}' => 'k', // κ
+            '\u{03BD}' => 'v', // ν
+            '\u{03BF}' => 'o', // ο
+            '\u{03C1}' => 'p', // ρ
+            '\u{03C4}' => 't', // τ
+            '\u{03C5}' => 'u', // υ
+            '\u{03C7}' => 'x', // χ
+            '\u{03F2}' => 'c', // ϲ (sigma lunaire)
+            // — Grec majuscule → latin —
+            '\u{0391}' => 'A', // Α
+            '\u{0392}' => 'B', // Β
+            '\u{0395}' => 'E', // Ε
+            '\u{0396}' => 'Z', // Ζ
+            '\u{0397}' => 'H', // Η
+            '\u{0399}' => 'I', // Ι
+            '\u{039A}' => 'K', // Κ
+            '\u{039C}' => 'M', // Μ
+            '\u{039D}' => 'N', // Ν
+            '\u{039F}' => 'O', // Ο
+            '\u{03A1}' => 'P', // Ρ
+            '\u{03A4}' => 'T', // Τ
+            '\u{03A5}' => 'Y', // Υ
+            '\u{03A7}' => 'X', // Χ
+            _ => c,
+        }
+    }
+
+    /// Calcule le « skeleton » de confusables d'une chaîne : chaque caractère
+    /// est replié vers son représentant latin de base.
+    pub(super) fn skeleton(s: &str) -> String {
+        s.chars().map(replier).collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Score combiné v2 (avec signatures d'outils)
 // ---------------------------------------------------------------------------
 
@@ -45,6 +143,49 @@ pub struct ScoreCombineV2 {
 /// Distance de Jaro-Winkler sur les noms (entre 0.0 et 1.0).
 pub fn similarite_nom(a: &str, b: &str) -> f64 {
     jaro_winkler(a, b)
+}
+
+// ---------------------------------------------------------------------------
+// Similarité consciente des confusables (anti-spoofing par homoglyphes)
+// ---------------------------------------------------------------------------
+
+/// Renvoie le « skeleton » de confusables de `s` : tous les homoglyphes
+/// reconnus (cyrillique, grec, pleine largeur, chiffres lookalike) sont
+/// repliés vers leur représentant latin de base, casse préservée. Deux
+/// chaînes visuellement identiques mais codées différemment partagent alors
+/// le même skeleton.
+pub fn skeleton_confusables(s: &str) -> String {
+    confusables::skeleton(s)
+}
+
+/// `true` si `s` contient au moins un caractère replié par le skeleton —
+/// homoglyphe non-latin ou chiffre lookalike. Signal brut « cette chaîne
+/// emploie des caractères potentiellement trompeurs ».
+pub fn contient_confusables(s: &str) -> bool {
+    skeleton_confusables(s) != s
+}
+
+/// `true` lorsque deux noms sont **visuellement identiques** (même skeleton
+/// de confusables) tout en étant **textuellement différents** (codes de
+/// caractères distincts). C'est la signature exacte d'un spoofing par
+/// homoglyphes (`pаypal` avec « а » cyrillique vs `paypal`). Renvoie `false`
+/// pour deux noms réellement différents — leurs skeletons restent distincts
+/// (anti faux positif).
+pub fn sont_confusables(a: &str, b: &str) -> bool {
+    a != b && skeleton_confusables(a) == skeleton_confusables(b)
+}
+
+/// Similarité de noms « consciente des confusables » : renvoie le maximum
+/// entre la similarité brute (`similarite_nom`) et la similarité Jaro-Winkler
+/// calculée sur les skeletons de confusables. Le score ne peut donc
+/// qu'**augmenter** par rapport à la passe brute : un spoofing homoglyphe
+/// (`pаypal` vs `paypal`) qui passerait sous le radar en comparaison brute
+/// remonte à ~1.0, sans dégrader le score de deux noms réellement distincts
+/// (leurs skeletons restent eux aussi éloignés).
+pub fn similarite_nom_confusables(a: &str, b: &str) -> f64 {
+    let brut = similarite_nom(a, b);
+    let squelette = jaro_winkler(&skeleton_confusables(a), &skeleton_confusables(b));
+    brut.max(squelette)
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +222,18 @@ fn jaccard_description(desc_a: &str, desc_b: &str) -> f64 {
 /// Score combiné nom (70 %) + description Jaccard (30 %), entre 0.0 et 1.0.
 pub fn similarite_combinee(nom_a: &str, desc_a: &str, nom_b: &str, desc_b: &str) -> f64 {
     let score_nom = similarite_nom(nom_a, nom_b);
+    let score_desc = jaccard_description(desc_a, desc_b);
+    0.7 * score_nom + 0.3 * score_desc
+}
+
+/// Variante interne de `similarite_combinee` employant la similarité de nom
+/// consciente des confusables. Pour des noms purement ASCII sans homoglyphe,
+/// elle coïncide exactement avec `similarite_combinee` (le skeleton est
+/// l'identité) ; en présence d'un spoofing visuel, la composante nom est
+/// élevée (cf. `similarite_nom_confusables`), de sorte que le score combiné
+/// ne peut qu'augmenter — jamais baisser.
+fn combinee_confusable(nom_a: &str, desc_a: &str, nom_b: &str, desc_b: &str) -> f64 {
+    let score_nom = similarite_nom_confusables(nom_a, nom_b);
     let score_desc = jaccard_description(desc_a, desc_b);
     0.7 * score_nom + 0.3 * score_desc
 }
@@ -219,6 +372,12 @@ pub fn similarite_combinee_v2(
 
 /// Retourne les entrées du registre dont le nom est suspectément proche
 /// du nom cible (score ≥ seuil), triées par score décroissant.
+///
+/// Le score de nom est calculé de façon **consciente des confusables**
+/// (`similarite_nom_confusables`) : un spoofing par homoglyphes (ex. « а »
+/// cyrillique dans `pаypal`) est rapproché de sa cible au lieu de passer
+/// sous le radar. Pour des noms purement ASCII, le résultat est identique à
+/// la comparaison brute — le score ne peut qu'augmenter, jamais baisser.
 pub fn rechercher_sosies(
     nom_cible: &str,
     description_cible: &str,
@@ -230,7 +389,7 @@ pub fn rechercher_sosies(
         .filter_map(|entree| {
             let desc_entree = entree.description.as_deref().unwrap_or("");
             let score =
-                similarite_combinee(nom_cible, description_cible, &entree.nom, desc_entree);
+                combinee_confusable(nom_cible, description_cible, &entree.nom, desc_entree);
             if score >= seuil {
                 Some((entree.clone(), score))
             } else {
@@ -239,8 +398,8 @@ pub fn rechercher_sosies(
         })
         .collect();
 
-    // Tri décroissant par score
-    resultats.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    // Tri décroissant par score (total_cmp : ordre total déterministe même en présence de NaN).
+    resultats.sort_by(|a, b| b.1.total_cmp(&a.1));
     resultats
 }
 
@@ -348,6 +507,116 @@ mod tests {
             (resultats[0].1 - 1.0).abs() < f64::EPSILON,
             "premier résultat attendu score 1.0, obtenu {:.4}",
             resultats[0].1
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Tests confusables Unicode (anti-spoofing par homoglyphes)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn skeleton_replie_cyrillique_vers_latin() {
+        // 'pаypal' : le deuxième caractère est « а » cyrillique (U+0430).
+        let spoof = "p\u{0430}ypal";
+        assert_ne!(spoof, "paypal", "les chaînes doivent différer textuellement");
+        assert_eq!(skeleton_confusables(spoof), "paypal");
+        assert_eq!(skeleton_confusables("paypal"), "paypal");
+    }
+
+    #[test]
+    fn skeleton_replie_pleine_largeur_et_grec() {
+        // Pleine largeur : chaque ASCII décalé de +0xFEE0 (U+FF01..U+FF5E).
+        let fw: String = "paypal"
+            .chars()
+            .map(|c| char::from_u32(c as u32 + 0xFEE0).unwrap())
+            .collect();
+        assert_ne!(fw, "paypal");
+        assert_eq!(skeleton_confusables(&fw), "paypal");
+
+        // Grec : 'οauth' avec omicron grec (U+03BF).
+        assert_eq!(skeleton_confusables("\u{03BF}auth"), "oauth");
+    }
+
+    #[test]
+    fn skeleton_replie_chiffres_lookalike() {
+        // '0' → 'o', '1' → 'l'
+        assert_eq!(skeleton_confusables("g00gle"), "google");
+        assert_eq!(skeleton_confusables("paypa1"), "paypal");
+    }
+
+    #[test]
+    fn sont_confusables_detecte_homoglyphes() {
+        // Cas positif : « а » cyrillique → même skeleton, octets différents.
+        assert!(sont_confusables("p\u{0430}ypal", "paypal"));
+        // Pleine largeur et chiffre lookalike : également détectés.
+        assert!(sont_confusables("paypa1", "paypal"));
+        assert!(sont_confusables("\u{03BF}auth", "oauth"));
+    }
+
+    #[test]
+    fn sont_confusables_anti_faux_positif() {
+        // Deux noms réellement différents : skeletons distincts → pas confusables.
+        assert!(!sont_confusables("filesystem-server", "payment-gateway"));
+        // Chaîne identique à elle-même : pas un spoofing (même texte).
+        assert!(!sont_confusables("paypal", "paypal"));
+        // Une typo ASCII proche n'est PAS un confusable visuel exact.
+        assert!(!sont_confusables("paypol", "paypal"));
+    }
+
+    #[test]
+    fn contient_confusables_signale_les_homoglyphes() {
+        assert!(contient_confusables("p\u{0430}ypal"));
+        assert!(contient_confusables("g00gle")); // chiffres lookalike
+        assert!(!contient_confusables("paypal"));
+        assert!(!contient_confusables("filesystem-server"));
+    }
+
+    #[test]
+    fn similarite_nom_confusables_eleve_le_score_des_sosies() {
+        let spoof = "p\u{0430}ypal"; // « а » cyrillique
+        let brut = similarite_nom(spoof, "paypal");
+        let confusable = similarite_nom_confusables(spoof, "paypal");
+        // La passe confusable identifie les deux comme identiques (~1.0)...
+        assert!(
+            (confusable - 1.0).abs() < 1e-9,
+            "similarité confusable attendue 1.0, obtenue {confusable}"
+        );
+        // ...et élève strictement le score par rapport à la comparaison brute.
+        assert!(
+            confusable > brut,
+            "la passe confusable doit élever le score (brut={brut}, confusable={confusable})"
+        );
+    }
+
+    #[test]
+    fn similarite_nom_confusables_anti_faux_positif() {
+        // Deux noms réellement différents ne doivent pas être rapprochés.
+        let score = similarite_nom_confusables("filesystem-server", "payment-gateway");
+        assert!(
+            score < 0.5,
+            "noms distincts ne doivent pas être rapprochés, obtenu {score}"
+        );
+    }
+
+    #[test]
+    fn rechercher_sosies_attrape_un_spoof_confusable() {
+        // Cible légitime : "paypal". L'entrée hostile emploie un « а »
+        // cyrillique. Avec un seuil très exigeant (0.99) que la comparaison
+        // BRUTE n'atteindrait pas (Jaro-Winkler ≈ 0.9 sur le nom), seule la
+        // passe confusable permet de détecter le sosie.
+        let entrees = vec![
+            entree("p\u{0430}ypal", "paiement en ligne"),
+            entree("payment-gateway", "passerelle de paiement"),
+        ];
+        let resultats = rechercher_sosies("paypal", "paiement en ligne", &entrees, 0.99);
+        assert!(
+            resultats.iter().any(|(e, _)| e.nom == "p\u{0430}ypal"),
+            "le spoof homoglyphe de 'paypal' aurait dû être détecté"
+        );
+        // Anti faux positif : le serveur réellement différent reste exclu.
+        assert!(
+            !resultats.iter().any(|(e, _)| e.nom == "payment-gateway"),
+            "un nom réellement différent ne doit pas être rapproché"
         );
     }
 

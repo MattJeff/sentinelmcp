@@ -20,11 +20,22 @@ use sentinel_protocol::{
 use sentinel_store::Store;
 
 use crate::db::ouvrir_store;
-use crate::sortie::{code_depuis_severites, CodeSortie};
+use crate::sortie::{code_depuis_severites, imprimer, CodeSortie};
+
+/// Ligne de résumé d'un balayage, affichée sur stdout (sauf `--quiet`).
+fn resume_balayage(nb_clients: usize, nb_serveurs: usize, nb_nouveaux: usize) -> String {
+    format!(
+        "Balayage terminé — {nb_clients} client(s) IA, {nb_serveurs} serveur(s) MCP, {nb_nouveaux} nouveau(x)."
+    )
+}
 
 /// Une itération de surveillance : découverte → comparaison → persistance.
 /// Retourne les sévérités des constats émis pendant l'itération.
-async fn iteration(store: &Store, detecteur: &DetecteurNouveauxServeurs) -> Result<Vec<Severite>> {
+async fn iteration(
+    store: &Store,
+    detecteur: &DetecteurNouveauxServeurs,
+    quiet: bool,
+) -> Result<Vec<Severite>> {
     let rapport = OrchestrateurDecouverte::default().balayer().await;
     let connus = store.lister_serveurs()?;
     let mut severites = Vec::new();
@@ -104,6 +115,12 @@ async fn iteration(store: &Store, detecteur: &DetecteurNouveauxServeurs) -> Resu
         nouveaux = nb_nouveaux,
         "balayage terminé"
     );
+    // Résumé lisible sur stdout, supprimé par `--quiet` comme les autres
+    // commandes (les logs structurés restent sur stderr).
+    imprimer(
+        quiet,
+        &resume_balayage(rapport.clients.len(), nb_serveurs, nb_nouveaux),
+    );
     Ok(severites)
 }
 
@@ -111,14 +128,14 @@ pub async fn executer(
     daemon: bool,
     interval: u64,
     db: Option<PathBuf>,
-    _quiet: bool,
+    quiet: bool,
 ) -> Result<CodeSortie> {
     let store = ouvrir_store(db.as_deref())?;
     let detecteur = DetecteurNouveauxServeurs::nouveau();
     let mut severites: Vec<Severite> = Vec::new();
 
     if !daemon {
-        severites.extend(iteration(&store, &detecteur).await?);
+        severites.extend(iteration(&store, &detecteur, quiet).await?);
         return Ok(code_depuis_severites(severites.iter()));
     }
 
@@ -132,7 +149,7 @@ pub async fn executer(
 
     loop {
         let travail = async {
-            match iteration(&store, &detecteur).await {
+            match iteration(&store, &detecteur, quiet).await {
                 Ok(s) => severites.extend(s),
                 Err(e) => warn!("itération en échec : {e:#}"),
             }
@@ -166,4 +183,21 @@ pub async fn executer(
     }
 
     Ok(code_depuis_severites(severites.iter()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resume_balayage_formate_les_compteurs() {
+        // Le résumé alimente `imprimer(quiet, ...)` : c'est la sortie standard
+        // que `--quiet` doit pouvoir supprimer (auparavant `_quiet` ignoré, donc
+        // monitor n'émettait rien sur stdout et `--quiet` n'avait aucun effet).
+        let ligne = resume_balayage(2, 5, 1);
+        assert_eq!(
+            ligne,
+            "Balayage terminé — 2 client(s) IA, 5 serveur(s) MCP, 1 nouveau(x)."
+        );
+    }
 }

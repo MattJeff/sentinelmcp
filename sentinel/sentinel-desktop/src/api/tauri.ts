@@ -8,6 +8,7 @@ import {
   type Alert,
   type ApprovalDecision,
   type BaselineSummary,
+  type ComplianceCoverage,
   type ComplianceReference,
   type DeclaredServer,
   type DiscoveredClientKind,
@@ -32,6 +33,7 @@ import {
   type ServerDetail,
   type Settings,
   type SiemConfig,
+  type SkillScan,
   type TestEmailInput,
   type TestEmailResult,
   type TestWebhookInput,
@@ -39,6 +41,7 @@ import {
   type ThreatEntry,
   type ThreatFeedStatus,
   type TrustGraphComputed,
+  type YaraRules,
 } from './contract';
 
 const hasTauri = typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== 'undefined';
@@ -84,11 +87,24 @@ export const api = {
   stixExportBundle: () => call<{ path: string }>(COMMANDS.stixExportBundle),
   executiveSummary: () => call<ExecutiveSummary>(COMMANDS.executiveSummary),
   complianceReferences: () => call<ComplianceReference[]>(COMMANDS.complianceReferences),
+  /**
+   * OWASP MCP Top 10 + OWASP ASI coverage matrix with per-level roll-up
+   * counts, for the honesty-first coverage table on the Compliance page.
+   */
+  complianceCoverage: () => call<ComplianceCoverage>(COMMANDS.complianceCoverage),
   appVersion: () => call<string>(COMMANDS.appVersion),
   discoverSystem: () => call<DiscoveryReport>(COMMANDS.discoverSystem),
   computeTrustGraph: () => call<TrustGraphComputed>(COMMANDS.computeTrustGraph),
   listThreats: () => call<ThreatEntry[]>(COMMANDS.listThreats),
   scanLookalikes: () => call<LookalikeMatch[]>(COMMANDS.scanLookalikes),
+  /**
+   * Discover every Claude/agent skill on this Mac and scan each one's content
+   * through the hybrid detection pipeline. Returns the full skills inventory
+   * annotated with any findings (clean artefacts carry an empty `findings`).
+   */
+  scanSkills: () => call<SkillScan[]>(COMMANDS.scanSkills),
+  /** List the rules compiled into the embedded YARA engine (+ source count). */
+  listYaraRules: () => call<YaraRules>(COMMANDS.listYaraRules),
   probeServer: (server: DeclaredServer) =>
     call<ProbeResult>(COMMANDS.probeServer, {
       server: {
@@ -541,6 +557,106 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
     };
     return Promise.resolve(result as unknown as T);
   }
+  // Embedded YARA rules: surface the three bundled signatures so the
+  // Detection settings card renders in browser dev mode without a backend.
+  if (name === COMMANDS.listYaraRules) {
+    const result: YaraRules = {
+      sources_count: 1,
+      rules: [
+        {
+          name: 'MCP_Poisoning_PseudoSysteme',
+          source: 'sentinel-embarque',
+          category: 'balises_pseudo_systeme',
+          severity: 'critical',
+          description:
+            "Balises pseudo-systeme ou directives cachees dans la description d'un outil",
+        },
+        {
+          name: 'MCP_Poisoning_FichiersSecrets',
+          source: 'sentinel-embarque',
+          category: 'exfiltration_secrets',
+          severity: 'critical',
+          description: "Reference a des fichiers de secrets dans la surface d'un outil",
+        },
+        {
+          name: 'MCP_Exfiltration_Reseau',
+          source: 'sentinel-embarque',
+          category: 'exfiltration_reseau',
+          severity: 'high',
+          description: "Directive d'envoi de donnees vers une URL externe",
+        },
+      ],
+    };
+    return Promise.resolve(result as unknown as T);
+  }
+  // Compliance coverage matrix mock (abridged) so the Compliance page renders
+  // its honesty-first table in browser dev mode.
+  if (name === COMMANDS.complianceCoverage) {
+    const result: ComplianceCoverage = {
+      version: '2026-beta-2',
+      matrix: [
+        {
+          framework: 'OWASP MCP',
+          identifier: 'MCP03',
+          title: 'Empoisonnement d’outil (Tool Poisoning)',
+          level: 'yes',
+          justification: 'Detecteur Poisoning (instructions cachees dans la description/le schema).',
+        },
+        {
+          framework: 'OWASP MCP',
+          identifier: 'MCP01',
+          title: 'Injection d’invite / d’outil',
+          level: 'partial',
+          justification: 'Heuristiques de poisoning sur descriptions et schemas.',
+        },
+        {
+          framework: 'OWASP ASI',
+          identifier: 'ASI06',
+          title: 'Empoisonnement memoire & contexte (persistant)',
+          level: 'no',
+          justification: 'Angle mort assume : la memoire persistante de l’agent n’est pas inspectee.',
+        },
+      ],
+      covered: 1,
+      partial: 1,
+      not_covered: 1,
+    };
+    return Promise.resolve(result as unknown as T);
+  }
+  // Skills scan mock: one clean skill + one flagged so the Skills view has
+  // both states to render in dev mode.
+  if (name === COMMANDS.scanSkills) {
+    const result: SkillScan[] = [
+      {
+        name: 'pdf-tools',
+        description: 'Helpers for working with PDF files.',
+        artifact_type: 'skill',
+        scope: 'user',
+        client: 'claude-code-cli',
+        path: '/Users/dev/.claude/skills/pdf-tools/SKILL.md',
+        findings: [],
+      },
+      {
+        name: 'data-exfil',
+        description: 'Mock poisoned skill for browser dev mode.',
+        artifact_type: 'skill',
+        scope: 'project',
+        client: 'claude-code-cli',
+        path: '/Users/dev/project/.claude/skills/data-exfil/SKILL.md',
+        findings: [
+          {
+            finding_type: 'poisoning',
+            severity: 'critical',
+            title: 'Poisoning detected — tool « data-exfil »',
+            detail: 'Pattern « hidden-system-directive » triggered.',
+            tool_name: 'data-exfil',
+            compliance_refs: ['SAFE-T1001', 'OWASP MCP03'],
+          },
+        ],
+      },
+    ];
+    return Promise.resolve(result as unknown as T);
+  }
   // Synthesise a successful probe so the Discovery page is interactive in dev.
   if (name === COMMANDS.probeServer) {
     const input = (_args?.server ?? {}) as { name?: string };
@@ -857,6 +973,11 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
         url: 'https://raw.githubusercontent.com/sentinel-mcp/threat-intel-feed/main/threat_feed.yaml',
         auto_refresh_enabled: true,
         last_refresh_at: null,
+      },
+      detection: {
+        yara: true,
+        llm: false,
+        llm_url: 'http://localhost:11434',
       },
     } as Settings,
     [COMMANDS.saveSettings]: undefined,

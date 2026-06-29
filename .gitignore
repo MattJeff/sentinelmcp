@@ -58,3 +58,7 @@ ehthumbs.db
 # Tests output
 /tmp/sentinel-emails/
 /tmp/sentinel-mcp/
+
+# Artefacts locaux Claude Code (workflows/worktrees de session)
+.claude/workflows/
+.claude/worktrees/

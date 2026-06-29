@@ -454,6 +454,21 @@ impl Store {
         // a un `package_id` non vide et que l'index unique
         // `idx_serveurs_identite` (package_id, scope) reste activable.
         let package_id = extraire_package_id(&s.endpoint, s.transport);
+        // Garde-fou : un endpoint vide/blanc dérive un `package_id` vide.
+        // Deux serveurs ainsi vides partageant le même scope violeraient
+        // l'index UNIQUE(package_id, scope) (`idx_serveurs_identite`, V4) et
+        // feraient échouer l'écriture sur une contrainte SQLite opaque — pire,
+        // ce sont exactement les lignes que le backfill V4 ne peut pas dédupe
+        // proprement. On refuse donc proactivement, avec une erreur explicite,
+        // plutôt que de laisser une identité canonique vide entrer en base.
+        if package_id.trim().is_empty() {
+            anyhow::bail!(
+                "upsert_serveur refusé : endpoint vide/blanc (« {} ») → \
+                 package_id vide ; identité canonique requise pour l'index \
+                 (package_id, scope)",
+                s.endpoint
+            );
+        }
         conn.execute(
             r#"INSERT INTO serveurs (id, endpoint, transport, portees, statut, couleur,
                 premiere_vue, derniere_vue, empreinte_courante, tags, scope, package_id)
@@ -909,6 +924,11 @@ impl Store {
     /// les plus récentes de chaque serveur, supprime le reste. Retourne
     /// le nombre de lignes supprimées.
     pub fn gc_historique_baselines(&self, garder: usize) -> Result<usize> {
+        // Garde-fou : `garder = 0` supprimerait TOUT l'historique d'audit —
+        // la condition `count(versions plus récentes) >= 0` est toujours vraie.
+        // On impose un minimum de 1 : on conserve au moins la version la plus
+        // récente de chaque serveur.
+        let garder = garder.max(1);
         let conn = self.inner.lock().unwrap();
         let n = conn.execute(
             r#"DELETE FROM historique_baselines
@@ -1319,5 +1339,85 @@ mod tests {
         store.upsert_serveur(&s).unwrap();
         let liste = store.lister_serveurs().unwrap();
         assert_eq!(liste.len(), 1);
+    }
+
+    /// B4 — un endpoint vide dérive un `package_id` vide ; deux serveurs
+    /// ainsi vides au même scope violeraient l'index UNIQUE(package_id,
+    /// scope). On vérifie que l'upsert est refusé proprement (Err) et que
+    /// l'inventaire reste sain (aucune ligne fantôme à identité vide).
+    #[test]
+    fn upsert_endpoint_vide_refuse_sans_corruption() {
+        let store = Store::in_memory().unwrap();
+        let mk = || Serveur {
+            id: uuid::Uuid::new_v4(),
+            endpoint: "".into(),
+            transport: Transport::Stdio,
+            portees: vec![],
+            statut: StatutServeur::Inconnu,
+            couleur: Couleur::Orange,
+            premiere_vue: Utc::now(),
+            derniere_vue: Utc::now(),
+            empreinte_courante: None,
+            tags: vec![],
+            scope: ScopeServeur::default(),
+        };
+        // Deux serveurs distincts (id différents) mais endpoint vide → même
+        // scope. Sans garde-fou, le second planterait l'index (ou pire,
+        // corromprait le backfill V4) ; ici les deux sont refusés.
+        assert!(store.upsert_serveur(&mk()).is_err());
+        assert!(store.upsert_serveur(&mk()).is_err());
+
+        // Un endpoint uniquement blanc dérive aussi un package_id vide.
+        let mut blanc = mk();
+        blanc.endpoint = "   ".into();
+        assert!(store.upsert_serveur(&blanc).is_err());
+
+        // Aucune corruption : rien n'a été inséré, le store reste utilisable.
+        let liste = store.lister_serveurs().unwrap();
+        assert!(liste.is_empty());
+    }
+
+    /// B23 — `gc_historique_baselines(0)` ne doit PAS effacer tout
+    /// l'historique d'audit : la valeur est clampée à un minimum de 1, donc
+    /// au moins la version la plus récente survit.
+    #[test]
+    fn gc_historique_baselines_garde_au_moins_une_version() {
+        let store = Store::in_memory().unwrap();
+        let serveur_id = uuid::Uuid::new_v4();
+        // Le serveur parent doit exister (FK `baselines.serveur_id`).
+        store
+            .upsert_serveur(&Serveur {
+                id: serveur_id,
+                endpoint: "npx -y @scope/pkg".into(),
+                transport: Transport::Stdio,
+                portees: vec![],
+                statut: StatutServeur::Inconnu,
+                couleur: Couleur::Orange,
+                premiere_vue: Utc::now(),
+                derniere_vue: Utc::now(),
+                empreinte_courante: None,
+                tags: vec![],
+                scope: ScopeServeur::default(),
+            })
+            .unwrap();
+        for i in 0..3 {
+            let b = Baseline {
+                id: uuid::Uuid::new_v4(),
+                serveur_id,
+                empreinte_serveur: Empreinte::new(format!("emp{i}")),
+                empreintes_outils: Default::default(),
+                outils: vec![],
+                date_approbation: Utc::now(),
+                approuve_par: "test".into(),
+            };
+            store.enregistrer_baseline_versionnee(&b, "test").unwrap();
+        }
+
+        // Sans le clamp, gc(0) supprimerait les 3 versions ; avec le clamp,
+        // la version la plus récente (v3) est conservée.
+        store.gc_historique_baselines(0).unwrap();
+        let restant = store.lister_historique_baselines(serveur_id).unwrap();
+        assert_eq!(restant.len(), 1);
+        assert_eq!(restant[0].version, 3);
     }
 }
