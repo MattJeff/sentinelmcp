@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 use sentinel_protocol::{Constat, Couleur, Serveur, StatutServeur};
 use sentinel_store::Store;
 use tracing::{info, warn};
@@ -467,9 +468,14 @@ impl GenerateurRapport {
     // ------------------------------------------------------------------ //
 
     fn tenter_pdf(contenu: &ContenuPdf) -> Option<std::path::PathBuf> {
+        // Nom unique par bundle (UUID v4) plutôt que par timestamp-ms : plusieurs
+        // génération concurrentes (tests en parallèle, plusieurs rapports en un
+        // cycle) ne doivent JAMAIS collide-r sur le même fichier temporaire, au
+        // risque d'écrire dans un fichier en cours de lecture → PDF vide/corrompu.
         let nom = format!(
-            "sentinel-rapport-{}.pdf",
-            Utc::now().format("%Y%m%d-%H%M%S-%3f")
+            "sentinel-rapport-{}-{}.pdf",
+            Utc::now().format("%Y%m%d-%H%M%S"),
+            Uuid::new_v4()
         );
         let chemin = std::env::temp_dir().join(nom);
         match RenduPdf::produire_contenu(contenu, &chemin) {
