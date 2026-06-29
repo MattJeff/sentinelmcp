@@ -141,3 +141,80 @@ fn package_inconnu_retourne_vide() {
     let srv2 = serveur("totally-unrelated-tool", &["--help"]);
     assert!(flux.correspondances(&srv2).is_empty());
 }
+
+// ─── D16 — matching flou (casse + Levenshtein) ───────────────────────────
+
+#[test]
+fn floue_rattrape_variante_de_casse() {
+    let flux = FluxMenaces::par_defaut();
+    // `mcp-helpful-assistant` (MCP-2026-010) déclaré avec une casse différente.
+    let srv = serveur("MCP-Helpful-Assistant", &[]);
+    // Le matching exact ne voit rien…
+    assert!(flux.correspondances(&srv).is_empty());
+    // …mais le matching flou rattrape la variante de casse (distance 0).
+    let hits = flux.correspondances_floues(&srv);
+    assert_eq!(hits.len(), 1, "vu: {:?}", hits);
+    assert_eq!(hits[0].entree.identifiant, "MCP-2026-010");
+    assert_eq!(hits[0].distance, 0);
+    assert!(!hits[0].exact_casse, "variante de casse → pas exact_casse");
+}
+
+#[test]
+fn floue_rattrape_un_typo_proche() {
+    let flux = FluxMenaces::par_defaut();
+    // `mcp-helpful-assistan` : un `t` manquant (Levenshtein = 1).
+    let srv = serveur("mcp-helpful-assistan", &[]);
+    assert!(flux.correspondances(&srv).is_empty());
+    let hits = flux.correspondances_floues(&srv);
+    assert!(
+        hits.iter().any(|h| h.entree.identifiant == "MCP-2026-010" && h.distance == 1),
+        "le typo à distance 1 doit matcher, vu: {:?}",
+        hits
+    );
+}
+
+#[test]
+fn floue_ne_flague_pas_le_paquet_officiel_legitime() {
+    // FAUX POSITIF CRITIQUE à éviter : le paquet officiel
+    // `@modelcontextprotocol/server-filesystem` est à distance 2 du typo-squat
+    // `@modelcontextprotocol/server-filesystem-1` (MCP-2026-001). Le scope
+    // officiel doit l'exempter du matching flou.
+    let flux = FluxMenaces::par_defaut();
+    let srv = serveur(
+        "filesystem",
+        &["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+    );
+    assert!(
+        flux.correspondances_floues(&srv).is_empty(),
+        "le paquet officiel ne doit JAMAIS matcher le typo-squat: {:?}",
+        flux.correspondances_floues(&srv)
+    );
+}
+
+#[test]
+fn floue_ignore_les_labels_courts() {
+    // Faux positif proscrit : un label court ne doit pas matcher par distance.
+    let flux = FluxMenaces::par_defaut();
+    let srv = serveur("fs", &["db", "ls"]);
+    assert!(flux.correspondances_floues(&srv).is_empty());
+}
+
+#[test]
+fn floue_inclut_toujours_les_matches_exacts() {
+    let flux = FluxMenaces::par_defaut();
+    let srv = serveur("mcp-helpful-assistant", &[]);
+    let hits = flux.correspondances_floues(&srv);
+    let exact = hits
+        .iter()
+        .find(|h| h.entree.identifiant == "MCP-2026-010")
+        .expect("le match exact doit aussi apparaître en flou");
+    assert!(exact.exact_casse, "match exact sensible à la casse");
+    assert_eq!(exact.distance, 0);
+}
+
+#[test]
+fn floue_ne_matche_pas_un_outil_sans_rapport() {
+    let flux = FluxMenaces::par_defaut();
+    let srv = serveur("totally-unrelated-tool", &["--help"]);
+    assert!(flux.correspondances_floues(&srv).is_empty());
+}

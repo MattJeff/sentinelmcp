@@ -117,6 +117,13 @@ impl DedupAntiBruit {
         }
     }
 
+    /// Nombre d'entrées suivies dans la fenêtre glissante.
+    ///
+    /// Lecture seule, exposée pour la métrique `sentinel_dedup_size`.
+    pub fn taille(&self) -> u64 {
+        self.derniers.len() as u64
+    }
+
     /// Retourne les regroupements actifs : paires (clé, compteur) dont le
     /// compteur dépasse le seuil. Utile pour construire un résumé périodique.
     pub fn regroupements(&self) -> Vec<(String, u32)> {

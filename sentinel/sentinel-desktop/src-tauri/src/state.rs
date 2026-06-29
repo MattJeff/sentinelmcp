@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use sentinel_discovery::EtatProbe;
 use sentinel_store::Store;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -12,6 +13,63 @@ use tokio::sync::RwLock;
 
 /// Default tick for the background live-monitoring loop (seconds).
 pub const DEFAULT_LIVE_INTERVAL_SECS: u64 = 30;
+
+/// Politique « approve-before-run » exposée à l'UI.
+///
+/// Cache mémoire de la configuration persistée sur disque par les commandes
+/// `get_gate_config` / `set_gate_config`. Le gate temps réel (proxy) la
+/// consulte pour décider s'il faut **retenir** un appel à risque.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateConfig {
+    /// `false` (défaut) : détection seule, relais bit-exact. `true` : mode
+    /// enforce — un appel franchissant le seuil est retenu pour approbation.
+    pub enforce: bool,
+    /// Seuil de risque déclenchant la rétention : `"low"` | `"medium"` |
+    /// `"high"` (défaut). Mappé sur `sentinel_scan::proxy::NiveauRisque` côté
+    /// gate.
+    pub seuil: String,
+}
+
+impl Default for GateConfig {
+    fn default() -> Self {
+        // Détection seule + seuil le plus strict : aucun blocage tant que
+        // l'opérateur n'a pas explicitement opté pour l'enforce.
+        Self {
+            enforce: false,
+            seuil: "high".to_string(),
+        }
+    }
+}
+
+/// Une demande d'approbation « approve-before-run » présentée à l'opérateur.
+///
+/// Alimentée soit EN DIRECT par le gate (couplage temps réel, champ
+/// `source = "live"`), soit dérivée des constats « retenu pour approbation »
+/// persistés dans le store (`source = "store"`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingApproval {
+    /// Identifiant : l'UUID du constat store quand `source = "store"`.
+    pub id: String,
+    /// Identifiant du serveur concerné (UUID).
+    pub server_id: String,
+    /// Nom de l'outil appelé, si connu.
+    pub tool: Option<String>,
+    /// Niveau de risque : `"info"` | `"medium"` | `"high"` | `"critical"`.
+    pub risk_level: String,
+    /// Explication lisible (sans contenu brut des arguments).
+    pub reason: String,
+    /// Titre du constat sous-jacent.
+    pub title: String,
+    /// Horodatage ISO-8601 de la demande.
+    pub requested_at: String,
+    /// `true` si l'appel a été effectivement RETENU (bloqué) ; `false` pour un
+    /// simple advisory relayé en mode détection.
+    pub held: bool,
+    /// `"store"` (dérivé d'un constat persisté) ou `"live"` (poussé par le gate).
+    pub source: String,
+    /// `"pending"` | `"approved"` | `"denied"`.
+    pub state: String,
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -40,6 +98,15 @@ pub struct AppState {
     /// In-memory only — purposely not persisted, since the goal is to react to
     /// a per-session transition, not to remember failures across app reboots.
     pub last_probe_states: Arc<RwLock<HashMap<String, EtatProbe>>>,
+    /// Politique « approve-before-run » (cache mémoire). Persistée sur disque
+    /// (`gate.json`) par les commandes `get_gate_config` / `set_gate_config` ;
+    /// consultable par le gate temps réel pour décider d'une rétention.
+    pub gate_config: Arc<RwLock<GateConfig>>,
+    /// Registre des demandes d'approbation alimentées EN DIRECT par le gate
+    /// (couplage temps réel optionnel). `list_pending_approvals` fusionne ces
+    /// demandes avec les constats « retenu pour approbation » du store, de
+    /// sorte que l'UI voit la file complète même sans coupleur temps réel.
+    pub pending_approvals: Arc<RwLock<Vec<PendingApproval>>>,
 }
 
 impl AppState {
@@ -58,6 +125,8 @@ impl AppState {
             proxy_upstream: Arc::new(RwLock::new(None)),
             proxy_events_seen: Arc::new(AtomicU64::new(0)),
             last_probe_states: Arc::new(RwLock::new(HashMap::new())),
+            gate_config: Arc::new(RwLock::new(GateConfig::default())),
+            pending_approvals: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -115,6 +184,20 @@ impl AppState {
             proxy_upstream: Arc::new(RwLock::new(None)),
             proxy_events_seen: Arc::new(AtomicU64::new(0)),
             last_probe_states: Arc::new(RwLock::new(HashMap::new())),
+            gate_config: Arc::new(RwLock::new(GateConfig::default())),
+            pending_approvals: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    /// Hook temps réel : le gate (proxy) peut pousser une demande d'approbation
+    /// dans le registre. Déduplique par `id`. Actuellement non câblé au proxy
+    /// HTTP du desktop (voir `commands_runtime`) — fourni pour le couplage
+    /// temps réel à venir.
+    #[allow(dead_code)]
+    pub async fn pousser_demande_approbation(&self, demande: PendingApproval) {
+        let mut file = self.pending_approvals.write().await;
+        if !file.iter().any(|d| d.id == demande.id) {
+            file.push(demande);
         }
     }
 }

@@ -2993,7 +2993,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "sentinel-alerts"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3023,7 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-cli"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3051,7 +3051,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-detect"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3081,7 +3081,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-discovery"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3113,7 +3113,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-guard"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3131,7 +3131,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-monitor"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3153,7 +3153,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-protocol"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "serde",
@@ -3164,7 +3164,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-report"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3175,6 +3175,7 @@ dependencies = [
  "keyring",
  "printpdf",
  "rand 0.8.6",
+ "sentinel-alerts",
  "sentinel-detect",
  "sentinel-protocol",
  "sentinel-scan",
@@ -3192,7 +3193,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-scan"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3219,7 +3220,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-stix"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "jsonschema",
@@ -3234,7 +3235,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-store"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3253,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "sentinel-taxii"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "base64",
  "reqwest",

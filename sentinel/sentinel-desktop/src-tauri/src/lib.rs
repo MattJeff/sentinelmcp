@@ -9,6 +9,7 @@ mod commands_discovery;
 mod commands_enforcement;
 mod commands_lookalikes;
 mod commands_proxy;
+mod commands_runtime;
 mod commands_settings;
 mod commands_siem;
 mod commands_stix;
@@ -69,6 +70,13 @@ pub fn run() {
             commands_proxy::start_proxy,
             commands_proxy::stop_proxy,
             commands_proxy::proxy_status,
+            commands_runtime::get_gate_config,
+            commands_runtime::set_gate_config,
+            commands_runtime::list_pending_approvals,
+            commands_runtime::approve_call,
+            commands_runtime::deny_call,
+            commands_runtime::list_rogue_sockets,
+            commands_runtime::list_cve_findings,
             commands_settings::get_settings,
             commands_settings::save_settings,
             commands_siem::siem_test_send,

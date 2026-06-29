@@ -9,8 +9,12 @@ pub mod lifecycle;
 pub mod siem;
 pub mod sinks;
 pub mod secrets;
+pub mod metrics;
 
 pub use engine::MoteurAlertes;
+pub use metrics::{
+    rendre_prometheus, AgregatLatence, Metriques, RegistreMetriques, CONTENT_TYPE_PROMETHEUS,
+};
 pub use severity::{MatriceSeverite, ConfigSeverite};
 pub use channels::{CanalEmetteur, dashboard, email, webhook};
 pub use enrichment::EnrichisseurAlerte;

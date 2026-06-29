@@ -51,7 +51,7 @@ impl ResumeExecutif {
             .filter(|c| c.severite == Severite::Moyenne)
             .count() as u64;
 
-        let texte = Self::generer_texte(
+        let mut texte = Self::generer_texte(
             serveurs_total,
             serveurs_non_approuves,
             serveurs_a_risque,
@@ -59,6 +59,14 @@ impl ResumeExecutif {
             constats_hauts,
             constats_moyens,
         );
+
+        // Met en avant les détections avancées (Vague D) lorsqu'elles sont
+        // présentes : trifecta létale, CVE connue, OAuth/SSRF, cross-server
+        // shadowing, socket fantôme. Texte en prose pure (aucun Markdown).
+        if let Some(phrase) = Self::phrase_detections_avancees(constats) {
+            texte.push(' ');
+            texte.push_str(&phrase);
+        }
 
         let appel_action = if serveurs_a_risque > 0 || constats_critiques > 0 {
             Some(format!(
@@ -81,6 +89,63 @@ impl ResumeExecutif {
             texte,
             appel_action,
         }
+    }
+
+    /// Détecte la présence des natures de constats « Vague D » et produit une
+    /// phrase de synthèse pour le résumé exécutif. Retourne `None` si aucune
+    /// détection avancée n'est présente (le résumé reste alors inchangé).
+    ///
+    /// Les natures sont reconnues via les marqueurs déposés dans
+    /// `references_conformite` par les détecteurs, car plusieurs partagent un
+    /// même `TypeConstat` (CVE / OAuth-SSRF → `Autre`, cross-server shadowing →
+    /// `Poisoning`, trifecta → `Exfiltration`).
+    fn phrase_detections_avancees(constats: &[Constat]) -> Option<String> {
+        let marque = |c: &Constat, aiguille: &str| {
+            c.references_conformite.iter().any(|r| r.contains(aiguille))
+        };
+
+        let trifecta = constats
+            .iter()
+            .filter(|c| marque(c, "ATT&CK T1567"))
+            .count();
+        let cve = constats.iter().filter(|c| marque(c, "CVE-")).count();
+        let confused = constats
+            .iter()
+            .filter(|c| marque(c, "confused-deputy") || marque(c, "RFC 8707") || marque(c, "SSRF"))
+            .count();
+        let shadowing = constats
+            .iter()
+            .filter(|c| marque(c, "SAFE-T1102"))
+            .count();
+        let socket = constats
+            .iter()
+            .filter(|c| marque(c, "shadow-mcp"))
+            .count();
+
+        let mut parties: Vec<String> = Vec::new();
+        if trifecta > 0 {
+            parties.push(format!("trifecta létale d'exfiltration ({trifecta})"));
+        }
+        if cve > 0 {
+            parties.push(format!("vulnérabilité CVE connue ({cve})"));
+        }
+        if confused > 0 {
+            parties.push(format!("OAuth confused deputy / SSRF ({confused})"));
+        }
+        if shadowing > 0 {
+            parties.push(format!("cross-server shadowing ({shadowing})"));
+        }
+        if socket > 0 {
+            parties.push(format!("socket fantôme en écoute ({socket})"));
+        }
+
+        if parties.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "Détections avancées : {}.",
+            parties.join(", ")
+        ))
     }
 
     fn generer_texte(

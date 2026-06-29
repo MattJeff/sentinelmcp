@@ -61,6 +61,13 @@ pub async fn lister_serveurs_depuis(url: &str) -> Vec<EntreeRegistre> {
         }
     };
 
+    parser_liste(&corps)
+}
+
+/// Extrait les entrées du tableau `data` d'un corps JSON mcp.so déjà
+/// désérialisé. Fonction pure (aucun réseau) : renvoie un Vec vide si `data`
+/// est absent ou non-tableau.
+fn parser_liste(corps: &Value) -> Vec<EntreeRegistre> {
     let entrees = match corps.get("data").and_then(|v| v.as_array()) {
         Some(arr) => arr,
         None => {
@@ -69,10 +76,21 @@ pub async fn lister_serveurs_depuis(url: &str) -> Vec<EntreeRegistre> {
         }
     };
 
-    entrees
-        .iter()
-        .filter_map(extraire_entree)
-        .collect()
+    entrees.iter().filter_map(extraire_entree).collect()
+}
+
+/// Parse un payload JSON de liste mcp.so en entrées de base. Aucune requête
+/// réseau — fonction pure et testable hors-ligne. Renvoie un Vec vide si le
+/// JSON est invalide ou si `data` est absent (jamais de panique). Sert aussi
+/// à ré-hydrater un payload mis en cache.
+pub fn parser_payload(texte: &str) -> Vec<EntreeRegistre> {
+    match serde_json::from_str::<Value>(texte) {
+        Ok(corps) => parser_liste(&corps),
+        Err(e) => {
+            warn!(erreur = %e, "mcp.so : payload JSON invalide (parser_payload)");
+            Vec::new()
+        }
+    }
 }
 
 /// Extrait une `EntreeRegistre` à partir d'un nœud JSON mcp.so.
@@ -93,4 +111,42 @@ fn extraire_entree(node: &Value) -> Option<EntreeRegistre> {
         nom,
         description,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Échantillon réaliste de `GET /api/servers` de mcp.so : tableau `data[]`
+    /// portant `name` + `description`, avec une enveloppe de pagination.
+    const FIXTURE: &str = r#"{
+      "data": [
+        { "name": "github", "description": "Manage repositories, issues and pull requests." },
+        { "name": "postgres", "description": "Query and inspect PostgreSQL databases." },
+        { "description": "entrée sans nom, à ignorer" }
+      ],
+      "page": 1,
+      "limit": 100,
+      "total": 3210
+    }"#;
+
+    #[test]
+    fn parse_fixture_reelle() {
+        let entrees = parser_payload(FIXTURE);
+        // L'entrée sans `name` exploitable est ignorée.
+        assert_eq!(entrees.len(), 2);
+        assert_eq!(entrees[0].registre, "mcp.so");
+        assert_eq!(entrees[0].nom, "github");
+        assert_eq!(
+            entrees[0].description.as_deref(),
+            Some("Manage repositories, issues and pull requests.")
+        );
+        assert_eq!(entrees[1].nom, "postgres");
+    }
+
+    #[test]
+    fn data_absent_ou_json_invalide_renvoie_vide() {
+        assert!(parser_payload("{\"items\":[]}").is_empty());
+        assert!(parser_payload("xx").is_empty());
+    }
 }

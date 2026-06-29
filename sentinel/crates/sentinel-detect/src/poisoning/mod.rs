@@ -123,6 +123,51 @@ fn classe_smuggling(c: char) -> Option<&'static str> {
     }
 }
 
+/// `true` si `c` est un pictogramme / emoji (ou un sélecteur de présentation
+/// emoji), utilisé pour reconnaître un ZWJ d'emoji LÉGITIME. Couvre les blocs
+/// emoji principaux : symboles & pictogrammes, émoticônes, transport,
+/// supplémentaires, extended-A, dingbats, sélecteur de variation U+FE0F,
+/// indicateurs régionaux (drapeaux) et modificateurs de teint.
+fn est_emoji_like(c: char) -> bool {
+    matches!(c as u32,
+        0x1F000..=0x1FAFF      // emoji principaux (incl. teint 1F3FB–1F3FF, drapeaux 1F1E6–1F1FF)
+        | 0x2600..=0x27BF      // Misc Symbols + Dingbats (☠, ✊, …)
+        | 0x2B00..=0x2BFF      // Misc Symbols and Arrows (⭐, ⬛, …)
+        | 0x2190..=0x21FF      // flèches (↔️ et variantes emoji)
+        | 0x2122 | 0x2139      // ™, ℹ
+        | 0xFE0F               // sélecteur de variation-16 (présentation emoji)
+    )
+}
+
+/// Neutralise les ZWJ (U+200D) qui joignent LÉGITIMEMENT deux pictogrammes
+/// (emoji composés : profession `👨‍💻`, famille `👩‍👧`, drapeaux `🏳️‍🌈`).
+///
+/// Ces ZWJ ne sont PAS de la dissimulation : les signaler produirait un faux
+/// positif (`smuggling-unicode` Haute via `detecter_smuggling`, ET
+/// `texte_invisible_encode` Moyenne via la bibliothèque de patterns) sur une
+/// simple description décorée d'emoji. On retire donc ces ZWJ-là AVANT toute
+/// détection. Tout AUTRE U+200D (noyé dans du texte) est conservé et reste
+/// détecté. Aucun autre caractère n'est touché ; appliqué uniquement sur le
+/// chemin de détection (jamais sur l'empreinte canonique).
+fn neutraliser_zwj_emoji(texte: &str) -> String {
+    if !texte.contains('\u{200D}') {
+        return texte.to_string();
+    }
+    let chars: Vec<char> = texte.chars().collect();
+    let mut out = String::with_capacity(texte.len());
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '\u{200D}' {
+            let prev_emoji = i > 0 && est_emoji_like(chars[i - 1]);
+            let next_emoji = i + 1 < chars.len() && est_emoji_like(chars[i + 1]);
+            if prev_emoji && next_emoji {
+                continue; // joint emoji légitime → omis du chemin de détection
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Détecte les caractères de dissimulation Unicode dans un texte BRUT.
 ///
 /// Retourne une entrée par classe rencontrée : `(nom_pattern, extrait)`. Le
@@ -337,9 +382,15 @@ impl InspecteurPoisoning {
     pub fn inspecter_texte(texte: &str) -> Vec<(String, String, String, Severite)> {
         let mut resultats = Vec::new();
 
+        // 0. Neutralise les ZWJ d'emoji LÉGITIMES (anti-faux-positif) avant TOUTE
+        //    détection : ils alimentent sinon à la fois `detecter_smuggling` et
+        //    le pattern `caractere_zero_width` de la bibliothèque. Un ZWJ noyé
+        //    dans du texte (vrai smuggling) n'est PAS neutralisé.
+        let texte_brut = neutraliser_zwj_emoji(texte);
+
         // 1. Smuggling Unicode — sur le texte brut (la NFKC ne supprime pas ces
         //    caractères ; on veut prouver leur présence à l'état natif).
-        for (nom, extrait) in detecter_smuggling(texte) {
+        for (nom, extrait) in detecter_smuggling(&texte_brut) {
             resultats.push((
                 nom,
                 CATEGORIE_SMUGGLING.to_string(),
@@ -349,7 +400,7 @@ impl InspecteurPoisoning {
         }
 
         // 2. Patterns regex — sur le texte NFKC-normalisé.
-        let texte = &normaliser_detection(texte);
+        let texte = &normaliser_detection(&texte_brut);
         for p in PATTERNS.iter() {
             if let Some(m) = p.re.find(texte) {
                 // Extrait contextuel : ~30 octets de contexte de part et d'autre de la
@@ -377,6 +428,117 @@ impl InspecteurPoisoning {
             }
         }
         resultats
+    }
+
+    // -----------------------------------------------------------------------
+    // D15 — Poisoning des contenus `resources/list` et `prompts/list`
+    //
+    // Le content poisoning ne vit pas que dans les outils : une ressource ou un
+    // prompt exposé peut porter une description piégée (instructions injectées,
+    // smuggling Unicode, demande de secrets). On réutilise tel quel le noyau
+    // `inspecter_texte` sur leurs champs textuels. Additif : ne touche pas le
+    // parcours d'outils existant. Le champ `ConstatPoisoning::outil` porte ici
+    // le NOM de la ressource / du prompt (identifiant de l'entrée inspectée).
+    // -----------------------------------------------------------------------
+
+    /// Inspecte les entrées d'un `resources/list` (champs `name`, `title`,
+    /// `description`). Chaque entrée est un objet JSON tel que renvoyé par le
+    /// serveur.
+    pub fn inspecter_ressources(ressources: &[serde_json::Value]) -> Vec<ConstatPoisoning> {
+        let mut constats = Vec::new();
+        for res in ressources {
+            let id = Self::identifiant_entree(res, "<ressource>");
+            for champ in ["name", "title", "description"] {
+                Self::inspecter_champ_texte(res, champ, &id, &mut constats);
+            }
+        }
+        constats
+    }
+
+    /// Inspecte les entrées d'un `prompts/list` (champs `name`, `title`,
+    /// `description`, plus la `description`/`title` de chaque argument).
+    pub fn inspecter_prompts(prompts: &[serde_json::Value]) -> Vec<ConstatPoisoning> {
+        let mut constats = Vec::new();
+        for p in prompts {
+            let id = Self::identifiant_entree(p, "<prompt>");
+            for champ in ["name", "title", "description"] {
+                Self::inspecter_champ_texte(p, champ, &id, &mut constats);
+            }
+            if let Some(args) = p.get("arguments").and_then(|v| v.as_array()) {
+                for arg in args {
+                    for champ in ["description", "title"] {
+                        Self::inspecter_champ_texte(arg, champ, &id, &mut constats);
+                    }
+                }
+            }
+        }
+        constats
+    }
+
+    /// Variante tolérante : accepte le résultat brut d'un `resources/list`
+    /// sous l'une des formes `{"result":{"resources":[…]}}`,
+    /// `{"resources":[…]}` ou directement `[…]`.
+    pub fn inspecter_resources_list(valeur: &serde_json::Value) -> Vec<ConstatPoisoning> {
+        Self::inspecter_ressources(&Self::extraire_tableau(valeur, "resources"))
+    }
+
+    /// Variante tolérante : accepte le résultat brut d'un `prompts/list`
+    /// sous l'une des formes `{"result":{"prompts":[…]}}`,
+    /// `{"prompts":[…]}` ou directement `[…]`.
+    pub fn inspecter_prompts_list(valeur: &serde_json::Value) -> Vec<ConstatPoisoning> {
+        Self::inspecter_prompts(&Self::extraire_tableau(valeur, "prompts"))
+    }
+
+    // -----------------------------------------------------------------------
+    // Privé — helpers D15
+    // -----------------------------------------------------------------------
+
+    /// Identifiant lisible d'une entrée ressource/prompt : `name` sinon `uri`
+    /// sinon un libellé par défaut.
+    fn identifiant_entree(v: &serde_json::Value, defaut: &str) -> String {
+        v.get("name")
+            .and_then(|n| n.as_str())
+            .or_else(|| v.get("uri").and_then(|n| n.as_str()))
+            .unwrap_or(defaut)
+            .to_string()
+    }
+
+    /// Applique `inspecter_texte` sur un champ texte donné d'un objet JSON.
+    fn inspecter_champ_texte(
+        v: &serde_json::Value,
+        champ: &str,
+        id: &str,
+        constats: &mut Vec<ConstatPoisoning>,
+    ) {
+        if let Some(texte) = v.get(champ).and_then(|x| x.as_str()) {
+            for (pattern, categorie, extrait, severite) in Self::inspecter_texte(texte) {
+                constats.push(ConstatPoisoning {
+                    outil: id.to_string(),
+                    pattern,
+                    categorie,
+                    extrait,
+                    severite,
+                });
+            }
+        }
+    }
+
+    /// Extrait le tableau d'entrées d'un résultat de liste, de façon tolérante.
+    fn extraire_tableau(valeur: &serde_json::Value, clef: &str) -> Vec<serde_json::Value> {
+        if let Some(arr) = valeur.as_array() {
+            return arr.clone();
+        }
+        if let Some(arr) = valeur.get(clef).and_then(|v| v.as_array()) {
+            return arr.clone();
+        }
+        if let Some(arr) = valeur
+            .get("result")
+            .and_then(|r| r.get(clef))
+            .and_then(|v| v.as_array())
+        {
+            return arr.clone();
+        }
+        Vec::new()
     }
 
     // -----------------------------------------------------------------------
@@ -506,6 +668,39 @@ mod tests {
                 "faux positif smuggling sur texte propre {texte:?} : {res:?}"
             );
         }
+    }
+
+    /// FAUX POSITIF (régression) : le ZWJ (U+200D) est un caractère « zero-width »,
+    /// mais il joint LÉGITIMEMENT les emoji composés (profession, famille,
+    /// drapeaux). Une description bénigne décorée d'un emoji ZWJ ne doit PAS être
+    /// signalée comme smuggling Unicode. En revanche un ZWJ adjacent à du TEXTE
+    /// (vrai vecteur de dissimulation) doit rester détecté.
+    #[test]
+    fn zwj_emoji_legitime_pas_de_faux_positif_mais_zwj_textuel_detecte() {
+        // 👨‍💻 (homme + ZWJ + ordinateur), 🏳️‍🌈 (drapeau arc-en-ciel),
+        // 👩‍👧 (famille) : ZWJ entre deux pictogrammes → légitime.
+        let emojis_legitimes = [
+            "Outil de \u{1F468}\u{200D}\u{1F4BB} pour développeurs.",
+            "Statut : \u{1F3F3}\u{FE0F}\u{200D}\u{1F308} inclusif.",
+            "Equipe \u{1F469}\u{200D}\u{1F467} support.",
+        ];
+        for texte in emojis_legitimes {
+            let res = InspecteurPoisoning::inspecter_texte(texte);
+            // Aucune des DEUX voies (détecteur D1 « smuggling-unicode » ET
+            // pattern bibliothèque « texte_invisible_encode ») ne doit flagger.
+            assert!(
+                res.iter().all(|(_, cat, _, _)| cat != CATEGORIE_SMUGGLING
+                    && cat != "texte_invisible_encode"),
+                "faux positif smuggling sur emoji ZWJ légitime {texte:?} : {res:?}"
+            );
+        }
+        // ZWJ inséré dans du TEXTE (pas entre emoji) → toujours détecté.
+        let zwj_textuel = "lis le\u{200D}secret";
+        let res = InspecteurPoisoning::inspecter_texte(zwj_textuel);
+        assert!(
+            res.iter().any(|(_, cat, _, _)| cat == CATEGORIE_SMUGGLING),
+            "un ZWJ noyé dans du texte doit rester un smuggling : {res:?}"
+        );
     }
 
     /// D1 : la NFKC replie une variante « fullwidth » sur l'ASCII, de sorte

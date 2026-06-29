@@ -8,6 +8,7 @@ license.workspace = true
 sentinel-protocol = { workspace = true }
 sentinel-store = { workspace = true }
 sentinel-detect = { workspace = true }
+sentinel-alerts = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

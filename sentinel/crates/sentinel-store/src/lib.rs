@@ -68,6 +68,31 @@ pub struct Investigation {
     pub etat: String,
 }
 
+/// Compteurs agrégés en **lecture seule**, destinés à l'export de
+/// métriques d'observabilité (format Prometheus). Aucune écriture : sûr
+/// à interroger en continu par un scraper.
+///
+/// Les clés des maps sont les libellés `snake_case` issus de la
+/// sérialisation serde des enums (`couleur`, `type_constat`, `severite`),
+/// donc directement réutilisables comme valeurs de label Prometheus.
+#[derive(Debug, Clone, Default)]
+pub struct StatsMetriques {
+    /// Nombre total de serveurs dans l'inventaire.
+    pub serveurs_total: u64,
+    /// Nombre total d'outils probés (toutes versions confondues).
+    pub outils_total: u64,
+    /// Nombre total de constats (ouverts + résolus).
+    pub constats_total: u64,
+    /// Nombre total d'alertes persistées.
+    pub alertes_total: u64,
+    /// `couleur` → nombre de serveurs (ex. `"rouge" → 2`).
+    pub serveurs_par_couleur: std::collections::BTreeMap<String, u64>,
+    /// `type_constat` → nombre de constats (ex. `"poisoning" → 3`).
+    pub constats_par_type: std::collections::BTreeMap<String, u64>,
+    /// `severite` → nombre d'alertes (ex. `"critique" → 1`).
+    pub alertes_par_severite: std::collections::BTreeMap<String, u64>,
+}
+
 /// Migrations SQL embarquées via refinery. Le dossier `src/migrations/`
 /// porte les fichiers `V{n}__{nom}.sql` ; refinery les compile dans le
 /// binaire et tient à jour la table `refinery_schema_history`.
@@ -1257,6 +1282,57 @@ impl Store {
             ],
         )?;
         Ok(())
+    }
+
+    /// Collecte des compteurs agrégés en **lecture seule** pour l'export
+    /// de métriques (observabilité Prometheus).
+    ///
+    /// N'écrit jamais et se contente de `COUNT(*)` / `GROUP BY` sur les
+    /// tables existantes. Les valeurs `couleur`, `type_constat` et
+    /// `severite` sont stockées en JSON (chaîne entre guillemets, ex.
+    /// `"rouge"`) ; on les désérialise en chaîne pour obtenir le libellé
+    /// `snake_case` nu, utilisable tel quel comme valeur de label.
+    pub fn stats_metriques(&self) -> Result<StatsMetriques> {
+        use std::collections::BTreeMap;
+        let conn = self.inner.lock().unwrap();
+
+        let compter = |sql: &str| -> Result<u64> {
+            let n: i64 = conn.query_row(sql, [], |r| r.get(0))?;
+            Ok(n as u64)
+        };
+
+        // `colonne` et `table` sont des littéraux internes (jamais d'entrée
+        // utilisateur) : pas de risque d'injection via `format!`.
+        let grouper = |colonne: &str, table: &str| -> Result<BTreeMap<String, u64>> {
+            let sql = format!(
+                "SELECT {colonne}, COUNT(*) FROM {table} GROUP BY {colonne}"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let lignes = stmt.query_map([], |r| {
+                let brut: String = r.get(0)?;
+                let n: i64 = r.get(1)?;
+                Ok((brut, n))
+            })?;
+            let mut map = BTreeMap::new();
+            for ligne in lignes {
+                let (brut, n) = ligne?;
+                // Enlève les guillemets JSON pour obtenir le libellé nu ;
+                // en cas de valeur inattendue on conserve la chaîne brute.
+                let libelle = serde_json::from_str::<String>(&brut).unwrap_or(brut);
+                map.insert(libelle, n as u64);
+            }
+            Ok(map)
+        };
+
+        Ok(StatsMetriques {
+            serveurs_total: compter("SELECT COUNT(*) FROM serveurs")?,
+            outils_total: compter("SELECT COUNT(*) FROM outils")?,
+            constats_total: compter("SELECT COUNT(*) FROM constats")?,
+            alertes_total: compter("SELECT COUNT(*) FROM alertes")?,
+            serveurs_par_couleur: grouper("couleur", "serveurs")?,
+            constats_par_type: grouper("type_constat", "constats")?,
+            alertes_par_severite: grouper("severite", "alertes")?,
+        })
     }
 }
 

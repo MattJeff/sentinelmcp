@@ -12,12 +12,14 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 use sentinel_detect::lookalikes::est_paquet_officiel;
 use sentinel_detect::lookalikes::similarity::similarite_nom;
-use sentinel_detect::{ConfigDetection, InspecteurPoisoning, MoteurYara};
-use sentinel_protocol::{extraire_package_id, Severite, Transport};
+use sentinel_detect::{cve_match, rechercher_cve, ConfigDetection, InspecteurPoisoning, MoteurYara};
+use sentinel_discovery::{analyser_serveur_http, ServeurMcpDeclare};
+use sentinel_protocol::{extraire_package_id, Constat, ScopeServeur, Severite, Transport};
 
 use crate::sortie::{code_depuis_severites, imprimer, libelle_severite, rendre_table, CodeSortie};
 
@@ -481,6 +483,203 @@ pub fn auditer_yara(serveurs: &[ServeurAudit]) -> Vec<ConstatAudit> {
     constats
 }
 
+// ---------------------------------------------------------------------------
+// D14/D8/D5 — contrôles inter-crates : OAuth/SSRF (static_http), CVE/OSV,
+// shadowing inter-serveurs. Tous additifs, faux positifs minimisés.
+// ---------------------------------------------------------------------------
+
+/// Projette une définition d'audit vers le modèle de découverte attendu par
+/// `sentinel_discovery::static_http`. Les valeurs d'`env` ne sont jamais
+/// recopiées : seules les CLÉS comptent pour la détection de relais de jeton.
+fn vers_declare(s: &ServeurAudit) -> ServeurMcpDeclare {
+    let commande = s
+        .brut
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let args: Vec<String> = args_de(&s.brut).iter().map(|a| a.to_string()).collect();
+    let env_keys: Vec<String> = s
+        .brut
+        .get("env")
+        .and_then(Value::as_object)
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
+    // L'URL provient de la config brute ; à défaut, l'endpoint canonique sert
+    // de repli pour les serveurs HTTP déclarés sans champ `url` explicite.
+    let url = s
+        .brut
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| (s.transport == Transport::Http).then(|| s.endpoint.clone()));
+    let transport = match s.transport {
+        Transport::Http => "http",
+        Transport::Stdio => "stdio",
+    }
+    .to_string();
+    ServeurMcpDeclare {
+        nom: s.nom.clone(),
+        transport,
+        commande,
+        args,
+        env_keys,
+        url,
+        disabled: false,
+        scope: ScopeServeur::default(),
+    }
+}
+
+/// Classe un `Constat` OAuth/SSRF de `static_http` en type d'audit clair.
+/// Le transport en clair (`cleartext-transport`) est volontairement écarté :
+/// il est DÉJÀ couvert par `controler_transport` (D11), on évite le doublon.
+fn classer_type_http(references: &[String]) -> Option<&'static str> {
+    if references.iter().any(|r| r == "cleartext-transport") {
+        return None;
+    }
+    if references.iter().any(|r| r == "SSRF" || r == "CWE-918") {
+        Some("ssrf")
+    } else {
+        // confused deputy / RFC 8707 / client_id statique / token passthrough.
+        Some("oauth")
+    }
+}
+
+/// Convertit un `Constat` formel de `static_http` en `ConstatAudit` (table/JSON).
+fn http_vers_audit(s: &ServeurAudit, c: &Constat) -> Option<ConstatAudit> {
+    let type_constat = classer_type_http(&c.references_conformite)?;
+    Some(constat_statique(
+        s,
+        type_constat,
+        c.severite,
+        c.titre.clone(),
+        c.detail.clone(),
+        c.references_conformite.clone(),
+    ))
+}
+
+/// D14 — contrôles statiques OAuth/SSRF sur les serveurs HTTP (token
+/// passthrough, audience RFC 8707 manquante, IP privée/loopback/métadonnées).
+fn controler_http_statique(s: &ServeurAudit) -> Vec<ConstatAudit> {
+    analyser_serveur_http(&vers_declare(s))
+        .iter()
+        .filter_map(|c| http_vers_audit(s, c))
+        .collect()
+}
+
+/// Extrait la version épinglée du token désignant `package_id` (`pkg@1.2.3`,
+/// `@org/pkg@1.2.3`). Renvoie `None` si aucune version explicite n'est figée
+/// (ex. `npx -y pkg` sans `@version`) — auquel cas AUCUN constat CVE n'est émis.
+fn version_du_token(token: &str) -> Option<String> {
+    let v = if let Some(rest) = token.strip_prefix('@') {
+        // Paquet scopé `@scope/pkg@version` : le 1er `@` fait partie du nom.
+        let slash = rest.find('/')?;
+        let after = &rest[slash + 1..];
+        let at = after.find('@')?;
+        &after[at + 1..]
+    } else {
+        let at = token.find('@')?;
+        &token[at + 1..]
+    };
+    (!v.is_empty()).then(|| v.to_string())
+}
+
+/// Cherche, dans la ligne de commande, le token portant la version épinglée du
+/// paquet `package_id`. Le token doit canoniquement DÉSIGNER ce paquet pour
+/// qu'un argument arbitraire contenant un `@` ne soit pas pris pour la version.
+fn extraire_version_epinglee(endpoint: &str, package_id: &str) -> Option<String> {
+    endpoint.split_whitespace().find_map(|token| {
+        version_du_token(token)
+            .filter(|_| extraire_package_id(token, Transport::Stdio) == package_id)
+    })
+}
+
+/// D8 — matching CVE/OSV hors-ligne quand une VERSION est épinglée dans la
+/// config (`@org/pkg@1.2.3`). Sans version épinglée, rien n'est émis.
+fn controler_cve(s: &ServeurAudit) -> Vec<ConstatAudit> {
+    if s.transport != Transport::Stdio {
+        return Vec::new(); // pas de version de paquet pour un endpoint HTTP.
+    }
+    let Some(version) = extraire_version_epinglee(&s.endpoint, &s.package_id) else {
+        return Vec::new();
+    };
+    rechercher_cve(&s.package_id, &version)
+        .iter()
+        .map(|c| {
+            // Réutilise la conversion canonique du détecteur pour titre/détail/réfs.
+            // L'identifiant de serveur est sans objet ici (on reconstruit un
+            // ConstatAudit) : un UUID nil suffit, déterministe et sans aléa.
+            let formel = cve_match::vers_constat(c, Uuid::nil());
+            constat_statique(
+                s,
+                "cve",
+                formel.severite,
+                formel.titre,
+                formel.detail,
+                formel.references_conformite,
+            )
+        })
+        .collect()
+}
+
+/// D5 — shadowing inter-serveurs STATIQUE : deux serveurs déclarés sous le
+/// MÊME nom logique mais résolvant vers des paquets DIFFÉRENTS. Sans probe
+/// (`tools/list`), on ne peut comparer les outils ; la collision de nom de
+/// serveur reste néanmoins un signal de shadowing (un second serveur « ombre »
+/// un homonyme de confiance). La collision d'OUTILS et le cross-server
+/// poisoning nécessitent `sentinel scan --probe` (qui appelle
+/// `sentinel_detect::detecter_shadowing` sur l'inventaire d'outils réel).
+fn detecter_shadowing_statique(serveurs: &[ServeurAudit]) -> Vec<ConstatAudit> {
+    use std::collections::BTreeMap;
+    let mut par_nom: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (i, s) in serveurs.iter().enumerate() {
+        par_nom.entry(s.nom.to_lowercase()).or_default().push(i);
+    }
+
+    let mut constats = Vec::new();
+    for idxs in par_nom.values() {
+        if idxs.len() < 2 {
+            continue;
+        }
+        // Paquets distincts portés sous ce même nom. Un même paquet répété
+        // (même serveur déclaré dans plusieurs configs) est LÉGITIME → ignoré.
+        let mut paquets: Vec<&str> = idxs.iter().map(|&i| serveurs[i].package_id.as_str()).collect();
+        paquets.sort_unstable();
+        paquets.dedup();
+        if paquets.len() < 2 {
+            continue;
+        }
+        // Un constat par serveur impliqué (chacun « ombre » les autres).
+        for &i in idxs {
+            let s = &serveurs[i];
+            let autres: Vec<&str> = paquets
+                .iter()
+                .copied()
+                .filter(|p| *p != s.package_id)
+                .collect();
+            constats.push(constat_statique(
+                s,
+                "shadowing",
+                Severite::Haute,
+                format!(
+                    "Tool shadowing — nom de serveur « {} » partagé par des paquets distincts",
+                    s.nom
+                ),
+                format!(
+                    "Le nom de serveur « {} » désigne le paquet « {} » ici, mais aussi : {}. \
+                     Un client MCP qui résout ce nom risque d'invoquer le mauvais serveur \
+                     (shadowing). La collision d'outils et le cross-server poisoning exigent \
+                     `sentinel scan --probe`.",
+                    s.nom,
+                    s.package_id,
+                    autres.join(", ")
+                ),
+                vec!["SAFE-T1102".into(), "OWASP MCP03".into()],
+            ));
+        }
+    }
+    constats
+}
+
 /// Applique poisoning + sosies + contrôles statiques transport/secrets/injection
 /// (D11) sur les définitions extraites.
 pub fn auditer_serveurs(serveurs: &[ServeurAudit]) -> Vec<ConstatAudit> {
@@ -546,6 +745,11 @@ pub fn auditer_serveurs(serveurs: &[ServeurAudit]) -> Vec<ConstatAudit> {
         if let Some(c) = controler_injection(s) {
             constats.push(c);
         }
+
+        // 3bis. D14 — OAuth/SSRF statiques (serveurs HTTP) + D8 — CVE/OSV
+        //       (paquet stdio à version épinglée). Aucun accès réseau.
+        constats.extend(controler_http_statique(s));
+        constats.extend(controler_cve(s));
     }
 
     // 4. Sosies intra-config : deux identités distinctes suspectément proches.
@@ -579,6 +783,10 @@ pub fn auditer_serveurs(serveurs: &[ServeurAudit]) -> Vec<ConstatAudit> {
             }
         }
     }
+
+    // 5. D5 — shadowing inter-serveurs : collision de nom de serveur sur des
+    //    paquets distincts (à l'échelle de l'ensemble des serveurs audités).
+    constats.extend(detecter_shadowing_statique(serveurs));
 
     constats
 }
@@ -907,6 +1115,175 @@ mod tests {
             json!({ "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] }),
         );
         assert!(auditer_yara(&s).is_empty());
+    }
+
+    // ── D14 : OAuth / SSRF statiques (static_http) ───────────────────────────
+
+    #[test]
+    fn audit_http_ip_privee_signale_ssrf() {
+        let s = serveur(
+            "interne",
+            json!({ "type": "http", "url": "http://192.168.1.10:8080/mcp" }),
+        );
+        let constats = auditer_serveurs(&s);
+        let ssrf: Vec<_> = constats.iter().filter(|c| c.type_constat == "ssrf").collect();
+        assert_eq!(ssrf.len(), 1, "ssrf attendu, obtenu : {constats:?}");
+        assert!(ssrf[0].references.iter().any(|r| r == "CWE-918"));
+    }
+
+    #[test]
+    fn audit_http_oauth_sans_audience_signale_oauth() {
+        let s = serveur(
+            "auth",
+            json!({ "type": "http", "url": "https://auth.example.com/authorize?client_id=abc123&response_type=code" }),
+        );
+        let constats = auditer_serveurs(&s);
+        assert!(
+            constats.iter().any(|c| c.type_constat == "oauth"),
+            "oauth (confused deputy) attendu, obtenu : {constats:?}"
+        );
+    }
+
+    #[test]
+    fn audit_http_https_public_propre_sans_faux_positif() {
+        // Un serveur HTTPS public ordinaire ne doit lever ni ssrf ni oauth.
+        let s = serveur(
+            "api",
+            json!({ "type": "http", "url": "https://api.example.com/mcp" }),
+        );
+        let constats = auditer_serveurs(&s);
+        assert!(
+            constats
+                .iter()
+                .all(|c| c.type_constat != "ssrf" && c.type_constat != "oauth"),
+            "aucun ssrf/oauth attendu, obtenu : {constats:?}"
+        );
+    }
+
+    #[test]
+    fn audit_http_cleartext_non_double_en_ssrf_ni_oauth() {
+        // Régression : le transport en clair distant reste UN SEUL constat
+        // « transport » (D11), pas un doublon ssrf/oauth depuis static_http.
+        let s = serveur(
+            "api",
+            json!({ "type": "http", "url": "http://mcp.evil.example.com/sse" }),
+        );
+        let constats = auditer_serveurs(&s);
+        assert_eq!(
+            constats.iter().filter(|c| c.type_constat == "transport").count(),
+            1
+        );
+        assert!(constats.iter().all(|c| c.type_constat != "oauth"));
+    }
+
+    // ── D8 : matching CVE/OSV sur version épinglée ───────────────────────────
+
+    #[test]
+    fn audit_cve_version_vulnerable_epinglee() {
+        let s = serveur(
+            "remote",
+            json!({ "command": "npx", "args": ["-y", "mcp-remote@0.1.15"] }),
+        );
+        let constats = auditer_serveurs(&s);
+        let cve: Vec<_> = constats.iter().filter(|c| c.type_constat == "cve").collect();
+        assert_eq!(cve.len(), 1, "cve attendue, obtenu : {constats:?}");
+        assert!(matches!(cve[0].severite_brute, Severite::Critique));
+        assert!(cve[0].references.iter().any(|r| r == "CVE-2025-6514"));
+    }
+
+    #[test]
+    fn audit_cve_paquet_scope_version_vulnerable() {
+        let s = serveur(
+            "fs",
+            json!({ "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem@0.6.2", "/tmp"] }),
+        );
+        assert!(
+            auditer_serveurs(&s).iter().any(|c| c.type_constat == "cve"),
+            "cve attendue pour le paquet scopé vulnérable épinglé"
+        );
+    }
+
+    #[test]
+    fn audit_cve_sans_version_aucun_constat() {
+        // `npx -y pkg` sans @version : pas de version → AUCUN constat CVE.
+        let s = serveur(
+            "fs",
+            json!({ "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] }),
+        );
+        assert!(auditer_serveurs(&s).iter().all(|c| c.type_constat != "cve"));
+    }
+
+    #[test]
+    fn audit_cve_version_corrigee_aucun_constat() {
+        let s = serveur(
+            "remote",
+            json!({ "command": "npx", "args": ["-y", "mcp-remote@0.1.16"] }),
+        );
+        assert!(auditer_serveurs(&s).iter().all(|c| c.type_constat != "cve"));
+    }
+
+    // ── D5 : shadowing inter-serveurs statique ───────────────────────────────
+
+    #[test]
+    fn audit_shadowing_nom_partage_paquets_distincts() {
+        // Deux serveurs au même nom logique mais paquets différents.
+        let serveurs = parser_config(
+            Path::new("/tmp/mcp.json"),
+            &json!({ "mcpServers": {
+                "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+            }}),
+        )
+        .into_iter()
+        .chain(parser_config(
+            Path::new("/tmp/.cursor/mcp.json"),
+            &json!({ "mcpServers": {
+                "github": { "command": "npx", "args": ["-y", "evil-github-mcp"] },
+            }}),
+        ))
+        .collect::<Vec<_>>();
+        let constats = auditer_serveurs(&serveurs);
+        let shadow: Vec<_> = constats.iter().filter(|c| c.type_constat == "shadowing").collect();
+        assert_eq!(shadow.len(), 2, "un constat par serveur impliqué : {constats:?}");
+        assert!(shadow.iter().all(|c| c.references.iter().any(|r| r == "SAFE-T1102")));
+    }
+
+    #[test]
+    fn audit_shadowing_meme_paquet_repete_sans_faux_positif() {
+        // Même serveur (même paquet) déclaré dans deux configs : légitime.
+        let serveurs = parser_config(
+            Path::new("/tmp/mcp.json"),
+            &json!({ "mcpServers": {
+                "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+            }}),
+        )
+        .into_iter()
+        .chain(parser_config(
+            Path::new("/tmp/.cursor/mcp.json"),
+            &json!({ "mcpServers": {
+                "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+            }}),
+        ))
+        .collect::<Vec<_>>();
+        assert!(auditer_serveurs(&serveurs)
+            .iter()
+            .all(|c| c.type_constat != "shadowing"));
+    }
+
+    #[test]
+    fn audit_multi_serveurs_benin_sans_faux_positif() {
+        // Deux serveurs officiels distincts, noms distincts : aucun constat.
+        let serveurs = parser_config(
+            Path::new("/tmp/mcp.json"),
+            &json!({ "mcpServers": {
+                "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] },
+                "fetch": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-fetch"] },
+            }}),
+        );
+        assert!(
+            auditer_serveurs(&serveurs).is_empty(),
+            "audit bénin multi-serveurs : {:?}",
+            auditer_serveurs(&serveurs)
+        );
     }
 
     #[test]

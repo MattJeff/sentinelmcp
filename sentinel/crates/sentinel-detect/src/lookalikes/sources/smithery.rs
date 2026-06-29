@@ -74,16 +74,8 @@ pub async fn lister_serveurs_depuis(url: &str) -> Vec<EntreeRegistre> {
         }
     };
 
-    let serveurs = match corps.get("servers").and_then(|v| v.as_array()) {
-        Some(arr) => arr,
-        None => {
-            warn!("smithery : champ `servers` absent ou non-tableau");
-            return Vec::new();
-        }
-    };
-
     // Étape 1 : extraction défensive (`(entrée, qualifiedName)`).
-    let bruts: Vec<(EntreeRegistre, String)> = serveurs.iter().filter_map(extraire_entree).collect();
+    let bruts: Vec<(EntreeRegistre, String)> = parser_liste(&corps);
 
     // Étape 2 : base de l'API à partir de l'URL de liste (sans query, sans
     // le dernier segment de chemin). Si on ne peut pas la dériver, on
@@ -158,6 +150,35 @@ fn encoder_segment(segment: &str) -> String {
         }
     }
     sortie
+}
+
+/// Extrait la liste `(entrée, qualifiedName)` du tableau `servers` d'un
+/// corps JSON Smithery déjà désérialisé. Fonction pure (aucun réseau) :
+/// renvoie un Vec vide si `servers` est absent ou non-tableau.
+fn parser_liste(corps: &Value) -> Vec<(EntreeRegistre, String)> {
+    let serveurs = match corps.get("servers").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => {
+            warn!("smithery : champ `servers` absent ou non-tableau");
+            return Vec::new();
+        }
+    };
+    serveurs.iter().filter_map(extraire_entree).collect()
+}
+
+/// Parse un payload JSON de liste Smithery en entrées de base (sans
+/// enrichissement par détail, donc `outils: None`). Aucune requête réseau —
+/// fonction pure et testable hors-ligne. Renvoie un Vec vide si le JSON est
+/// invalide ou si `servers` est absent (jamais de panique). Sert aussi à
+/// ré-hydrater un payload mis en cache.
+pub fn parser_payload(texte: &str) -> Vec<EntreeRegistre> {
+    match serde_json::from_str::<Value>(texte) {
+        Ok(corps) => parser_liste(&corps).into_iter().map(|(e, _)| e).collect(),
+        Err(e) => {
+            warn!(erreur = %e, "smithery : payload JSON invalide (parser_payload)");
+            Vec::new()
+        }
+    }
 }
 
 /// Extrait une `EntreeRegistre` à partir d'un nœud JSON Smithery.
@@ -257,5 +278,48 @@ mod tests {
     fn encoder_segment_chappe_arobase_et_slash() {
         assert_eq!(encoder_segment("@acme/github-mcp"), "%40acme%2Fgithub-mcp");
         assert_eq!(encoder_segment("simple"), "simple");
+    }
+
+    /// Échantillon réaliste de `GET /servers` de l'API Smithery
+    /// (`registry.smithery.ai`) : tableau `servers[]` portant `qualifiedName`,
+    /// `displayName`, `description`, plus une enveloppe `pagination`.
+    const FIXTURE: &str = r#"{
+      "servers": [
+        {
+          "qualifiedName": "@upstash/context7-mcp",
+          "displayName": "Context7",
+          "description": "Up-to-date code docs for any prompt.",
+          "homepage": "https://smithery.ai/server/@upstash/context7-mcp",
+          "useCount": 42000,
+          "isDeployed": true
+        },
+        {
+          "qualifiedName": "exa",
+          "description": "Web search built for AI.",
+          "isDeployed": true
+        }
+      ],
+      "pagination": { "currentPage": 1, "pageSize": 100, "totalPages": 50, "totalCount": 4987 }
+    }"#;
+
+    #[test]
+    fn parse_fixture_reelle() {
+        let entrees = parser_payload(FIXTURE);
+        assert_eq!(entrees.len(), 2);
+        // `displayName` prioritaire quand présent…
+        assert_eq!(entrees[0].nom, "Context7");
+        assert_eq!(entrees[0].registre, "smithery");
+        assert_eq!(
+            entrees[0].description.as_deref(),
+            Some("Up-to-date code docs for any prompt.")
+        );
+        // …sinon repli sur `qualifiedName`.
+        assert_eq!(entrees[1].nom, "exa");
+    }
+
+    #[test]
+    fn servers_absent_ou_json_invalide_renvoie_vide() {
+        assert!(parser_payload("{\"pagination\":{}}").is_empty());
+        assert!(parser_payload("pas du json").is_empty());
     }
 }

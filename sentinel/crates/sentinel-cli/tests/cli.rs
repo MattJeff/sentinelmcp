@@ -323,6 +323,76 @@ fn monitor_une_iteration_retourne_0_ou_1() {
     assert!(db.exists());
 }
 
+// ─── metrics ─────────────────────────────────────────────────────────────
+
+#[test]
+fn metrics_produit_un_format_prometheus_valide() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("metrics/sentinel.db");
+    let out = executer(&["metrics", "--db", db.to_str().unwrap()]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(db.exists(), "le store SQLite doit être créé");
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Format d'exposition Prometheus scrappable : en-têtes HELP/TYPE + séries.
+    assert!(stdout.contains("# HELP sentinel_db_servers_total"));
+    assert!(stdout.contains("# TYPE sentinel_db_servers_total gauge"));
+    assert!(stdout.contains("sentinel_db_servers_total 0"));
+}
+
+#[test]
+fn metrics_quiet_supprime_stdout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = tmp.path().join("sentinel.db");
+    let out = executer(&["metrics", "--quiet", "--db", db.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty(), "--quiet doit supprimer stdout");
+}
+
+// ─── benchmark ───────────────────────────────────────────────────────────
+
+#[test]
+fn benchmark_offline_json_produit_des_stats_deterministes() {
+    let out = executer(&["benchmark", "--offline", "--json"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("sortie --json invalide");
+
+    // Source honnêtement signalée comme l'échantillon embarqué hors-ligne.
+    assert_eq!(json["hors_ligne"], true);
+    assert!(json["source"]
+        .as_str()
+        .unwrap()
+        .contains("échantillon embarqué"));
+
+    // Stats déterministes : 12 serveurs, 3 piégés → 25 %.
+    assert_eq!(json["serveurs_scannes"], 12);
+    assert_eq!(json["serveurs_avec_constat"], 3);
+    assert_eq!(json["pourcentage_avec_constat"], 25.0);
+    assert!(json["constats_total"].as_u64().unwrap() >= 3);
+    assert!(json["par_severite"]["critique"].as_u64().unwrap() >= 1);
+}
+
+#[test]
+fn benchmark_offline_table_mentionne_la_source() {
+    let out = executer(&["benchmark", "--offline"]);
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Benchmark Sentinel MCP"));
+    assert!(stdout.contains("échantillon embarqué"));
+    assert!(stdout.contains("12 serveur(s) scanné(s)"));
+}
+
 #[cfg(unix)]
 #[test]
 fn monitor_daemon_sarrete_proprement_sur_sigterm() {

@@ -209,7 +209,9 @@ impl GenerateurRapport {
         md.push_str("|---|---|---|---|\n");
 
         for c in constats {
-            let refs = MoteurConformite::references_pour(&c.type_constat);
+            // Mapping affiné par la NATURE du constat (Vague D : CVE, OAuth/SSRF,
+            // cross-server shadowing, trifecta…), pas seulement par son type.
+            let refs = MoteurConformite::references_pour_constat(c);
             if refs.is_empty() {
                 // Même si le moteur est vide, on affiche les refs textuelles du constat.
                 for r in &c.references_conformite {
@@ -235,8 +237,10 @@ impl GenerateurRapport {
         md.push_str("| SAFE-MCP | SAFE-T1201 | Rug Pull |\n");
         md.push('\n');
 
-        // D10 — estampillage multi-référentiels par type de constat présent.
-        md.push_str(&MoteurConformite::frameworks_markdown(constats));
+        // D10 / Vague D — estampillage multi-référentiels affiné par la nature
+        // du constat (les CVE / OAuth-SSRF / cross-server shadowing / trifecta
+        // partagent un même type et seraient sinon invisibles).
+        md.push_str(&MoteurConformite::frameworks_markdown_constats(constats));
         md.push_str("\n\n");
 
         // P3 — matrice de couverture honnête (OWASP MCP / ASI) pour l'auditeur.
