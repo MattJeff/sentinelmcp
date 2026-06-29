@@ -90,6 +90,14 @@ const MSG_TOOLS_LIST: &str =
 #[tokio::test]
 async fn decouverte_outils_serveur_filesystem_reel() -> anyhow::Result<()> {
     // --- Vérification de disponibilité -----------------------------------
+    // Ce test lance un VRAI serveur MCP via `npx -y @modelcontextprotocol/...`,
+    // ce qui dépend du réseau (téléchargement npm) et du timing de démarrage —
+    // intrinsèquement flaky sur les runners CI partagés. On le skippe donc en CI
+    // (où `CI` est défini) ET quand npx est absent ; il reste exécuté en local.
+    if std::env::var("CI").is_ok() {
+        eprintln!("skip: serveur MCP réel (npx + réseau npm) — test ignoré en CI");
+        return Ok(());
+    }
     if !npx_disponible() {
         eprintln!("skip: npx not found in PATH — test skipped");
         return Ok(());
