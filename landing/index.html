@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel MCP — the EDR for MCP servers</title>
+<meta name="description" content="100% local, read-only EDR for MCP servers. Discover every MCP server across 14 AI clients, fingerprint it, and catch rug-pulls, tool poisoning, typosquats and exfiltration combos. Rust. Zero cloud.">
+<meta property="og:title" content="Sentinel MCP — the EDR for MCP servers">
+<meta property="og:description" content="100% local. Read-only. Rust. Find every MCP server your AI agents expose and catch the rug-pull.">
+<meta property="og:type" content="website">
+<style>
+  :root{--bg:#0b0e14;--panel:#121723;--ink:#e6e9ef;--muted:#9aa4b2;--accent:#ff4d4f;--accent2:#3ddc97;--border:#222a3a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+  header{text-align:center;padding:72px 0 36px}
+  .logo{font-size:54px}
+  h1{font-size:40px;margin:.2em 0 .1em;letter-spacing:-.5px}
+  .tag{font-size:20px;color:var(--ink);font-weight:600}
+  .sub{color:var(--muted);max-width:620px;margin:16px auto 0}
+  .pills{margin:20px 0 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .pill{background:var(--panel);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:13px;color:var(--muted)}
+  pre{background:#06080d;border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow:auto;color:#cfe;font-size:14px}
+  .cta{display:inline-block;background:var(--accent);color:#fff;font-weight:700;padding:12px 22px;border-radius:10px;margin-top:8px}
+  .cta.secondary{background:transparent;border:1px solid var(--border);color:var(--ink)}
+  section{padding:28px 0;border-top:1px solid var(--border)}
+  h2{font-size:22px;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+  .card h3{margin:0 0 6px;font-size:16px}
+  .card p{margin:0;color:var(--muted);font-size:14px}
+  .local{color:var(--accent2);font-weight:700}
+  footer{color:var(--muted);text-align:center;padding:40px 0;font-size:13px}
+  .center{text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🛡️</div>
+    <h1>Sentinel MCP</h1>
+    <div class="tag">The EDR for MCP servers.</div>
+    <p class="sub">Discover every MCP server your AI agents expose across <b>14 clients</b>, take a canonical
+      SHA-256 fingerprint of each, and catch <b>rug-pulls, tool poisoning, typosquats and exfiltration
+      combos</b> — <span class="local">100% local</span>, read-only, written in Rust. Your inventory never leaves your machine.</p>
+    <div class="pills">
+      <span class="pill">Zero cloud</span><span class="pill">Read-only by default</span>
+      <span class="pill">Rust</span><span class="pill">macOS · Linux · Windows · CI</span>
+      <span class="pill">SIEM · STIX/TAXII · signed reports</span>
+    </div>
+    <p style="margin-top:26px">
+      <a class="cta" href="https://github.com/MattJeff/sentinelmcp">Get it on GitHub</a>
+      <a class="cta secondary" href="https://github.com/MattJeff/sentinelmcp/blob/main/docs/QUICKSTART.md">Quickstart</a>
+    </p>
+  </header>
+
+  <section>
+    <h2>Scan your machine in ~8 seconds</h2>
+    <pre>brew install MattJeff/sentinel/sentinel &amp;&amp; sentinel scan</pre>
+    <p class="center" style="color:var(--muted)">Static scanners tell you a server looked safe <b>once</b>.
+      Sentinel tells you the moment it <b>changes</b>.</p>
+  </section>
+
+  <section>
+    <h2>What it catches</h2>
+    <div class="grid">
+      <div class="card"><h3>Rug-pulls</h3><p>A server silently changes its tool surface after you approved it. Canonical SHA-256 baselines catch the first byte that changes.</p></div>
+      <div class="card"><h3>Tool poisoning</h3><p>Hostile instructions hidden in tool descriptions/schemas: 40+ patterns + Unicode smuggling + line-jumping + YARA + an optional <b>local</b> LLM judge.</p></div>
+      <div class="card"><h3>Typosquats &amp; lookalikes</h3><p>Packages impersonating official ones, incl. Unicode confusables (homoglyphs).</p></div>
+      <div class="card"><h3>Lethal-trifecta exfil</h3><p>Untrusted input + secret read + external write in one session — the deterministic exfiltration combo.</p></div>
+      <div class="card"><h3>Supply-chain &amp; CVEs</h3><p>Version-level rug-pull (the Postmark pattern) and offline matching of known MCP CVEs.</p></div>
+      <div class="card"><h3>SOC-native</h3><p>Splunk · Elastic · Syslog TLS · STIX 2.1 · TAXII 2.1 · Ed25519-signed compliance reports (SOC 2 · ISO 27001 · OWASP MCP · SAFE-MCP).</p></div>
+    </div>
+  </section>
+
+  <section class="center">
+    <h2>The only local EDR for MCP that speaks your SOC's language</h2>
+    <p style="color:var(--muted)">Open for local use. <a href="https://github.com/MattJeff/sentinelmcp/blob/main/docs/COMPARISON.md">See how it compares</a> to mcp-scan/Snyk, ToolHive, Cisco mcp-scanner and the commercial platforms.</p>
+    <p><a class="cta" href="https://github.com/MattJeff/sentinelmcp">⭐ Star on GitHub</a></p>
+  </section>
+
+  <footer>
+    100% local · read-only · zero telemetry · MIT (local use) ·
+    <a href="https://github.com/MattJeff/sentinelmcp">github.com/MattJeff/sentinelmcp</a>
+  </footer>
+</div>
+</body>
+</html>

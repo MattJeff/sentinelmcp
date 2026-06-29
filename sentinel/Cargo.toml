@@ -21,7 +21,8 @@ version = "0.8.0"
 edition = "2021"
 license = "MIT"
 authors = ["Sentinel MCP Team"]
-repository = "https://github.com/sentinel-mcp/sentinel"
+repository = "https://github.com/MattJeff/sentinelmcp"
+homepage = "https://github.com/MattJeff/sentinelmcp"
 
 [workspace.dependencies]
 sentinel-protocol = { path = "crates/sentinel-protocol" }
