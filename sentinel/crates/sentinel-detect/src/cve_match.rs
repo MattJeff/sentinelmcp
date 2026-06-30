@@ -14,6 +14,7 @@ use chrono::Utc;
 use once_cell::sync::Lazy;
 use sentinel_protocol::{Constat, EtatConstat, ServeurId, Severite, TypeConstat};
 use serde::Deserialize;
+#[cfg(test)]
 use uuid::Uuid;
 
 /// Base JSON embarquée (source de vérité versionnée avec le crate).
@@ -203,17 +204,22 @@ pub fn vers_constat(c: &ConstatCve, serveur_id: ServeurId) -> Constat {
     let mut references = vec![c.cve_id.clone()];
     references.extend(c.references.iter().cloned());
     Constat {
-        id: Uuid::new_v4(),
+        id: crate::id_constat(&[
+            "cve",
+            &serveur_id.to_string(),
+            &c.cve_id,
+            &c.package,
+        ]),
         serveur_id,
         outil_nom: None,
         type_constat: TypeConstat::Autre,
         severite: c.severite,
         titre: format!(
-            "{} — paquet « {} » {} vulnérable (CVSS {:.1})",
+            "{} — package \"{}\" {} vulnerable (CVSS {:.1})",
             c.cve_id, c.package, c.version_detectee, c.cvss
         ),
         detail: format!(
-            "{} Plage affectée : {}.",
+            "{} Affected range: {}.",
             c.resume, c.plage_affectee
         ),
         diff: None,

@@ -41,19 +41,19 @@ pub struct EntreeJournal {
 
 fn libelle_couleur(couleur: Couleur) -> &'static str {
     match couleur {
-        Couleur::Vert => "Vert",
+        Couleur::Vert => "Green",
         Couleur::Orange => "Orange",
-        Couleur::Rouge => "Rouge",
+        Couleur::Rouge => "Red",
     }
 }
 
 fn libelle_statut(statut: StatutServeur) -> &'static str {
     match statut {
-        StatutServeur::Approuve => "Approuvé",
-        StatutServeur::Inconnu => "Inconnu",
+        StatutServeur::Approuve => "Approved",
+        StatutServeur::Inconnu => "Unknown",
         StatutServeur::Suspect => "Suspect",
-        StatutServeur::AInvestiguer => "À investiguer",
-        StatutServeur::Bloque => "Bloqué",
+        StatutServeur::AInvestiguer => "To investigate",
+        StatutServeur::Bloque => "Blocked",
     }
 }
 
@@ -66,17 +66,17 @@ fn libelle_transport(transport: Transport) -> &'static str {
 
 fn libelle_type_constat(tc: &TypeConstat) -> &'static str {
     match tc {
-        TypeConstat::NouveauServeur => "Nouveau serveur",
+        TypeConstat::NouveauServeur => "New server",
         TypeConstat::ShadowMcp => "Shadow MCP (MCP09)",
-        TypeConstat::RugPull => "Rug-pull (SAFE-T1201)",
-        TypeConstat::Poisoning => "Tool Poisoning (MCP03 / SAFE-T1001)",
-        TypeConstat::Sosie => "Sosie",
+        TypeConstat::RugPull => "Rug pull (SAFE-T1201)",
+        TypeConstat::Poisoning => "Tool poisoning (MCP03 / SAFE-T1001)",
+        TypeConstat::Sosie => "Lookalike",
         TypeConstat::Exfiltration => "Exfiltration",
-        TypeConstat::SansAuthentification => "Sans authentification",
-        TypeConstat::DeriveInterSession => "Dérive inter-session",
-        TypeConstat::AbusSampling => "Abus de sampling",
-        TypeConstat::ElicitationSensible => "Elicitation sensible",
-        TypeConstat::Autre => "Autre",
+        TypeConstat::SansAuthentification => "No authentication",
+        TypeConstat::DeriveInterSession => "Inter-session drift",
+        TypeConstat::AbusSampling => "Sampling abuse",
+        TypeConstat::ElicitationSensible => "Sensitive elicitation",
+        TypeConstat::Autre => "Other",
     }
 }
 
@@ -97,15 +97,15 @@ impl SectionInventaire {
 }
 
 fn generer_markdown_inventaire(serveurs: &[Serveur]) -> String {
-    let mut md = String::from("## Inventaire des serveurs MCP\n\n");
+    let mut md = String::from("## MCP server inventory\n\n");
 
     if serveurs.is_empty() {
-        md.push_str("_Aucun serveur détecté._\n");
+        md.push_str("_No servers detected._\n");
         return md;
     }
 
     // Tableau principal
-    md.push_str("| Endpoint | Transport | Statut | Criticité | Première vue | Dernière vue |\n");
+    md.push_str("| Endpoint | Transport | Status | Criticality | First seen | Last seen |\n");
     md.push_str("|----------|-----------|--------|-----------|--------------|-------------|\n");
 
     for s in serveurs {
@@ -127,20 +127,20 @@ fn generer_markdown_inventaire(serveurs: &[Serveur]) -> String {
         .collect();
 
     if !rouges.is_empty() {
-        md.push_str("\n### Serveurs critiques (rouge)\n\n");
+        md.push_str("\n### Critical servers (red)\n\n");
         for s in rouges {
             md.push_str(&format!("#### `{}`\n\n", s.endpoint));
-            md.push_str(&format!("- **ID** : `{}`\n", s.id));
-            md.push_str(&format!("- **Transport** : {}\n", libelle_transport(s.transport)));
-            md.push_str(&format!("- **Statut** : {}\n", libelle_statut(s.statut)));
+            md.push_str(&format!("- **ID**: `{}`\n", s.id));
+            md.push_str(&format!("- **Transport**: {}\n", libelle_transport(s.transport)));
+            md.push_str(&format!("- **Status**: {}\n", libelle_statut(s.statut)));
             if !s.portees.is_empty() {
                 let portees: Vec<String> = s.portees.iter().map(|p| format!("{:?}", p)).collect();
-                md.push_str(&format!("- **Portées** : {}\n", portees.join(", ")));
+                md.push_str(&format!("- **Scopes**: {}\n", portees.join(", ")));
             }
-            md.push_str(&format!("- **Première vue** : {}\n", horodatage_iso(&s.premiere_vue)));
-            md.push_str(&format!("- **Dernière vue** : {}\n", horodatage_iso(&s.derniere_vue)));
+            md.push_str(&format!("- **First seen**: {}\n", horodatage_iso(&s.premiere_vue)));
+            md.push_str(&format!("- **Last seen**: {}\n", horodatage_iso(&s.derniere_vue)));
             if let Some(ref emp) = s.empreinte_courante {
-                md.push_str(&format!("- **Empreinte** : `{}`\n", emp));
+                md.push_str(&format!("- **Fingerprint**: `{}`\n", emp));
             }
             md.push('\n');
         }
@@ -158,7 +158,7 @@ impl SectionJournal {
     /// via la liste de serveurs.
     pub fn construire(constats: &[Constat], serveurs: &[Serveur]) -> Self {
         if constats.is_empty() {
-            let markdown = "## Journal des changements\n\n_Aucun changement enregistré._\n"
+            let markdown = "## Change log\n\n_No change recorded._\n"
                 .to_string();
             return Self {
                 entrees: vec![],
@@ -194,7 +194,7 @@ impl SectionJournal {
 }
 
 fn generer_markdown_journal(entrees: &[EntreeJournal]) -> String {
-    let mut md = String::from("## Journal des changements\n\n");
+    let mut md = String::from("## Change log\n\n");
 
     for (i, e) in entrees.iter().enumerate() {
         md.push_str(&format!(
@@ -203,11 +203,11 @@ fn generer_markdown_journal(entrees: &[EntreeJournal]) -> String {
             horodatage_iso(&e.horodatage),
             e.serveur_endpoint,
         ));
-        md.push_str(&format!("- **Type** : {}\n", libelle_type_constat(&e.type_constat)));
-        md.push_str(&format!("- **Titre** : {}\n", e.titre));
+        md.push_str(&format!("- **Type**: {}\n", libelle_type_constat(&e.type_constat)));
+        md.push_str(&format!("- **Title**: {}\n", e.titre));
 
         if let Some(ref diff) = e.diff {
-            md.push_str("\n**Diff :**\n\n");
+            md.push_str("\n**Diff:**\n\n");
             md.push_str("```diff\n");
             md.push_str(diff);
             if !diff.ends_with('\n') {

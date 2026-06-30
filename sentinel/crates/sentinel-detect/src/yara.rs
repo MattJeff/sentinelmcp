@@ -28,7 +28,6 @@ use std::time::Duration;
 use chrono::Utc;
 use sentinel_protocol::{Constat, EtatConstat, Outil, ServeurId, Severite, TypeConstat};
 use tracing::warn;
-use uuid::Uuid;
 
 /// Namespace des règles embarquées.
 const NAMESPACE_EMBARQUE: &str = "sentinel-embarque";
@@ -41,7 +40,7 @@ const TIMEOUT_SCAN: Duration = Duration::from_secs(2);
 const REGLES_EMBARQUEES: &str = r#"
 rule MCP_Poisoning_PseudoSysteme {
     meta:
-        description = "Balises pseudo-systeme ou directives cachees dans la description d'un outil"
+        description = "Pseudo-system tags or hidden directives in a tool's description"
         categorie = "balises_pseudo_systeme"
         severite = "critique"
         reference = "SAFE-T1001"
@@ -57,7 +56,7 @@ rule MCP_Poisoning_PseudoSysteme {
 
 rule MCP_Poisoning_FichiersSecrets {
     meta:
-        description = "Reference a des fichiers de secrets dans la surface d'un outil"
+        description = "Reference to secret files in a tool's surface"
         categorie = "exfiltration_secrets"
         severite = "critique"
         reference = "SAFE-T1001"
@@ -73,7 +72,7 @@ rule MCP_Poisoning_FichiersSecrets {
 
 rule MCP_Exfiltration_Reseau {
     meta:
-        description = "Directive d'envoi de donnees vers une URL externe"
+        description = "Directive to send data to an external URL"
         categorie = "exfiltration_reseau"
         severite = "haute"
         reference = "SAFE-T1201"
@@ -257,23 +256,30 @@ impl MoteurYara {
     /// Convertit un `ConstatYara` en `Constat` formel pour le store.
     pub fn vers_constat(c: &ConstatYara, serveur_id: ServeurId) -> Constat {
         Constat {
-            id: Uuid::new_v4(),
+            id: crate::id_constat(&[
+                "yara",
+                &serveur_id.to_string(),
+                &c.outil,
+                &c.regle,
+                &c.namespace,
+                &c.categorie,
+            ]),
             serveur_id,
             outil_nom: Some(c.outil.clone()),
             type_constat: TypeConstat::Poisoning,
             severite: c.severite,
             titre: format!(
-                "Règle YARA « {} » déclenchée — outil « {} » [{}]",
+                "YARA rule \"{}\" triggered — tool \"{}\" [{}]",
                 c.regle, c.outil, c.categorie
             ),
             detail: format!(
-                "Règle YARA « {} » (namespace : {}, catégorie : {}) déclenchée sur la \
-                 description / l'inputSchema de l'outil. {}",
+                "YARA rule \"{}\" (namespace: {}, category: {}) triggered on the tool's \
+                 description / inputSchema. {}",
                 c.regle,
                 c.namespace,
                 c.categorie,
                 if c.description.is_empty() {
-                    "Aucune description de règle.".to_string()
+                    "No rule description.".to_string()
                 } else {
                     c.description.clone()
                 }

@@ -13,6 +13,12 @@
   body,
   #root {
     height: 100%;
+    /* Le document racine ne scrolle JAMAIS : seul le panneau de contenu interne
+       (DashboardLayout) scrolle. Sans ça, sur le WKWebView macOS (Tauri),
+       l'inertie du trackpad en bas de liste se propageait au document et
+       révélait le fond noir sous le <body> (rubber-band / écran noir). */
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   body {
     color: theme('colors.sentinel.text-primary');

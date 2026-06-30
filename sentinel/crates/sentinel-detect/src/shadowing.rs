@@ -23,6 +23,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use sentinel_protocol::{Constat, EtatConstat, Outil, ServeurId, Severite, TypeConstat};
 use std::collections::BTreeMap;
+#[cfg(test)]
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -215,7 +216,7 @@ pub fn detecter_shadowing(inventaire: &[InventaireServeur]) -> Vec<ConstatShadow
                 outil: nom_outil.clone(),
                 severite: Severite::Haute,
                 extrait: format!(
-                    "outil « {} » exposé aussi par : {}",
+                    "tool \"{}\" also exposed by: {}",
                     nom_outil,
                     autres.join(", ")
                 ),
@@ -250,7 +251,7 @@ pub fn detecter_shadowing(inventaire: &[InventaireServeur]) -> Vec<ConstatShadow
                             outil: outil.nom.clone(),
                             severite: Severite::Critique,
                             extrait: format!(
-                                "réf. à l'outil « {} » du serveur « {} » : « {} »",
+                                "ref. to tool \"{}\" from server \"{}\": \"{}\"",
                                 autre_outil.nom, autre_inv.serveur_nom, extrait
                             ),
                         });
@@ -268,14 +269,14 @@ pub fn vers_constat(c: &ConstatShadowing) -> Constat {
     let (titre, references) = match c.nature {
         NatureShadowing::CollisionNom => (
             format!(
-                "Tool shadowing — collision de nom « {} » entre serveurs",
+                "Tool shadowing — name collision \"{}\" across servers",
                 c.outil
             ),
             vec!["SAFE-T1102".to_string(), "OWASP MCP03".to_string()],
         ),
         NatureShadowing::CrossServerPoisoning => (
             format!(
-                "Cross-server poisoning — « {} » instruit à propos d'un autre serveur",
+                "Cross-server poisoning — \"{}\" instructs about another server",
                 c.outil
             ),
             vec![
@@ -286,14 +287,20 @@ pub fn vers_constat(c: &ConstatShadowing) -> Constat {
         ),
     };
     Constat {
-        id: Uuid::new_v4(),
+        id: crate::id_constat(&[
+            "shadowing",
+            &c.serveur_source_id.to_string(),
+            &c.outil,
+            &c.serveur_cible_nom,
+            &titre,
+        ]),
         serveur_id: c.serveur_source_id,
         outil_nom: Some(c.outil.clone()),
         type_constat: TypeConstat::Poisoning,
         severite: c.severite,
         titre,
         detail: format!(
-            "Serveur « {} » → cible « {} ». {}",
+            "Server \"{}\" → target \"{}\". {}",
             c.serveur_source_nom, c.serveur_cible_nom, c.extrait
         ),
         diff: None,

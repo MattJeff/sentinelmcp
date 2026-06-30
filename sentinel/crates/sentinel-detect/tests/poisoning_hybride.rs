@@ -172,13 +172,13 @@ async fn inspecter_complet_agrege_patterns_et_yara_sans_ollama() {
     );
     // Au moins un constat issu des PATTERNS.
     assert!(
-        constats.iter().any(|c| c.titre.contains("Poisoning détecté")),
+        constats.iter().any(|c| c.titre.contains("Poisoning detected")),
         "aucun constat issu des patterns regex : {:?}",
         constats.iter().map(|c| &c.titre).collect::<Vec<_>>()
     );
     // Au moins un constat issu de YARA.
     assert!(
-        constats.iter().any(|c| c.titre.contains("Règle YARA")),
+        constats.iter().any(|c| c.titre.contains("YARA rule")),
         "aucun constat issu du moteur YARA : {:?}",
         constats.iter().map(|c| &c.titre).collect::<Vec<_>>()
     );
@@ -220,11 +220,11 @@ async fn inspecter_complet_yara_desactivable() {
     let constats = InspecteurPoisoning::inspecter_complet(&outils, serveur_id, &config).await;
     // YARA désactivé : aucun constat « Règle YARA », mais les patterns restent.
     assert!(
-        constats.iter().all(|c| !c.titre.contains("Règle YARA")),
+        constats.iter().all(|c| !c.titre.contains("YARA rule")),
         "YARA désactivé ne doit produire aucun constat YARA : {constats:?}"
     );
     assert!(
-        constats.iter().any(|c| c.titre.contains("Poisoning détecté")),
+        constats.iter().any(|c| c.titre.contains("Poisoning detected")),
         "les patterns doivent rester actifs : {constats:?}"
     );
 }

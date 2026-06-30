@@ -128,24 +128,24 @@ fn construire_markdown(
     modifies: &[DiffOutil],
 ) -> String {
     if !a_change {
-        return "Aucun changement détecté.".to_string();
+        return "No change detected.".to_string();
     }
 
     let mut out = String::new();
-    out.push_str("## Diff outils MCP\n\n");
+    out.push_str("## MCP tool diff\n\n");
 
     if !ajoutes.is_empty() {
-        out.push_str("### Ajouts\n\n");
+        out.push_str("### Additions\n\n");
         for nom in ajoutes {
-            out.push_str(&format!("- `{nom}` — outil ajouté\n"));
+            out.push_str(&format!("- `{nom}` — tool added\n"));
         }
         out.push('\n');
     }
 
     if !supprimes.is_empty() {
-        out.push_str("### Suppressions\n\n");
+        out.push_str("### Removals\n\n");
         for nom in supprimes {
-            out.push_str(&format!("- `{nom}` — outil supprimé\n"));
+            out.push_str(&format!("- `{nom}` — tool removed\n"));
         }
         out.push('\n');
     }
@@ -158,8 +158,8 @@ fn construire_markdown(
             // Diff de description
             if diff.description_avant != diff.description_apres {
                 out.push_str("**Description**\n\n");
-                let avant_str = diff.description_avant.as_deref().unwrap_or("(vide)");
-                let apres_str = diff.description_apres.as_deref().unwrap_or("(vide)");
+                let avant_str = diff.description_avant.as_deref().unwrap_or("(empty)");
+                let apres_str = diff.description_apres.as_deref().unwrap_or("(empty)");
                 out.push_str(&diff_texte_inline(avant_str, apres_str));
                 out.push('\n');
             }
@@ -185,23 +185,23 @@ fn construire_texte_brut(
     modifies: &[DiffOutil],
 ) -> String {
     if !a_change {
-        return "Aucun changement détecté.".to_string();
+        return "No change detected.".to_string();
     }
 
     let mut out = String::new();
-    out.push_str("DIFF OUTILS MCP\n");
+    out.push_str("MCP TOOL DIFF\n");
     out.push_str(&"=".repeat(40));
     out.push('\n');
 
     if !ajoutes.is_empty() {
-        out.push_str("\nAJOUTS\n");
+        out.push_str("\nADDITIONS\n");
         for nom in ajoutes {
             out.push_str(&format!("  + {nom}\n"));
         }
     }
 
     if !supprimes.is_empty() {
-        out.push_str("\nSUPPRESSIONS\n");
+        out.push_str("\nREMOVALS\n");
         for nom in supprimes {
             out.push_str(&format!("  - {nom}\n"));
         }
@@ -212,14 +212,14 @@ fn construire_texte_brut(
         for diff in modifies {
             out.push_str(&format!("  ~ {}\n", diff.nom));
             if diff.description_avant != diff.description_apres {
-                let avant = diff.description_avant.as_deref().unwrap_or("(vide)");
-                let apres = diff.description_apres.as_deref().unwrap_or("(vide)");
+                let avant = diff.description_avant.as_deref().unwrap_or("(empty)");
+                let apres = diff.description_apres.as_deref().unwrap_or("(empty)");
                 out.push_str(&format!("    description: {avant:?} -> {apres:?}\n"));
             }
             let avant_json = schema_canonique_pretty(&diff.input_schema_avant);
             let apres_json = schema_canonique_pretty(&diff.input_schema_apres);
             if avant_json != apres_json {
-                out.push_str("    inputSchema modifié\n");
+                out.push_str("    inputSchema modified\n");
             }
         }
     }

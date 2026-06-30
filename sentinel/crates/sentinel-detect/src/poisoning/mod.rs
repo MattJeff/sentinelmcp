@@ -22,7 +22,6 @@ use chrono::Utc;
 use std::collections::BTreeMap;
 use tracing::warn;
 use unicode_normalization::UnicodeNormalization;
-use uuid::Uuid;
 
 use crate::llm_judge::{ConfigJugeLlm, JugeLlm};
 use crate::yara::MoteurYara;
@@ -190,7 +189,7 @@ fn detecter_smuggling(texte: &str) -> Vec<(String, String)> {
         .map(|(classe, pts)| {
             let liste: Vec<String> = pts.iter().take(8).map(|cp| format!("U+{cp:04X}")).collect();
             let extrait = format!(
-                "caractère(s) de dissimulation {} : {}",
+                "{} concealment character(s): {}",
                 classe,
                 liste.join(", ")
             );
@@ -289,14 +288,20 @@ impl InspecteurPoisoning {
     /// Convertit un `ConstatPoisoning` en `Constat` formel pour le store.
     pub fn vers_constat(c: &ConstatPoisoning, serveur_id: ServeurId) -> Constat {
         Constat {
-            id: Uuid::new_v4(),
+            id: crate::id_constat(&[
+                "poisoning",
+                &serveur_id.to_string(),
+                &c.outil,
+                &c.categorie,
+                &c.pattern,
+            ]),
             serveur_id,
             outil_nom: Some(c.outil.clone()),
             type_constat: TypeConstat::Poisoning,
             severite: c.severite,
-            titre: format!("Poisoning détecté — outil « {} » [{}]", c.outil, c.categorie),
+            titre: format!("Poisoning detected — tool \"{}\" [{}]", c.outil, c.categorie),
             detail: format!(
-                "Pattern « {} » (catégorie : {}) déclenché. Extrait : « {} »",
+                "Pattern \"{}\" (category: {}) triggered. Excerpt: \"{}\"",
                 c.pattern, c.categorie, c.extrait
             ),
             diff: None,

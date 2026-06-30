@@ -57,6 +57,7 @@ pub async fn executer(
             mapping_conformite: bundle.mapping_conformite_md.clone(),
             plan_remediation: bundle.plan_remediation_md.clone(),
             horodatage: Utc::now().format("%Y-%m-%d %H:%M UTC").to_string(),
+            ..Default::default()
         };
         RenduPdf::produire_contenu(&contenu, output)
             .with_context(|| format!("rendu PDF vers {}", output.display()))?;

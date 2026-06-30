@@ -85,10 +85,10 @@ export const api = {
    * the bundle via `sentinel-stix::export_bundle` and writing it to a
    * stable location alongside the other report artefacts.
    *
-   * Temporary wrapper — once the Tauri command lands the shape below
-   * (`{ path: string }`) becomes the canonical contract.
+   * The Rust command returns the path as a bare `String` (see
+   * `commands_stix.rs`), so the wrapper resolves to `string` — NOT an object.
    */
-  stixExportBundle: () => call<{ path: string }>(COMMANDS.stixExportBundle),
+  stixExportBundle: () => call<string>(COMMANDS.stixExportBundle),
   executiveSummary: () => call<ExecutiveSummary>(COMMANDS.executiveSummary),
   complianceReferences: () => call<ComplianceReference[]>(COMMANDS.complianceReferences),
   /**
@@ -659,9 +659,10 @@ function mockResponse<T>(name: string, _args?: Record<string, unknown>): Promise
   // STIX export mock: synthesise a fake bundle path so the Report page is
   // interactive in browser dev mode. Real backend writes the actual file.
   if (name === COMMANDS.stixExportBundle) {
-    return Promise.resolve({
-      path: '/tmp/sentinel-mcp/sentinel-bundle.stix.json',
-    } as unknown as T);
+    // Bare string path — mirrors the Rust command's `Result<String, _>`.
+    return Promise.resolve(
+      '/tmp/sentinel-mcp/sentinel-bundle.stix.json' as unknown as T,
+    );
   }
   // Threat-feed mocks: surface a `bundled` status with synthetic counts
   // so the Settings → Threat Intel Feed card renders in browser dev

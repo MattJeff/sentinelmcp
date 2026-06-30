@@ -81,7 +81,7 @@ async fn verdict_malveillant_parse() {
     let serveur = MockServer::start().await;
     monter_generate(
         &serveur,
-        r#"{"malveillant": true, "raison": "Directive cachée de lecture de clé SSH."}"#,
+        r#"{"malveillant": true, "raison": "Hidden directive to read the SSH key."}"#,
     )
     .await;
 
@@ -93,7 +93,7 @@ async fn verdict_malveillant_parse() {
         .expect("verdict présent");
 
     assert!(verdict.malveillant);
-    assert_eq!(verdict.raison, "Directive cachée de lecture de clé SSH.");
+    assert_eq!(verdict.raison, "Hidden directive to read the SSH key.");
     assert_eq!(verdict.modele, "modele-test");
 }
 
@@ -105,7 +105,7 @@ async fn verdict_benin_et_cles_anglaises_tolerees() {
     // Clés anglaises + texte parasite autour du JSON (modèles bavards).
     monter_generate(
         &serveur,
-        "Here is my verdict: {\"malicious\": false, \"reason\": \"Description anodine.\"}",
+        "Here is my verdict: {\"malicious\": false, \"reason\": \"Harmless description.\"}",
     )
     .await;
 
@@ -117,7 +117,7 @@ async fn verdict_benin_et_cles_anglaises_tolerees() {
         .expect("verdict présent");
 
     assert!(!verdict.malveillant);
-    assert_eq!(verdict.raison, "Description anodine.");
+    assert_eq!(verdict.raison, "Harmless description.");
 }
 
 // ── Test 4 : Ollama injoignable ou en erreur ─────────────────────────────────
@@ -193,7 +193,7 @@ async fn vers_constat_produit_un_poisoning_severite_haute() {
     let serveur = MockServer::start().await;
     monter_generate(
         &serveur,
-        r#"{"malveillant": true, "raison": "Exfiltration de clé privée."}"#,
+        r#"{"malveillant": true, "raison": "Private key exfiltration."}"#,
     )
     .await;
 
@@ -210,7 +210,7 @@ async fn vers_constat_produit_un_poisoning_severite_haute() {
     assert_eq!(constat.severite, Severite::Haute);
     assert_eq!(constat.serveur_id, serveur_id);
     assert_eq!(constat.outil_nom.as_deref(), Some("read_notes"));
-    assert!(constat.detail.contains("Exfiltration de clé privée."));
+    assert!(constat.detail.contains("Private key exfiltration."));
 }
 
 // ── Test optionnel : vrai Ollama local (ignoré par défaut) ───────────────────

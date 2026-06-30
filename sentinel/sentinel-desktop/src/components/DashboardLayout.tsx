@@ -178,10 +178,12 @@ export default function DashboardLayout({
             </div>
 
             {/* Page content */}
-            <div className="flex-1 overflow-auto px-4 sm:px-8 pt-6 pb-12 animate-fade-up">
+            <div className="flex-1 min-h-0 overflow-auto overscroll-contain px-4 sm:px-8 pt-6 pb-12 animate-fade-up">
               <div className="mx-auto max-w-[1400px]">
                 {active === 'overview' && <OverviewPage />}
-                {active === 'inventory' && <InventoryPage />}
+                {active === 'inventory' && (
+                  <InventoryPage onNavigate={(id) => setActive(id as NavId)} />
+                )}
                 {active === 'discovery' && <DiscoveryPage />}
                 {active === 'scan' && <ScanPage />}
                 {active === 'alerts' && <AlertsPage />}
@@ -189,7 +191,9 @@ export default function DashboardLayout({
                 {active === 'runtime' && <RuntimeDefensePage />}
                 {active === 'trust-graph' && <TrustGraphPage />}
                 {active === 'timeline' && <TimelinePage />}
-                {active === 'compliance' && <CompliancePage />}
+                {active === 'compliance' && (
+                  <CompliancePage onGenerateReport={() => setActive('report')} />
+                )}
                 {active === 'report' && <ReportPage />}
                 {active === 'settings' && <SettingsPage />}
               </div>

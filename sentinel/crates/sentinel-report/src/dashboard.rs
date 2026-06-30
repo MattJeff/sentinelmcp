@@ -141,7 +141,7 @@ impl TableauBord {
         let s = serveurs
             .iter()
             .find(|s| s.id == serveur_id)
-            .ok_or_else(|| anyhow::anyhow!("Serveur introuvable : {}", serveur_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Server not found: {}", serveur_id))?;
 
         let outils = self.store.lister_outils(serveur_id)?;
         let carte = serveur_en_carte(s, outils.len() as u64);
@@ -204,7 +204,7 @@ async fn handle_cartes_couleur(
     Path(couleur): Path<String>,
 ) -> Result<Json<Vec<CarteServeur>>, String> {
     let c = parse_couleur(&couleur)
-        .ok_or_else(|| format!("Couleur inconnue : {}", couleur))?;
+        .ok_or_else(|| format!("Unknown color: {}", couleur))?;
     let tb = TableauBord::nouveau((*store).clone());
     tb.cartes_par_couleur(c).map(Json).map_err(|e| e.to_string())
 }
@@ -213,7 +213,7 @@ async fn handle_detail(
     State(store): State<Arc<Store>>,
     Path(id): Path<String>,
 ) -> Result<Json<DetailServeur>, String> {
-    let serveur_id: ServeurId = id.parse().map_err(|_| format!("UUID invalide : {}", id))?;
+    let serveur_id: ServeurId = id.parse().map_err(|_| format!("Invalid UUID: {}", id))?;
     let tb = TableauBord::nouveau((*store).clone());
     tb.detail(serveur_id).map(Json).map_err(|e| e.to_string())
 }
@@ -228,7 +228,7 @@ async fn handle_detail(
 async fn handle_metrics(State(store): State<Arc<Store>>) -> impl IntoResponse {
     let corps = match store.stats_metriques() {
         Ok(stats) => rendre_prometheus(&Metriques::depuis_stats_store(&stats)),
-        Err(e) => format!("# erreur de collecte des métriques: {}\n", e),
+        Err(e) => format!("# metrics collection error: {}\n", e),
     };
     (
         [(header::CONTENT_TYPE, CONTENT_TYPE_PROMETHEUS)],
@@ -250,10 +250,10 @@ fn parse_couleur(s: &str) -> Option<Couleur> {
 // ---------------------------------------------------------------------------
 
 const PAGE_HTML: &str = r#"<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Sentinel MCP — Tableau de bord</title>
+  <title>Sentinel MCP — Dashboard</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; padding: 1.5rem; }
@@ -294,19 +294,19 @@ const PAGE_HTML: &str = r#"<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <h1>Sentinel MCP — Inventaire des serveurs</h1>
+  <h1>Sentinel MCP — Server inventory</h1>
   <div id="filtres">
-    <button class="actif" onclick="filtrer(null, this)">Tous</button>
-    <button class="rouge" onclick="filtrer('rouge', this)">Rouge</button>
+    <button class="actif" onclick="filtrer(null, this)">All</button>
+    <button class="rouge" onclick="filtrer('rouge', this)">Red</button>
     <button class="orange" onclick="filtrer('orange', this)">Orange</button>
-    <button class="vert" onclick="filtrer('vert', this)">Vert</button>
+    <button class="vert" onclick="filtrer('vert', this)">Green</button>
   </div>
-  <div id="grille"><span id="chargement">Chargement...</span></div>
+  <div id="grille"><span id="chargement">Loading...</span></div>
 
   <div id="modal-overlay">
     <div id="modal">
-      <button id="fermer" onclick="fermerModal()">Fermer</button>
-      <h2 id="modal-titre">Détail</h2>
+      <button id="fermer" onclick="fermerModal()">Close</button>
+      <h2 id="modal-titre">Detail</h2>
       <div id="modal-corps"></div>
     </div>
   </div>
@@ -320,25 +320,25 @@ const PAGE_HTML: &str = r#"<!DOCTYPE html>
         toutesLesCartes = await r.json();
         afficher(toutesLesCartes);
       } catch (e) {
-        document.getElementById('chargement').textContent = 'Erreur de chargement : ' + e.message;
+        document.getElementById('chargement').textContent = 'Loading error: ' + e.message;
       }
     }
 
     function afficher(cartes) {
       const g = document.getElementById('grille');
-      if (!cartes.length) { g.innerHTML = '<span id="chargement">Aucun serveur détecté.</span>'; return; }
+      if (!cartes.length) { g.innerHTML = '<span id="chargement">No servers detected.</span>'; return; }
       g.innerHTML = cartes.map(c => `
         <div class="carte ${c.couleur}">
           <h2>${escHtml(c.endpoint)}</h2>
           <span class="badge ${c.couleur}">${c.couleur}</span>
           <span class="badge" style="background:#1e3a5f;color:#93c5fd">${escHtml(c.transport)}</span>
-          <p class="meta">Statut : ${escHtml(c.statut)}</p>
-          <p class="meta">Outils : ${c.nombre_outils}</p>
-          ${c.portees.length ? '<p class="meta">Portées : ' + c.portees.map(escHtml).join(', ') + '</p>' : ''}
-          <p class="meta">Première vue : ${escHtml(c.premiere_vue)}</p>
-          <p class="meta">Dernière vue : ${escHtml(c.derniere_vue)}</p>
+          <p class="meta">Status: ${escHtml(c.statut)}</p>
+          <p class="meta">Tools: ${c.nombre_outils}</p>
+          ${c.portees.length ? '<p class="meta">Scopes: ' + c.portees.map(escHtml).join(', ') + '</p>' : ''}
+          <p class="meta">First seen: ${escHtml(c.premiere_vue)}</p>
+          <p class="meta">Last seen: ${escHtml(c.derniere_vue)}</p>
           ${c.empreinte_courante ? '<p class="meta" style="font-family:monospace;font-size:.7rem">' + escHtml(c.empreinte_courante) + '</p>' : ''}
-          <button class="detail-btn" onclick="voirDetail('${escHtml(c.id)}')">Voir le détail</button>
+          <button class="detail-btn" onclick="voirDetail('${escHtml(c.id)}')">View detail</button>
         </div>
       `).join('');
     }
@@ -356,12 +356,12 @@ const PAGE_HTML: &str = r#"<!DOCTYPE html>
         const d = await r.json();
         document.getElementById('modal-titre').textContent = d.serveur.endpoint;
         document.getElementById('modal-corps').innerHTML =
-          '<p class="meta">Constats ouverts : <strong>' + d.constats_ouverts + '</strong></p>' +
-          '<p class="meta" style="margin-top:.5rem">Outils (' + d.outils.length + ') :</p>' +
+          '<p class="meta">Open findings: <strong>' + d.constats_ouverts + '</strong></p>' +
+          '<p class="meta" style="margin-top:.5rem">Tools (' + d.outils.length + '):</p>' +
           '<pre>' + escHtml(JSON.stringify(d.outils, null, 2)) + '</pre>';
         document.getElementById('modal-overlay').classList.add('visible');
       } catch (e) {
-        alert('Erreur : ' + e.message);
+        alert('Error: ' + e.message);
       }
     }
 

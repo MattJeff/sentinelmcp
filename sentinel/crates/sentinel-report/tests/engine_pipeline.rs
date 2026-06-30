@@ -127,8 +127,8 @@ async fn test_resume_contient_compte_serveurs() {
 
     // Le résumé doit indiquer qu'il y a au moins un serveur rouge.
     assert!(
-        bundle.resume_exec_md.contains("ATTENTION")
-            || bundle.resume_exec_md.contains("rouge"),
+        bundle.resume_exec_md.contains("WARNING")
+            || bundle.resume_exec_md.contains("red"),
         "Le résumé doit signaler la présence d'un serveur rouge : got:\n{}",
         bundle.resume_exec_md
     );
@@ -361,7 +361,7 @@ async fn test_matrice_couverture_dans_le_bundle() {
 
     // Markdown : la matrice de couverture et l'estampillage frameworks.
     assert!(
-        bundle.mapping_conformite_md.contains("Matrice de couverture"),
+        bundle.mapping_conformite_md.contains("Coverage matrix"),
         "le mapping doit contenir la matrice de couverture : got:\n{}",
         bundle.mapping_conformite_md
     );
@@ -372,7 +372,7 @@ async fn test_matrice_couverture_dans_le_bundle() {
     assert!(
         bundle
             .mapping_conformite_md
-            .contains("Correspondances multi-référentiels"),
+            .contains("Multi-framework mappings"),
         "le mapping doit contenir l'estampillage multi-référentiels"
     );
 

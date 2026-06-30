@@ -4,7 +4,6 @@
 //! silencieux pour produire un `Constat` de type `RugPull`.
 
 use chrono::Utc;
-use uuid::Uuid;
 
 use sentinel_protocol::{
     Baseline, Constat, EtatConstat, Outil, Severite, ServeurId, TypeConstat,
@@ -80,19 +79,23 @@ impl DetecteurRugPull {
         };
 
         let detail = format!(
-            "Empreinte baseline : {}\nEmpreinte courante : {}\nNotification reçue : {}",
+            "Baseline fingerprint: {}\nCurrent fingerprint: {}\nNotification received: {}",
             ctx.baseline.empreinte_serveur.as_str(),
             empreinte_courante.as_str(),
             ctx.notification_recue,
         );
 
         let constat = Constat {
-            id: Uuid::new_v4(),
+            id: crate::id_constat(&[
+                "rugpull",
+                &serveur_id.to_string(),
+                empreinte_courante.as_str(),
+            ]),
             serveur_id,
             outil_nom: None,
             type_constat: TypeConstat::RugPull,
             severite,
-            titre: "Rug-pull détecté : empreinte modifiée depuis approbation".to_string(),
+            titre: "Rug pull detected: fingerprint changed since approval".to_string(),
             detail,
             diff: if rendu.markdown.is_empty() {
                 None

@@ -404,6 +404,7 @@ export default function InventoryPage({ onNavigate }: InventoryPageProps = {}) {
       <ServerDetailDrawer
         serverId={selectedId}
         onClose={() => setSelectedId(null)}
+        onNavigate={onNavigate}
       />
     </div>
   );

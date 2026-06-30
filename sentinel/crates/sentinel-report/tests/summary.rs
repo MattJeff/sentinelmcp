@@ -57,7 +57,7 @@ fn test_zero_serveurs() {
     assert_eq!(resume.serveurs_non_approuves, 0);
     assert_eq!(resume.serveurs_a_risque, 0);
     assert!(
-        resume.texte.contains("Aucun serveur MCP détecté"),
+        resume.texte.contains("No MCP server detected"),
         "texte inattendu : {}",
         resume.texte
     );
@@ -88,7 +88,7 @@ fn test_cinq_serveurs_deux_rouges() {
         resume.texte
     );
     assert!(
-        resume.texte.to_lowercase().contains("risque"),
+        resume.texte.to_lowercase().contains("risk"),
         "le texte doit mentionner le risque : {}",
         resume.texte
     );
@@ -101,10 +101,10 @@ fn test_markdown_contient_tableau_kpi() {
     let resume = ResumeExecutif::construire(&serveurs, &[]);
     let md = resume.vers_markdown();
 
-    assert!(md.contains("| Indicateur | Valeur |"), "en-tête de tableau absent : {}", md);
+    assert!(md.contains("| Metric | Value |"), "en-tête de tableau absent : {}", md);
     assert!(md.contains("|---|---|"), "séparateur de tableau absent : {}", md);
-    assert!(md.contains("Serveurs détectés"), "KPI serveurs absent : {}", md);
-    assert!(md.contains("Constats critiques"), "KPI constats absent : {}", md);
+    assert!(md.contains("Servers detected"), "KPI serveurs absent : {}", md);
+    assert!(md.contains("Critical findings"), "KPI constats absent : {}", md);
 }
 
 /// Test 4 : texte plain ne contient pas de syntaxe Markdown.
@@ -155,7 +155,7 @@ fn test_appel_action_conditionnel() {
             .appel_action
             .as_ref()
             .unwrap()
-            .contains("action immédiate"),
+            .contains("Immediate action"),
         "appel_action doit mentionner 'action immédiate' : {:?}",
         resume_risque.appel_action
     );
@@ -197,7 +197,7 @@ fn test_markdown_blockquote_appel_action() {
     let md = resume.vers_markdown();
 
     assert!(
-        md.contains("> **Action requise"),
+        md.contains("> **Action required"),
         "blockquote d'action absent du markdown : {}",
         md
     );

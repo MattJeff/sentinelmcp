@@ -23,6 +23,17 @@ pub struct ActionRemediation {
 /// Générateur du plan de remédiation.
 pub struct PlanRemediation;
 
+/// Libellé anglais d'un statut de serveur pour le rendu produit-facing.
+fn statut_label(statut: StatutServeur) -> &'static str {
+    match statut {
+        StatutServeur::Approuve => "Approved",
+        StatutServeur::Inconnu => "Unknown",
+        StatutServeur::Suspect => "Suspect",
+        StatutServeur::AInvestiguer => "To investigate",
+        StatutServeur::Bloque => "Blocked",
+    }
+}
+
 impl PlanRemediation {
     /// Construit la liste des actions de remédiation à partir de l'inventaire
     /// et des constats ouverts.
@@ -57,32 +68,32 @@ impl PlanRemediation {
             |aiguille: &str| constat.references_conformite.iter().any(|r| r.contains(aiguille));
         if marque("CVE-") {
             Some(
-                "Mettre à jour le paquet vers une version non affectée (CVE connue, supply-chain)."
+                "Update the package to an unaffected version (known CVE, supply chain)."
                     .to_string(),
             )
         } else if marque("confused-deputy") || marque("RFC 8707") {
             Some(
-                "Restreindre l'audience du jeton OAuth (paramètre resource, RFC 8707) pour clore le confused deputy."
+                "Restrict the OAuth token audience (resource parameter, RFC 8707) to close the confused deputy."
                     .to_string(),
             )
         } else if marque("SSRF") || marque("CWE-918") {
             Some(
-                "Interdire les destinations loopback / privées / métadonnées cloud (pivot SSRF, CWE-918)."
+                "Block loopback / private / cloud-metadata destinations (SSRF pivot, CWE-918)."
                     .to_string(),
             )
         } else if marque("SAFE-T1102") {
             Some(
-                "Isoler le serveur : un outil instruit le client à propos d'un autre serveur (cross-server shadowing)."
+                "Isolate the server: a tool instructs the client about another server (cross-server shadowing)."
                     .to_string(),
             )
         } else if marque("ATT&CK T1567") {
             Some(
-                "Couper l'écriture externe : trifecta létale (entrée non fiable + lecture secret + exfiltration)."
+                "Cut off external write: lethal trifecta (untrusted input + secret read + exfiltration)."
                     .to_string(),
             )
         } else if marque("shadow-mcp") {
             Some(
-                "Tracer le processus du socket en écoute non attribué (shadow MCP)."
+                "Trace the process of the unattributed listening socket (shadow MCP)."
                     .to_string(),
             )
         } else {
@@ -111,19 +122,19 @@ impl PlanRemediation {
             Couleur::Rouge => {
                 let justification = if refs_conformite.is_empty() {
                     format!(
-                        "Serveur rouge (statut : {:?}) — risque immédiat détecté.{}",
-                        serveur.statut, conseil
+                        "Red server (status: {}) — immediate risk detected.{}",
+                        statut_label(serveur.statut), conseil
                     )
                 } else {
                     format!(
-                        "Serveur rouge (statut : {:?}) — références : {}.{}",
-                        serveur.statut, refs_conformite, conseil
+                        "Red server (status: {}) — references: {}.{}",
+                        statut_label(serveur.statut), refs_conformite, conseil
                     )
                 };
                 Some(ActionRemediation {
                     serveur_endpoint: serveur.endpoint.clone(),
                     couleur: Couleur::Rouge,
-                    action: "Bloquer".into(),
+                    action: "Block".into(),
                     justification,
                     priorite: 1,
                 })
@@ -131,19 +142,19 @@ impl PlanRemediation {
             Couleur::Orange => {
                 let justification = if refs_conformite.is_empty() {
                     format!(
-                        "Serveur orange (statut : {:?}) — investigation requise.{}",
-                        serveur.statut, conseil
+                        "Orange server (status: {}) — investigation required.{}",
+                        statut_label(serveur.statut), conseil
                     )
                 } else {
                     format!(
-                        "Serveur orange (statut : {:?}) — références : {}.{}",
-                        serveur.statut, refs_conformite, conseil
+                        "Orange server (status: {}) — references: {}.{}",
+                        statut_label(serveur.statut), refs_conformite, conseil
                     )
                 };
                 Some(ActionRemediation {
                     serveur_endpoint: serveur.endpoint.clone(),
                     couleur: Couleur::Orange,
-                    action: "Investiguer".into(),
+                    action: "Investigate".into(),
                     justification,
                     priorite: 2,
                 })
@@ -155,13 +166,13 @@ impl PlanRemediation {
                 } else {
                     // Serveur vert non approuvé (Inconnu, Suspect, etc.) : à approuver.
                     let justification = format!(
-                        "Serveur vert non approuvé (statut : {:?}) — validation formelle requise.",
-                        serveur.statut
+                        "Unapproved green server (status: {}) — formal validation required.",
+                        statut_label(serveur.statut)
                     );
                     Some(ActionRemediation {
                         serveur_endpoint: serveur.endpoint.clone(),
                         couleur: Couleur::Vert,
-                        action: "Approuver".into(),
+                        action: "Approve".into(),
                         justification,
                         priorite: 3,
                     })
@@ -173,21 +184,21 @@ impl PlanRemediation {
     /// Sérialise la liste des actions en Markdown pour inclusion dans le bundle.
     pub fn vers_markdown(actions: &[ActionRemediation]) -> String {
         let mut md = String::new();
-        md.push_str("# Plan de remédiation\n\n");
+        md.push_str("# Remediation plan\n\n");
 
         if actions.is_empty() {
-            md.push_str("Aucune action requise — tous les serveurs sont conformes.\n");
+            md.push_str("No action required — all servers are compliant.\n");
             return md;
         }
 
-        md.push_str("| Priorité | Endpoint | Couleur | Action | Justification |\n");
+        md.push_str("| Priority | Endpoint | Color | Action | Justification |\n");
         md.push_str("|---|---|---|---|---|\n");
 
         for a in actions {
             let couleur_str = match a.couleur {
-                Couleur::Rouge => "Rouge",
+                Couleur::Rouge => "Red",
                 Couleur::Orange => "Orange",
-                Couleur::Vert => "Vert",
+                Couleur::Vert => "Green",
             };
             md.push_str(&format!(
                 "| {} | {} | {} | {} | {} |\n",

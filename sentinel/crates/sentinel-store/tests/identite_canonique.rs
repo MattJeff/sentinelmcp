@@ -172,6 +172,70 @@ fn backfill_v4_fusionne_doublons_legacy_et_garde_celui_avec_le_plus_doutils() {
     );
 }
 
+#[test]
+fn backfill_v4_resout_package_id_vide_collisionnant_avec_index_existant() {
+    // Régression (persistance disque cassée → fallback mémoire) :
+    // une DB DÉJÀ passée par V4 a l'index unique EN PLACE, mais une ligne a
+    // `package_id = ''` (insérée par un chemin qui ne calculait pas
+    // l'identité). Son endpoint résout vers la MÊME identité qu'une ligne
+    // existante. Avant le fix, l'UPDATE de remplissage du backfill violait
+    // l'index AVANT que la dédup ne fusionne → `Store::open` renvoyait
+    // « UNIQUE constraint failed: serveurs.package_id, serveurs.scope » et
+    // l'app retombait en mémoire à chaque lancement. Après : le backfill
+    // dépose l'index, remplit, déduplique, puis le recrée.
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("collide.db");
+
+    let id_existant = Uuid::new_v4().to_string();
+    let id_vide = Uuid::new_v4().to_string();
+    let derniere_vue = Utc::now().to_rfc3339();
+
+    {
+        // `open` matérialise le schéma complet + l'index unique (V4).
+        let store = Store::open(&path).unwrap();
+        drop(store);
+        let conn = rusqlite::Connection::open(&path).unwrap();
+
+        // Ligne « réelle » : identité @modelcontextprotocol/server-filesystem | user.
+        conn.execute(
+            r#"INSERT INTO serveurs (id, endpoint, transport, portees, statut, couleur,
+                premiere_vue, derniere_vue, empreinte_courante, tags, scope, package_id)
+               VALUES (?1, ?2, '"stdio"', '[]', '"inconnu"', '"orange"', ?3, ?3, NULL, '[]', 'user',
+                       '@modelcontextprotocol/server-filesystem')"#,
+            params![
+                id_existant,
+                "npx -y @modelcontextprotocol/server-filesystem /Users/a/Documents",
+                derniere_vue,
+            ],
+        )
+        .unwrap();
+
+        // Ligne avec package_id='' dont l'endpoint résout vers la MÊME identité.
+        // L'index unique la tolère ici car '' ≠ '@…/server-filesystem'.
+        conn.execute(
+            r#"INSERT INTO serveurs (id, endpoint, transport, portees, statut, couleur,
+                premiere_vue, derniere_vue, empreinte_courante, tags, scope, package_id)
+               VALUES (?1, ?2, '"stdio"', '[]', '"inconnu"', '"orange"', ?3, ?3, NULL, '[]', 'user', '')"#,
+            params![
+                id_vide,
+                "npx -y @modelcontextprotocol/server-filesystem /tmp",
+                derniere_vue,
+            ],
+        )
+        .unwrap();
+    }
+
+    // Réouverture : sans le fix, le backfill plante et `open` renvoie Err.
+    let store = Store::open(&path)
+        .expect("open doit réussir : le backfill dépose l'index avant de remplir puis dédup");
+    let serveurs = store.lister_serveurs().unwrap();
+    assert_eq!(
+        serveurs.len(),
+        1,
+        "les deux lignes de même identité (package_id vide rempli + existante) doivent fusionner",
+    );
+}
+
 /// Helper de test : injecte deux lignes avec la même identité
 /// canonique dans la DB ouverte par `store`, en bypassant l'index
 /// unique. La connexion partagée du `Store` est réutilisée pour

@@ -807,7 +807,7 @@ pub async fn apply_approval(
                         .lister_serveurs()?
                         .into_iter()
                         .find(|s| s.id == id)
-                        .ok_or_else(|| anyhow::anyhow!("serveur introuvable : {id}"))?;
+                        .ok_or_else(|| anyhow::anyhow!("server not found: {id}"))?;
                     serveur.statut = sentinel_protocol::StatutServeur::Approuve;
                     serveur.couleur = sentinel_protocol::Couleur::Vert;
                     serveur.derniere_vue = chrono::Utc::now();
@@ -874,22 +874,30 @@ pub async fn generate_report(state: State<'_, AppState>) -> Result<ReportBundle,
     let pdf_path = dir.join("sentinel-report.pdf");
     let json_path = dir.join("sentinel-report.json");
 
-    let plan = PlanRemediation::construire(&bundle.inventaire, &[]);
-    let inventory_txt = bundle.inventaire.iter()
-        .map(|s| format!("- {} | transport={:?} | status={:?} | color={:?}",
-            s.endpoint, s.transport, s.statut, s.couleur))
-        .collect::<Vec<_>>().join("\n");
-    let contenu_pdf = sentinel_report::pdf::ContenuPdf {
-        titre: "Sentinel MCP Compliance Report".into(),
-        sous_titre: "OWASP MCP09 / MCP03 — SAFE-MCP T1001 / T1201".into(),
-        resume_exec: bundle.resume_exec_md.clone(),
-        inventaire: inventory_txt,
-        journal: bundle.journal_md.clone(),
-        mapping_conformite: bundle.mapping_conformite_md.clone(),
-        plan_remediation: PlanRemediation::vers_markdown(&plan),
-        horodatage: chrono::Utc::now().to_rfc3339(),
-    };
-    let _ = sentinel_report::pdf::RenduPdf::produire_contenu(&contenu_pdf, &pdf_path);
+    // `engine.generer_bundle()` a déjà produit un PDF PREMIUM (page de garde
+    // avec KPI + graphique de sévérité, tableaux dessinés, badges colorés) à
+    // `bundle.pdf_path`. On le copie simplement vers le chemin stable que l'UI
+    // sait ouvrir, au lieu de reconstruire un `ContenuPdf` en double. Repli :
+    // si engine n'a pas pu écrire le PDF, on en régénère un localement.
+    let copie_ok = bundle
+        .pdf_path
+        .as_ref()
+        .map(|src| std::fs::copy(src, &pdf_path).is_ok())
+        .unwrap_or(false);
+    if !copie_ok {
+        let plan = PlanRemediation::construire(&bundle.inventaire, &[]);
+        let contenu_pdf = sentinel_report::pdf::ContenuPdf {
+            titre: "Sentinel MCP Compliance Report".into(),
+            sous_titre: "OWASP MCP09 / MCP03 — SAFE-MCP T1001 / T1201".into(),
+            resume_exec: bundle.resume_exec_md.clone(),
+            journal: bundle.journal_md.clone(),
+            mapping_conformite: bundle.mapping_conformite_md.clone(),
+            plan_remediation: PlanRemediation::vers_markdown(&plan),
+            horodatage: chrono::Utc::now().to_rfc3339(),
+            ..Default::default()
+        };
+        let _ = sentinel_report::pdf::RenduPdf::produire_contenu(&contenu_pdf, &pdf_path);
+    }
 
     // JSON export.
     let store_clone = store.clone();
