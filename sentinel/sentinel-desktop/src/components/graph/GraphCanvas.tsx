@@ -287,8 +287,8 @@ export default function GraphCanvas({
 }
 
 function nodeFill(n: TrustNode): string {
-  if (n.kind === 'client') return '#7aa5ff'; // sentinel-accent
-  if (n.kind === 'server') return '#9d8cf0'; // sentinel-violet
+  if (n.kind === 'client') return '#6E56F7'; // sentinel-accent
+  if (n.kind === 'server') return '#9b8bff'; // sentinel-violet
   // scope — color by risk (severity tokens: critical / high / ok).
   const r = n.risk ?? 0;
   if (r >= 0.66) return '#e5534b';

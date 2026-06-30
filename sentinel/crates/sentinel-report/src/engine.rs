@@ -631,7 +631,7 @@ impl GenerateurRapport {
         let nb_info = nb_sev(Severite::Info);
 
         let kpis = vec![
-            KpiPdf { label: "Servers".into(), valeur: serveurs.len().to_string(), accent: [0.29, 0.33, 0.84] },
+            KpiPdf { label: "Servers".into(), valeur: serveurs.len().to_string(), accent: [0.431, 0.337, 0.969] },
             KpiPdf { label: "At risk".into(), valeur: nb_rouge.to_string(), accent: [0.90, 0.45, 0.12] },
             KpiPdf { label: "Critical".into(), valeur: nb_critique.to_string(), accent: [0.84, 0.19, 0.25] },
             KpiPdf { label: "Open findings".into(), valeur: constats.len().to_string(), accent: [0.36, 0.46, 0.62] },

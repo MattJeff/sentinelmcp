@@ -37,7 +37,7 @@ const Y_FLOOR: f32 = M_BOTTOM + 6.0;
 // ─── Palette (composantes 0.0–1.0) ─────────────────────────────────────────────
 const C_INK: [f32; 3] = [0.11, 0.12, 0.16];
 const C_MUTED: [f32; 3] = [0.43, 0.46, 0.53];
-const C_ACCENT: [f32; 3] = [0.29, 0.33, 0.84]; // indigo
+const C_ACCENT: [f32; 3] = [0.431, 0.337, 0.969]; // indigo
 const C_BAND: [f32; 3] = [0.10, 0.12, 0.19]; // ardoise foncée (en-têtes)
 const C_BORDER: [f32; 3] = [0.84, 0.86, 0.90];
 const C_ZEBRA: [f32; 3] = [0.965, 0.972, 0.981];
