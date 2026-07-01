@@ -28,7 +28,7 @@ dirs = "5"
 walkdir = "2"
 toml = "0.8"
 serde_yaml = "0.9"
-sysinfo = "0.32"
+sysinfo = "0.39"
 once_cell = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
