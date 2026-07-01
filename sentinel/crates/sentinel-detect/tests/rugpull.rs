@@ -144,7 +144,7 @@ fn test_changement_avec_notification_haute() {
     assert_eq!(constat.type_constat, TypeConstat::RugPull);
     assert_eq!(
         constat.titre,
-        "Rug-pull détecté : empreinte modifiée depuis approbation"
+        "Rug pull detected: fingerprint changed since approval"
     );
 }
 
@@ -223,18 +223,18 @@ fn test_constat_diff_propagation() {
     // Vérifie le titre et l'état du constat.
     assert_eq!(
         constat.titre,
-        "Rug-pull détecté : empreinte modifiée depuis approbation"
+        "Rug pull detected: fingerprint changed since approval"
     );
     assert_eq!(constat.etat, sentinel_protocol::EtatConstat::Ouvert);
     assert_eq!(constat.serveur_id, serveur_id);
 
     // Vérifie que le détail contient les empreintes.
     assert!(
-        constat.detail.contains("Empreinte baseline"),
+        constat.detail.contains("Baseline fingerprint"),
         "le détail doit mentionner l'empreinte baseline"
     );
     assert!(
-        constat.detail.contains("Empreinte courante"),
+        constat.detail.contains("Current fingerprint"),
         "le détail doit mentionner l'empreinte courante"
     );
 }

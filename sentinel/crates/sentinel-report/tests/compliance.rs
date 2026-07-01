@@ -215,13 +215,13 @@ fn markdown_section_contient_identifiants_attendus() {
 
     // Structure Markdown minimale
     assert!(
-        md.contains("| Constat |"),
+        md.contains("| Finding |"),
         "markdown_section doit contenir l'en-tête de tableau, section obtenue :\n{}",
         md
     );
     assert!(
-        md.contains("## Conformité"),
-        "markdown_section doit commencer par le titre ## Conformité, section obtenue :\n{}",
+        md.contains("## Compliance"),
+        "markdown_section doit commencer par le titre ## Compliance, section obtenue :\n{}",
         md
     );
 }
@@ -307,8 +307,8 @@ fn markdown_section_liste_vide_pas_de_lignes_donnees() {
     let md = MoteurConformite::markdown_section(&[]);
 
     // L'en-tête doit être présent.
-    assert!(md.contains("## Conformité"));
-    assert!(md.contains("| Constat |"));
+    assert!(md.contains("## Compliance"));
+    assert!(md.contains("| Finding |"));
 
     // Aucune ligne de données (pas de "|" après le séparateur).
     // On compte les lignes contenant "|" : exactement 2 (en-tête + séparateur).
@@ -407,7 +407,7 @@ fn frameworks_markdown_liste_types_presents() {
     ];
     let md = MoteurConformite::frameworks_markdown(&constats);
 
-    assert!(md.contains("Correspondances multi-référentiels"));
+    assert!(md.contains("Multi-framework mappings"));
     assert!(md.contains("ATLAS AML.T0051"), "section frameworks :\n{}", md);
     assert!(md.contains("ATT&CK T1567"), "section frameworks :\n{}", md);
 
@@ -458,12 +458,12 @@ fn matrice_couverture_asi06_est_un_angle_mort() {
 #[test]
 fn matrice_couverture_markdown_lisible_pour_auditeur() {
     let md = MoteurConformite::matrice_couverture_markdown();
-    assert!(md.contains("## Matrice de couverture"), "titre attendu :\n{}", md);
-    assert!(md.contains("| Cadre | ID | Catégorie | Couverture | Justification |"));
+    assert!(md.contains("## Coverage matrix"), "titre attendu :\n{}", md);
+    assert!(md.contains("| Framework | ID | Category | Coverage | Justification |"));
     assert!(md.contains("MCP09"));
     assert!(md.contains("ASI06"));
     // La légende des niveaux doit être présente pour le RSSI.
-    assert!(md.contains("Oui") && md.contains("Partiel") && md.contains("Non"));
+    assert!(md.contains("Covered") && md.contains("Partial") && md.contains("Not covered"));
 }
 
 #[test]
@@ -476,6 +476,6 @@ fn matrice_couverture_json_structuree() {
         .iter()
         .find(|c| c["identifiant"] == "ASI06")
         .expect("ASI06 doit être présent dans le JSON");
-    assert_eq!(asi06["couverture"], "Non");
+    assert_eq!(asi06["couverture"], "Not covered");
     assert!(asi06["justification"].is_string());
 }

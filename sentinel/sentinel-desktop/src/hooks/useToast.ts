@@ -4,6 +4,7 @@
 // Updated by Agent A1: dedup by (title, description), count badge,
 // auto-dismiss (4s, 8s for critical), pause-on-hover, working X button.
 
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { Severity } from '../api/contract';
 
@@ -149,21 +150,28 @@ export const useToastStore = create<ToastStore>((set, get) => ({
 }));
 
 export function useToast() {
+  // `push` is a zustand action → stable across renders. Memoize the returned
+  // object/functions on it so `toast` keeps a STABLE identity: components that
+  // list `toast` in a useEffect dependency array (e.g. DetectionSettings) would
+  // otherwise re-run their effect every render — an infinite fetch/render loop.
   const push = useToastStore((s) => s.push);
-  return {
-    toast: (input: ToastInput) => {
-      push(input);
-    },
-    /**
-     * Surface a Discovery-scan summary toast. Called by DiscoveryPage when a
-     * fresh scan lands so the user sees an inline acknowledgement (matches
-     * the cadence of the Live Scan progress toasts).
-     */
-    addDiscoveryToast: (clientCount: number, serverCount: number) => {
-      push({
-        title: `Scan complete · ${clientCount} client${clientCount === 1 ? '' : 's'} · ${serverCount} declared server${serverCount === 1 ? '' : 's'}`,
-        severity: 'info',
-      });
-    },
-  };
+  return useMemo(
+    () => ({
+      toast: (input: ToastInput) => {
+        push(input);
+      },
+      /**
+       * Surface a Discovery-scan summary toast. Called by DiscoveryPage when a
+       * fresh scan lands so the user sees an inline acknowledgement (matches
+       * the cadence of the Live Scan progress toasts).
+       */
+      addDiscoveryToast: (clientCount: number, serverCount: number) => {
+        push({
+          title: `Scan complete · ${clientCount} client${clientCount === 1 ? '' : 's'} · ${serverCount} declared server${serverCount === 1 ? '' : 's'}`,
+          severity: 'info',
+        });
+      },
+    }),
+    [push],
+  );
 }

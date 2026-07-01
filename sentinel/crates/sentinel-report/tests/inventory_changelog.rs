@@ -56,11 +56,11 @@ fn test_inventaire_vide() {
         "aucun serveur attendu"
     );
     assert!(
-        section.markdown.contains("## Inventaire des serveurs MCP"),
+        section.markdown.contains("## MCP server inventory"),
         "l'en-tête de section doit être présent"
     );
     assert!(
-        section.markdown.contains("Aucun serveur détecté"),
+        section.markdown.contains("No servers detected"),
         "message vide attendu"
     );
     // Pas de tableau ni de sous-section critique
@@ -97,7 +97,7 @@ fn test_inventaire_trois_serveurs_un_rouge() {
 
     // Sous-section critique présente
     assert!(
-        section.markdown.contains("### Serveurs critiques (rouge)"),
+        section.markdown.contains("### Critical servers (red)"),
         "sous-section critique attendue"
     );
     assert!(
@@ -112,7 +112,7 @@ fn test_inventaire_trois_serveurs_un_rouge() {
     // Les serveurs non rouges ne doivent pas apparaître dans les détails critiques
     let detail_critique = section
         .markdown
-        .split("### Serveurs critiques")
+        .split("### Critical servers")
         .nth(1)
         .unwrap_or("");
     assert!(
@@ -133,11 +133,11 @@ fn test_journal_vide() {
         "aucune entrée attendue"
     );
     assert!(
-        section.markdown.contains("## Journal des changements"),
+        section.markdown.contains("## Change log"),
         "en-tête de section attendu"
     );
     assert!(
-        section.markdown.contains("Aucun changement enregistré"),
+        section.markdown.contains("No change recorded"),
         "message vide attendu"
     );
 }
@@ -179,7 +179,7 @@ fn test_journal_avec_diff() {
         "endpoint attendu dans le journal"
     );
     assert!(
-        section.markdown.contains("Rug-pull"),
+        section.markdown.contains("Rug pull"),
         "type de constat attendu dans le journal"
     );
 }

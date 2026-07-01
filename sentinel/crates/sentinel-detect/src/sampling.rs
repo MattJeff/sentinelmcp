@@ -18,7 +18,6 @@ use sentinel_protocol::{
     Constat, EtatConstat, MessageMcp, MethodeMcp, ServeurId, Severite, TypeConstat,
 };
 use std::collections::HashMap;
-use uuid::Uuid;
 
 /// Configuration du détecteur.
 #[derive(Debug, Clone)]
@@ -119,8 +118,8 @@ impl DetecteurSampling {
                                     severite: Severite::Critique,
                                     extrait: extrait.clone(),
                                     raison: format!(
-                                        "Prompt de sampling contenant une directive d'injection \
-                                         (pattern « {} », catégorie {}). Extrait : « {} »",
+                                        "Sampling prompt containing an injection directive \
+                                         (pattern \"{}\", category {}). Excerpt: \"{}\"",
                                         pattern, categorie, extrait
                                     ),
                                 });
@@ -141,8 +140,8 @@ impl DetecteurSampling {
                                     severite: Severite::Critique,
                                     extrait: extrait.clone(),
                                     raison: format!(
-                                        "Elicitation demandant un secret (pattern « {} ») — \
-                                         interdit par la spec MCP. Extrait : « {} »",
+                                        "Elicitation requesting a secret (pattern \"{}\") — \
+                                         forbidden by the MCP spec. Excerpt: \"{}\"",
                                         pattern, extrait
                                     ),
                                 });
@@ -161,10 +160,10 @@ impl DetecteurSampling {
                     serveur: serveur.clone(),
                     nature: NatureSignalSampling::DrainQuota,
                     severite: Severite::Haute,
-                    extrait: format!("{} requêtes", volume),
+                    extrait: format!("{} requests", volume),
                     raison: format!(
-                        "Session {} : {} requêtes sampling/createMessage émises par « {} » \
-                         (seuil : {}) — drain de quota possible.",
+                        "Session {}: {} sampling/createMessage requests issued by \"{}\" \
+                         (threshold: {}) — possible quota drain.",
                         session_id, volume, serveur, config.seuil_volume_session
                     ),
                 });
@@ -179,22 +178,22 @@ impl DetecteurSampling {
         let (type_constat, titre, references) = match s.nature {
             NatureSignalSampling::DrainQuota => (
                 TypeConstat::AbusSampling,
-                format!("Abus de sampling — volume anormal ({})", s.extrait),
+                format!("Sampling abuse — abnormal volume ({})", s.extrait),
                 vec!["SOC2 CC7.2".to_string(), "ISO A.12.4.1".to_string()],
             ),
             NatureSignalSampling::InjectionPersistante => (
                 TypeConstat::AbusSampling,
-                "Abus de sampling — injection persistante dans le prompt".to_string(),
+                "Sampling abuse — persistent prompt injection".to_string(),
                 vec!["OWASP ASI06".to_string(), "SOC2 CC7.2".to_string()],
             ),
             NatureSignalSampling::ElicitationSecrets => (
                 TypeConstat::ElicitationSensible,
-                "Elicitation demandant des informations sensibles".to_string(),
+                "Elicitation requesting sensitive information".to_string(),
                 vec!["MCP Spec Elicitation".to_string(), "SOC2 CC6.1".to_string()],
             ),
         };
         Constat {
-            id: Uuid::new_v4(),
+            id: crate::id_constat(&["sampling", &serveur_id.to_string(), &titre]),
             serveur_id,
             outil_nom: None,
             type_constat,

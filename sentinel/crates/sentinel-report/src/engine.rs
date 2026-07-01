@@ -12,7 +12,7 @@ use sentinel_store::Store;
 use tracing::{info, warn};
 
 use crate::compliance::MoteurConformite;
-use crate::pdf::{ContenuPdf, RenduPdf};
+use crate::pdf::{BarreSeverite, ContenuPdf, KpiPdf, RenduPdf};
 use crate::signature::SignataireBundle;
 
 /// Nom du fichier de la graine Ed25519 de signature, sous le répertoire de
@@ -24,6 +24,60 @@ const FICHIER_CLE_SIGNATURE: &str = "report-signing.key";
 /// Variable d'environnement d'opt-out de la persistance (CI / headless) : `=1`.
 /// Nom historique conservé pour compatibilité.
 const ENV_DESACTIVATION_TROUSSEAU: &str = "SENTINEL_NO_KEYRING";
+
+// ------------------------------------------------------------------ //
+//  Libellés anglais pour le rendu produit-facing des enums            //
+//  (le `{:?}` rendrait la variante FR ; on mappe explicitement).      //
+// ------------------------------------------------------------------ //
+
+/// Libellé anglais d'une sévérité pour les tableaux du rapport.
+fn severite_en(s: sentinel_protocol::Severite) -> &'static str {
+    use sentinel_protocol::Severite::*;
+    match s {
+        Critique => "Critical",
+        Haute => "High",
+        Moyenne => "Medium",
+        Info => "Info",
+    }
+}
+
+/// Libellé anglais d'une couleur de criticité pour les tableaux du rapport.
+fn couleur_en(c: Couleur) -> &'static str {
+    match c {
+        Couleur::Rouge => "Red",
+        Couleur::Orange => "Orange",
+        Couleur::Vert => "Green",
+    }
+}
+
+/// Libellé anglais d'un statut de serveur pour les tableaux du rapport.
+fn statut_en(s: StatutServeur) -> &'static str {
+    match s {
+        StatutServeur::Approuve => "Approved",
+        StatutServeur::Inconnu => "Unknown",
+        StatutServeur::Suspect => "Suspect",
+        StatutServeur::AInvestiguer => "To investigate",
+        StatutServeur::Bloque => "Blocked",
+    }
+}
+
+/// Libellé anglais d'un type de constat pour la colonne « Type » du rapport.
+fn type_constat_en(t: &sentinel_protocol::TypeConstat) -> &'static str {
+    use sentinel_protocol::TypeConstat::*;
+    match t {
+        NouveauServeur => "New server",
+        ShadowMcp => "Shadow MCP",
+        RugPull => "Rug pull",
+        Poisoning => "Poisoning",
+        Sosie => "Lookalike",
+        Exfiltration => "Exfiltration",
+        SansAuthentification => "No authentication",
+        DeriveInterSession => "Inter-session drift",
+        AbusSampling => "Sampling abuse",
+        ElicitationSensible => "Sensitive elicitation",
+        Autre => "Other",
+    }
+}
 
 /// Orchestre l'ensemble du pipeline de rapport.
 pub struct GenerateurRapport {
@@ -121,27 +175,27 @@ impl GenerateurRapport {
         // Utilise ResumeExecutif si sa structure est enrichie ultérieurement ;
         // pour l'instant on assemble directement le Markdown.
         let mut md = String::new();
-        md.push_str("# Résumé exécutif — Sentinel MCP\n\n");
+        md.push_str("# Executive summary — Sentinel MCP\n\n");
         md.push_str(&format!(
-            "**Période analysée :** {} → {}\n\n",
+            "**Analysis period:** {} → {}\n\n",
             debut.format("%Y-%m-%d %H:%M UTC"),
             fin.format("%Y-%m-%d %H:%M UTC")
         ));
-        md.push_str("## Chiffres clés\n\n");
-        md.push_str(&format!("| Indicateur | Valeur |\n|---|---|\n"));
-        md.push_str(&format!("| Serveurs MCP détectés | {} |\n", total));
-        md.push_str(&format!("| Serveurs non approuvés | {} |\n", non_approuves));
-        md.push_str(&format!("| Serveurs à risque (rouge) | {} |\n", a_risque));
-        md.push_str(&format!("| Constats ouverts | {} |\n", constats_ouverts));
+        md.push_str("## Key figures\n\n");
+        md.push_str(&format!("| Metric | Value |\n|---|---|\n"));
+        md.push_str(&format!("| MCP servers detected | {} |\n", total));
+        md.push_str(&format!("| Unapproved servers | {} |\n", non_approuves));
+        md.push_str(&format!("| At-risk servers (red) | {} |\n", a_risque));
+        md.push_str(&format!("| Open findings | {} |\n", constats_ouverts));
         md.push('\n');
 
         if a_risque > 0 {
             md.push_str(&format!(
-                "> **ATTENTION** : {} serveur(s) rouge(s) requièrent une action immédiate.\n\n",
+                "> **WARNING**: {} red server(s) require immediate action.\n\n",
                 a_risque
             ));
         } else {
-            md.push_str("> Aucun serveur rouge détecté sur la période.\n\n");
+            md.push_str("> No red server detected over the period.\n\n");
         }
 
         md
@@ -153,13 +207,13 @@ impl GenerateurRapport {
 
     fn construire_inventaire_md(serveurs: &[Serveur]) -> String {
         let mut md = String::new();
-        md.push_str("# Inventaire des serveurs MCP\n\n");
-        md.push_str("| ID | Endpoint | Transport | Statut | Couleur | Première vue |\n");
+        md.push_str("# MCP server inventory\n\n");
+        md.push_str("| ID | Endpoint | Transport | Status | Color | First seen |\n");
         md.push_str("|---|---|---|---|---|---|\n");
         for s in serveurs {
             let transport = format!("{:?}", s.transport);
-            let statut = format!("{:?}", s.statut);
-            let couleur = format!("{:?}", s.couleur);
+            let statut = statut_en(s.statut);
+            let couleur = couleur_en(s.couleur);
             md.push_str(&format!(
                 "| {} | {} | {} | {} | {} | {} |\n",
                 s.id,
@@ -180,19 +234,19 @@ impl GenerateurRapport {
 
     fn construire_journal_md(constats: &[Constat]) -> String {
         let mut md = String::new();
-        md.push_str("# Journal des constats ouverts\n\n");
+        md.push_str("# Open findings log\n\n");
         if constats.is_empty() {
-            md.push_str("_Aucun constat ouvert sur la période._\n");
+            md.push_str("_No open finding over the period._\n");
         } else {
-            md.push_str("| Date | Serveur | Type | Sévérité | Titre |\n");
+            md.push_str("| Date | Server | Type | Severity | Title |\n");
             md.push_str("|---|---|---|---|---|\n");
             for c in constats {
                 md.push_str(&format!(
-                    "| {} | {} | {:?} | {:?} | {} |\n",
+                    "| {} | {} | {} | {} | {} |\n",
                     c.horodatage.format("%Y-%m-%d %H:%M UTC"),
                     c.serveur_id,
-                    c.type_constat,
-                    c.severite,
+                    type_constat_en(&c.type_constat),
+                    severite_en(c.severite),
                     c.titre,
                 ));
             }
@@ -207,9 +261,9 @@ impl GenerateurRapport {
 
     fn construire_mapping_conformite(constats: &[Constat]) -> String {
         let mut md = String::new();
-        md.push_str("# Mapping de conformité\n\n");
-        md.push_str("Couverture OWASP MCP et SAFE-MCP.\n\n");
-        md.push_str("| Constat | Cadre | Identifiant | Titre |\n");
+        md.push_str("# Compliance mapping\n\n");
+        md.push_str("OWASP MCP and SAFE-MCP coverage.\n\n");
+        md.push_str("| Finding | Framework | Identifier | Title |\n");
         md.push_str("|---|---|---|---|\n");
 
         for c in constats {
@@ -232,8 +286,8 @@ impl GenerateurRapport {
         }
 
         // Références fixes garanties quel que soit le contenu des constats.
-        md.push_str("\n## Contrôles couverts par ce déploiement\n\n");
-        md.push_str("| Cadre | Identifiant | Description |\n");
+        md.push_str("\n## Controls covered by this deployment\n\n");
+        md.push_str("| Framework | Identifier | Description |\n");
         md.push_str("|---|---|---|\n");
         md.push_str("| OWASP MCP | MCP09 | Shadow MCP Server |\n");
         md.push_str("| OWASP MCP | MCP03 | Tool Poisoning |\n");
@@ -260,7 +314,7 @@ impl GenerateurRapport {
 
     fn construire_plan_remediation(serveurs: &[Serveur], constats: &[Constat]) -> String {
         let mut md = String::new();
-        md.push_str("# Plan de remédiation\n\n");
+        md.push_str("# Remediation plan\n\n");
 
         // Serveurs rouges → action prioritaire.
         let rouges: Vec<&Serveur> = serveurs
@@ -269,18 +323,18 @@ impl GenerateurRapport {
             .collect();
 
         if rouges.is_empty() {
-            md.push_str("Aucun serveur rouge. Aucune action immédiate requise.\n\n");
+            md.push_str("No red server. No immediate action required.\n\n");
         } else {
-            md.push_str("## Actions immédiates — serveurs rouges\n\n");
-            md.push_str("| Endpoint | Action recommandée |\n");
+            md.push_str("## Immediate actions — red servers\n\n");
+            md.push_str("| Endpoint | Recommended action |\n");
             md.push_str("|---|---|\n");
             for s in &rouges {
                 let action = match s.statut {
-                    StatutServeur::Approuve => "Vérifier — statut approuvé mais couleur rouge",
-                    StatutServeur::Suspect => "Bloquer",
-                    StatutServeur::AInvestiguer => "Investiguer",
-                    StatutServeur::Bloque => "Déjà bloqué — confirmer l'isolement",
-                    StatutServeur::Inconnu => "Approuver ou Bloquer",
+                    StatutServeur::Approuve => "Review — approved status but red color",
+                    StatutServeur::Suspect => "Block",
+                    StatutServeur::AInvestiguer => "Investigate",
+                    StatutServeur::Bloque => "Already blocked — confirm isolation",
+                    StatutServeur::Inconnu => "Approve or Block",
                 };
                 md.push_str(&format!("| {} | {} |\n", s.endpoint, action));
             }
@@ -294,11 +348,11 @@ impl GenerateurRapport {
             .collect();
 
         if !oranges.is_empty() {
-            md.push_str("## Actions à planifier — serveurs orange\n\n");
-            md.push_str("| Endpoint | Action recommandée |\n");
+            md.push_str("## Actions to schedule — orange servers\n\n");
+            md.push_str("| Endpoint | Recommended action |\n");
             md.push_str("|---|---|\n");
             for s in &oranges {
-                md.push_str(&format!("| {} | Approuver ou Investiguer |\n", s.endpoint));
+                md.push_str(&format!("| {} | Approve or Investigate |\n", s.endpoint));
             }
             md.push('\n');
         }
@@ -313,9 +367,9 @@ impl GenerateurRapport {
             .collect();
 
         if !critiques.is_empty() {
-            md.push_str("## Constats haute/critique sévérité\n\n");
+            md.push_str("## High/critical severity findings\n\n");
             for c in critiques {
-                md.push_str(&format!("- **{}** : {}\n", c.titre, c.detail));
+                md.push_str(&format!("- **{}**: {}\n", c.titre, c.detail));
             }
             md.push('\n');
         }
@@ -566,9 +620,44 @@ impl GenerateurRapport {
             self.signer_payload(&payload_signature);
 
         // 9. PDF (échec loggué, jamais silencieux).
+        //    Données structurées de la page de garde : cartes KPI + graphique
+        //    de sévérité, dérivées directement des serveurs/constats.
+        use sentinel_protocol::Severite;
+        let nb_rouge = serveurs.iter().filter(|s| s.couleur == Couleur::Rouge).count();
+        let nb_sev = |sev: Severite| constats.iter().filter(|c| c.severite == sev).count();
+        let nb_critique = nb_sev(Severite::Critique);
+        let nb_haute = nb_sev(Severite::Haute);
+        let nb_moyenne = nb_sev(Severite::Moyenne);
+        let nb_info = nb_sev(Severite::Info);
+
+        let kpis = vec![
+            KpiPdf { label: "Servers".into(), valeur: serveurs.len().to_string(), accent: [0.431, 0.337, 0.969] },
+            KpiPdf { label: "At risk".into(), valeur: nb_rouge.to_string(), accent: [0.90, 0.45, 0.12] },
+            KpiPdf { label: "Critical".into(), valeur: nb_critique.to_string(), accent: [0.84, 0.19, 0.25] },
+            KpiPdf { label: "Open findings".into(), valeur: constats.len().to_string(), accent: [0.36, 0.46, 0.62] },
+        ];
+        // N'afficher que les sévérités présentes pour garder le graphique lisible.
+        let graphique_severite: Vec<BarreSeverite> = [
+            ("Critical", nb_critique, [0.84, 0.19, 0.25]),
+            ("High", nb_haute, [0.90, 0.45, 0.12]),
+            ("Medium", nb_moyenne, [0.92, 0.66, 0.13]),
+            ("Info", nb_info, [0.36, 0.46, 0.62]),
+        ]
+        .iter()
+        .filter(|(_, n, _)| *n > 0)
+        .map(|(label, n, c)| BarreSeverite { label: (*label).into(), valeur: *n as u32, couleur: *c })
+        .collect();
+
         let contenu_pdf = ContenuPdf {
-            titre: "Rapport de conformité — Sentinel MCP".to_string(),
-            sous_titre: "Bundle d'évidence MCP09 / MCP03".to_string(),
+            titre: "Compliance Report — Sentinel MCP".to_string(),
+            sous_titre: "Evidence bundle MCP09 / MCP03".to_string(),
+            periode: format!(
+                "{} → {}",
+                self.periode_debut.format("%Y-%m-%d"),
+                self.periode_fin.format("%Y-%m-%d")
+            ),
+            kpis,
+            graphique_severite,
             resume_exec: resume_exec_md.clone(),
             inventaire: inventaire_md.clone(),
             journal: journal_md.clone(),

@@ -403,21 +403,27 @@ use tracing::warn;
 /// réseau est indisponible — cf. [`interroger_source_avec_cache`]).
 pub const TTL_CACHE_REGISTRES_SECS: i64 = 24 * 3600;
 
-/// Construit un [`ConnecteurRegistres`] peuplé des quatre sources publiques
-/// réelles, dans l'ordre : PulseMCP, registre officiel MCP, Smithery, mcp.so.
-/// C'est le point d'entrée standard pour alimenter le benchmark de sosies.
+/// Construit un [`ConnecteurRegistres`] peuplé des sources publiques **vivantes** :
+/// le registre officiel MCP (`registry.modelcontextprotocol.io`) et Smithery
+/// (`registry.smithery.ai`). C'est le point d'entrée standard pour alimenter le
+/// benchmark de sosies.
+///
+/// PulseMCP et mcp.so sont volontairement EXCLUS : leurs APIs publiques ne sont
+/// plus disponibles (PulseMCP `/v0*` → 404/410 Gone ; mcp.so `/api/servers` ne
+/// renvoie plus de JSON). Les interroger ne produisait que des `Vec` vides et du
+/// bruit de log à chaque scan, en plus de ~6 s de timeout réseau gaspillées. Les
+/// connecteurs [`SourcePulseMCP`]/[`SourceMcpSo`] restent disponibles pour un
+/// usage explicite si ces registres réexposent une API.
 pub fn connecteur_par_defaut() -> ConnecteurRegistres {
     let mut connecteur = ConnecteurRegistres::nouveau();
-    connecteur.ajouter(SourcePulseMCP::nouveau());
     connecteur.ajouter(SourceMcpRegistry::nouveau());
     connecteur.ajouter(SourceSmithery::nouveau());
-    connecteur.ajouter(SourceMcpSo::nouveau());
     connecteur
 }
 
-/// Agrège les quatre registres publics en une liste **dédupliquée**
-/// d'`EntreeRegistre`, interrogés en parallèle (fan-out borné par le timeout
-/// global de [`ConnecteurRegistres::interroger_tous`]).
+/// Agrège les registres publics vivants (registre officiel MCP + Smithery) en
+/// une liste **dédupliquée** d'`EntreeRegistre`, interrogés en parallèle
+/// (fan-out borné par le timeout global de [`ConnecteurRegistres::interroger_tous`]).
 ///
 /// Robustesse : tout registre en échec contribue zéro entrée (jamais de
 /// panique, jamais d'erreur propagée) — la liste agrège simplement ce qui a

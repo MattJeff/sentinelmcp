@@ -56,12 +56,13 @@ export default function OverviewPage() {
   }
 
   // ─── KPI derivations from live data ──────────────────────────────────────
-  // "Servers detected" = sum of every declared server across discovered clients.
-  const serversDetected =
-    discovery.data?.clients.reduce(
-      (acc, c) => acc + (c.servers?.length ?? 0),
-      0,
-    ) ?? null;
+  // "Servers detected" = distinct MCP servers in the canonical inventory — the
+  // SAME source as Inventory, Approvals and the signed Report (the store, keyed
+  // by canonical identity package_id+scope). Discovery may DECLARE more (e.g.
+  // 12) because configs list duplicates by identity and unreachable entries;
+  // those are merged/dropped here, so this matches the report (e.g. 9) instead
+  // of contradicting it.
+  const serversDetected = servers.data ? servers.data.length : null;
 
   const allFindings = findings.data ?? null;
   const atRisk =
@@ -84,7 +85,7 @@ export default function OverviewPage() {
     .slice(0, 5);
 
   const heroLoading =
-    discovery.isLoading || findings.isLoading || scan.isLoading;
+    servers.isLoading || findings.isLoading || scan.isLoading;
 
   function refreshAll() {
     for (const key of SWR_KEYS) {

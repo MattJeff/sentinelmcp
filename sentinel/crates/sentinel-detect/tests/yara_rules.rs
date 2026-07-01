@@ -134,7 +134,7 @@ fn import_regle_custom_depuis_repertoire() {
         r#"
 rule Custom_Backdoor_Marker {
     meta:
-        description = "Marqueur de backdoor maison"
+        description = "Custom backdoor marker"
         categorie = "backdoor_maison"
         severite = "moyenne"
     strings:
@@ -162,7 +162,7 @@ rule Custom_Backdoor_Marker {
     assert_eq!(c.namespace, "custom");
     assert_eq!(c.categorie, "backdoor_maison");
     assert_eq!(c.severite, Severite::Moyenne);
-    assert_eq!(c.description, "Marqueur de backdoor maison");
+    assert_eq!(c.description, "Custom backdoor marker");
 }
 
 // ── Test 4 : fichier invalide ignoré, règles embarquées conservées ───────────

@@ -73,6 +73,17 @@ export default function ReportPage() {
     try {
       const next = await api.generateReport();
       await mutate(next, { revalidate: false });
+      pushToast({
+        title: hasBundle ? 'Report bundle regenerated' : 'Report bundle generated',
+        description: 'Signed PDF + JSON ready — open them from the buttons above.',
+        severity: 'info',
+      });
+    } catch (err) {
+      pushToast({
+        title: 'Report generation failed',
+        description: err instanceof Error ? err.message : String(err),
+        severity: 'high',
+      });
     } finally {
       setGenerating(false);
     }
@@ -95,7 +106,7 @@ export default function ReportPage() {
   const handleExportStix = async () => {
     setExportingStix(true);
     try {
-      const { path } = await api.stixExportBundle();
+      const path = await api.stixExportBundle();
       // Reuse the existing "open in Finder" path so STIX bundles behave
       // exactly like the PDF/JSON artefacts: the OS picks a sensible
       // default (Finder reveal on macOS, Explorer on Windows).

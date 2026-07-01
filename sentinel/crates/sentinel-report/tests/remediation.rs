@@ -53,7 +53,7 @@ fn test_serveur_rouge_genere_bloquer_priorite_1() {
     let actions = PlanRemediation::construire(&[s], &[]);
 
     assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0].action, "Bloquer");
+    assert_eq!(actions[0].action, "Block");
     assert_eq!(actions[0].priorite, 1);
     assert_eq!(actions[0].couleur, Couleur::Rouge);
 }
@@ -68,7 +68,7 @@ fn test_serveur_orange_genere_investiguer_priorite_2() {
     let actions = PlanRemediation::construire(&[s], &[]);
 
     assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0].action, "Investiguer");
+    assert_eq!(actions[0].action, "Investigate");
     assert_eq!(actions[0].priorite, 2);
     assert_eq!(actions[0].couleur, Couleur::Orange);
 }
@@ -94,7 +94,7 @@ fn test_serveur_vert_non_approuve_genere_approuver_priorite_3() {
     let actions = PlanRemediation::construire(&[s], &[]);
 
     assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0].action, "Approuver");
+    assert_eq!(actions[0].action, "Approve");
     assert_eq!(actions[0].priorite, 3);
 }
 
@@ -154,8 +154,8 @@ fn test_vers_markdown_non_vide() {
     let actions = PlanRemediation::construire(&[s], &[]);
     let md = PlanRemediation::vers_markdown(&actions);
 
-    assert!(md.contains("Plan de remédiation"), "Le markdown doit avoir un titre");
-    assert!(md.contains("Bloquer"), "Le markdown doit mentionner l'action Bloquer");
+    assert!(md.contains("Remediation plan"), "Le markdown doit avoir un titre");
+    assert!(md.contains("Block"), "Le markdown doit mentionner l'action Bloquer");
     assert!(md.contains("http://rouge.internal:8080"), "Le markdown doit contenir l'endpoint");
 }
 
@@ -166,5 +166,5 @@ fn test_vers_markdown_non_vide() {
 #[test]
 fn test_vers_markdown_vide_si_aucune_action() {
     let md = PlanRemediation::vers_markdown(&[]);
-    assert!(md.contains("Aucune action"), "Le markdown vide doit l'indiquer explicitement");
+    assert!(md.contains("No action"), "Le markdown vide doit l'indiquer explicitement");
 }

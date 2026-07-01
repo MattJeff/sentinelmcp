@@ -25,7 +25,7 @@ const ACCENT: Record<MetricTone, string> = {
   red:
     'linear-gradient(90deg, transparent, rgba(229,83,75,0.60), transparent)',
   blue:
-    'linear-gradient(90deg, transparent, rgba(122,165,255,0.55), transparent)',
+    'linear-gradient(90deg, transparent, rgba(110,86,247,0.55), transparent)',
   neutral:
     'linear-gradient(90deg, transparent, rgba(255,255,255,0.20), transparent)',
 };

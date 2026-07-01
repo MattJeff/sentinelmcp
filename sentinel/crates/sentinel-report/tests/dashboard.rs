@@ -199,7 +199,7 @@ fn test_detail_id_invalide() {
     );
     let msg = resultat.unwrap_err().to_string();
     assert!(
-        msg.contains("Serveur introuvable"),
+        msg.contains("Server not found"),
         "message d'erreur attendu, obtenu : {}",
         msg
     );

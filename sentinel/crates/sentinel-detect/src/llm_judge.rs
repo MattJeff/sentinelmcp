@@ -26,7 +26,6 @@ use chrono::Utc;
 use sentinel_protocol::{Constat, EtatConstat, Outil, ServeurId, Severite, TypeConstat};
 use serde::Deserialize;
 use tracing::warn;
-use uuid::Uuid;
 
 /// URL de base par défaut de l'API Ollama locale.
 pub const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
@@ -161,7 +160,7 @@ impl JugeLlm {
 
         Ok(Some(VerdictLlm {
             malveillant: verdict.malveillant.unwrap_or(false),
-            raison: verdict.raison.unwrap_or_else(|| "(aucune raison fournie)".to_string()),
+            raison: verdict.raison.unwrap_or_else(|| "(no reason provided)".to_string()),
             modele: self.config.modele.clone(),
         }))
     }
@@ -189,14 +188,14 @@ impl JugeLlm {
     /// sémantique, moins déterministe qu'un pattern ou une règle YARA.
     pub fn vers_constat(outil: &str, v: &VerdictLlm, serveur_id: ServeurId) -> Constat {
         Constat {
-            id: Uuid::new_v4(),
+            id: crate::id_constat(&["llm", &serveur_id.to_string(), outil]),
             serveur_id,
             outil_nom: Some(outil.to_string()),
             type_constat: TypeConstat::Poisoning,
             severite: Severite::Haute,
-            titre: format!("Juge LLM local — outil « {} » jugé malveillant", outil),
+            titre: format!("Local LLM judge — tool \"{}\" judged malicious", outil),
             detail: format!(
-                "Le modèle local « {} » (Ollama) a jugé l'outil malveillant. Raison : {}",
+                "The local model \"{}\" (Ollama) judged the tool malicious. Reason: {}",
                 v.modele, v.raison
             ),
             diff: None,
@@ -209,7 +208,7 @@ impl JugeLlm {
 
 /// Construit le prompt de jugement pour un outil.
 fn prompt_jugement(outil: &Outil) -> String {
-    let description = outil.description.as_deref().unwrap_or("(aucune)");
+    let description = outil.description.as_deref().unwrap_or("(none)");
     let schema = serde_json::to_string(&outil.input_schema).unwrap_or_default();
     format!(
         "You are a security analyst reviewing an MCP (Model Context Protocol) tool. \
@@ -219,7 +218,7 @@ fn prompt_jugement(outil: &Outil) -> String {
          external servers.\n\n\
          Tool name: {}\nTool description: {}\nTool inputSchema (JSON): {}\n\n\
          Respond ONLY with a JSON object: \
-         {{\"malveillant\": true|false, \"raison\": \"<short explanation in French>\"}}",
+         {{\"malveillant\": true|false, \"raison\": \"<short explanation in English>\"}}",
         outil.nom,
         tronquer(description, 4000),
         tronquer(&schema, 4000),

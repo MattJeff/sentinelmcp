@@ -28,11 +28,11 @@ const config: Config = {
       colors: {
         sentinel: {
           // ── Fonds — neutres froids, opaques (plus de glassmorphism) ──
-          deep: '#08090c', // canvas app / body
-          ink: '#0d0f14', // fond de page
-          surface: '#13161d', // cartes, panneaux
-          mid: '#13161d', // alias back-compat de surface
-          raised: '#191d26', // popovers, drawers, rows hover
+          deep: '#0a0b10', // canvas app / body
+          ink: '#0e0f16', // fond de page
+          surface: '#14151d', // cartes, panneaux
+          mid: '#14151d', // alias back-compat de surface
+          raised: '#1b1c27', // popovers, drawers, rows hover
           inset: 'rgba(255,255,255,0.03)', // zones encastrées (inputs, code)
 
           // ── Bordures hairline ──
@@ -47,8 +47,8 @@ const config: Config = {
           'text-faint': 'rgba(232,235,241,0.28)',
 
           // ── Accent produit unique (focus, liens, sélection, primary) ──
-          accent: '#7aa5ff',
-          'accent-dim': 'rgba(122,165,255,0.14)',
+          accent: '#6E56F7',
+          'accent-dim': 'rgba(110,86,247,0.14)',
 
           // ── Sévérités — fg / bg / border ──
           info: '#8ea3c0',
@@ -78,16 +78,16 @@ const config: Config = {
           'coral-glow': '#d06a3b',
           red: '#e5534b',
           'red-glow': '#d24840',
-          cyan: '#7aa5ff',
-          'cyan-glow': '#5e8ef2',
-          violet: '#9d8cf0',
-          'violet-glow': '#8674e0',
-          blue: '#7aa5ff',
-          'blue-glow': '#5e8ef2',
-          purple: '#9d8cf0',
-          'purple-glow': '#8674e0',
+          cyan: '#6E56F7',
+          'cyan-glow': '#5b46e0',
+          violet: '#9b8bff',
+          'violet-glow': '#7c6af0',
+          blue: '#6E56F7',
+          'blue-glow': '#5b46e0',
+          purple: '#9b8bff',
+          'purple-glow': '#7c6af0',
           glass: 'rgba(255,255,255,0.04)',
-          'glass-strong': '#13161d',
+          'glass-strong': '#14151d',
           'glass-border': 'rgba(255,255,255,0.08)',
           'glass-line': 'rgba(255,255,255,0.05)',
         },
@@ -134,7 +134,7 @@ const config: Config = {
         raised: '0 0 0 1px rgba(255,255,255,0.08), 0 4px 16px rgba(0,0,0,0.35)',
         overlay: '0 0 0 1px rgba(255,255,255,0.08), 0 16px 48px rgba(0,0,0,0.50)',
         // Anneau focus unique pour toute l'app (focus-visible:shadow-focus).
-        focus: '0 0 0 2px #08090c, 0 0 0 4px rgba(122,165,255,0.60)',
+        focus: '0 0 0 2px #0a0b10, 0 0 0 4px rgba(110,86,247,0.60)',
         // Back-compat : .glass → hairline + ombre courte.
         glass: '0 0 0 1px rgba(255,255,255,0.06), 0 1px 2px rgba(0,0,0,0.30)',
         'glass-soft': '0 0 0 1px rgba(255,255,255,0.05)',
@@ -144,10 +144,10 @@ const config: Config = {
         'glow-orange': '0 0 0 1px rgba(232,128,79,0.32), 0 0 12px rgba(232,128,79,0.12)',
         'glow-coral': '0 0 0 1px rgba(232,128,79,0.32), 0 0 12px rgba(232,128,79,0.12)',
         'glow-red': '0 0 0 1px rgba(229,83,75,0.35), 0 0 14px rgba(229,83,75,0.14)',
-        'glow-cyan': '0 0 0 1px rgba(122,165,255,0.32), 0 0 12px rgba(122,165,255,0.12)',
-        'glow-violet': '0 0 0 1px rgba(157,140,240,0.32), 0 0 12px rgba(157,140,240,0.12)',
-        'glow-blue': '0 0 0 1px rgba(122,165,255,0.32), 0 0 12px rgba(122,165,255,0.12)',
-        'glow-purple': '0 0 0 1px rgba(157,140,240,0.32), 0 0 12px rgba(157,140,240,0.12)',
+        'glow-cyan': '0 0 0 1px rgba(110,86,247,0.32), 0 0 12px rgba(110,86,247,0.12)',
+        'glow-violet': '0 0 0 1px rgba(155,139,255,0.32), 0 0 12px rgba(155,139,255,0.12)',
+        'glow-blue': '0 0 0 1px rgba(110,86,247,0.32), 0 0 12px rgba(110,86,247,0.12)',
+        'glow-purple': '0 0 0 1px rgba(155,139,255,0.32), 0 0 12px rgba(155,139,255,0.12)',
       },
       borderRadius: {
         glass: '12px', // cartes/panneaux (était 22px)
@@ -156,9 +156,9 @@ const config: Config = {
       backgroundImage: {
         // Un seul wash ultra-subtil en haut de page — fini les auroras.
         'aurora-1':
-          'radial-gradient(80% 40% at 50% 0%, rgba(122,165,255,0.05) 0%, transparent 70%)',
+          'radial-gradient(80% 40% at 50% 0%, rgba(110,86,247,0.05) 0%, transparent 70%)',
         'aurora-2':
-          'radial-gradient(60% 30% at 50% 100%, rgba(157,140,240,0.03) 0%, transparent 70%)',
+          'radial-gradient(60% 30% at 50% 100%, rgba(155,139,255,0.03) 0%, transparent 70%)',
         // Tiles : fonds plats teintés très bas — la sévérité se lit via badge/bordure.
         'tile-good':
           'linear-gradient(180deg, rgba(76,195,138,0.07) 0%, rgba(76,195,138,0.02) 100%)',
@@ -167,7 +167,7 @@ const config: Config = {
         'tile-bad':
           'linear-gradient(180deg, rgba(229,83,75,0.09) 0%, rgba(229,83,75,0.03) 100%)',
         'tile-info':
-          'linear-gradient(180deg, rgba(122,165,255,0.07) 0%, rgba(122,165,255,0.02) 100%)',
+          'linear-gradient(180deg, rgba(110,86,247,0.07) 0%, rgba(110,86,247,0.02) 100%)',
       },
       keyframes: {
         shimmer: {

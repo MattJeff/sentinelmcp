@@ -69,7 +69,7 @@ pub async fn server_set_tags(
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     if n == 0 {
-        return Err(format!("serveur inconnu : {}", server_id));
+        return Err(format!("unknown server: {}", server_id));
     }
     Ok(())
 }

@@ -59,9 +59,9 @@ export const Logo: React.FC<LogoProps> = ({
       <defs>
         {/* Sentinel gradient: accent blue -> violet (calm console palette) */}
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#7aa5ff" />
+          <stop offset="0%" stopColor="#6E56F7" />
           <stop offset="50%" stopColor="#8c99f8" />
-          <stop offset="100%" stopColor="#9d8cf0" />
+          <stop offset="100%" stopColor="#9b8bff" />
         </linearGradient>
 
         {/* Subtle top highlight */}
@@ -104,7 +104,7 @@ export const Logo: React.FC<LogoProps> = ({
              C 310 836, 204 718, 156 562
              C 118 426, 118 270, 156 192
              C 272 114, 396 76, 512 56 Z"
-          fill="#08090c"
+          fill="#0a0b10"
           transform="translate(0,14)"
         />
       </g>
@@ -126,7 +126,7 @@ export const Logo: React.FC<LogoProps> = ({
              C 104 420, 104 260, 144 180
              C 264 100, 392 60, 512 40 Z"
           fill="none"
-          stroke="#08090c"
+          stroke="#0a0b10"
           strokeWidth="14"
           opacity="0.35"
         />

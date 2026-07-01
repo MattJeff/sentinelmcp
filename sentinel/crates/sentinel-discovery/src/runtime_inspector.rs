@@ -8,7 +8,6 @@ use regex::Regex;
 use reqwest::Url;
 use sentinel_protocol::{Constat, EtatConstat, Severite, TypeConstat};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::config_baseline::id_serveur_stable;
 use crate::model::ServeurMcpDeclare;
@@ -263,37 +262,51 @@ pub fn correler_avec_inventaire(
     serveurs_connus: &[ServeurMcpDeclare],
 ) -> Vec<Constat> {
     let connus = ports_connus(serveurs_connus);
+    // Dédup dual-stack : un process qui écoute en IPv4 ET IPv6 sur le même port
+    // (ex. `ControlCe` sur `0.0.0.0:7000` ET `[::]:7000`) apparaît DEUX fois
+    // dans l'énumération (`tcp` + `tcp6`). C'est UN seul listener logique → on
+    // ne doit émettre qu'UN constat, pas deux cartes identiques. Clé de dédup :
+    // `(port, pid)` — la famille d'adresse ne change pas le risque réseau.
+    let mut vus: BTreeSet<(u16, Option<u32>)> = BTreeSet::new();
     sockets
         .iter()
         .filter(|s| s.bind_toutes_interfaces && s.port >= 1024 && !connus.contains(&s.port))
+        .filter(|s| vus.insert((s.port, s.pid)))
         .map(constat_socket_inconnu)
         .collect()
 }
 
 fn constat_socket_inconnu(socket: &SocketEnEcoute) -> Constat {
     let proc_desc = match (&socket.processus, socket.pid) {
-        (Some(p), Some(pid)) => format!("processus `{p}` (pid {pid})"),
-        (Some(p), None) => format!("processus `{p}`"),
+        (Some(p), Some(pid)) => format!("process `{p}` (pid {pid})"),
+        (Some(p), None) => format!("process `{p}`"),
         (None, Some(pid)) => format!("pid {pid}"),
-        (None, None) => "processus inconnu".to_string(),
+        (None, None) => "unknown process".to_string(),
     };
     Constat {
-        id: Uuid::new_v4(),
-        // Identité stable dérivée de l'adresse:port observée.
-        serveur_id: id_serveur_stable(&format!("socket://{}:{}", socket.adresse, socket.port)),
+        // Identité déterministe du listener (port + pid) : stable d'un scan à
+        // l'autre et identique pour les faces IPv4/IPv6 du même process — pas
+        // de doublon ni d'accumulation si un jour ces constats sont persistés.
+        id: sentinel_detect::id_constat(&[
+            "rogue-socket",
+            &socket.port.to_string(),
+            &socket.pid.map(|p| p.to_string()).unwrap_or_default(),
+        ]),
+        // Identité stable dérivée du port (indépendante de la famille d'adresse).
+        serveur_id: id_serveur_stable(&format!("socket://:{}", socket.port)),
         outil_nom: None,
         type_constat: TypeConstat::ShadowMcp,
         severite: Severite::Moyenne,
         titre: format!(
-            "Socket en écoute sur toutes interfaces hors inventaire (port {})",
+            "Socket listening on all interfaces, outside inventory (port {})",
             socket.port
         ),
         detail: format!(
-            "Un socket {} écoute sur {}:{} ({}), exposé à tout le réseau local, sans correspondance \
-             dans l'inventaire MCP connu. Si c'est un serveur MCP lancé hors config (angle mort \
-             « NeighborJack »), il échappe à la surveillance ; sinon, vérifier que cette exposition \
-             réseau est intentionnelle. NB : la nature MCP du socket n'est pas prouvable \
-             statiquement.",
+            "A socket {} is listening on {}:{} ({}), exposed to the whole local network, with no \
+             match in the known MCP inventory. If this is an MCP server started outside the config \
+             (\"NeighborJack\" blind spot), it escapes monitoring; otherwise, verify that this \
+             network exposure is intentional. NB: the MCP nature of the socket is not statically \
+             provable.",
             socket.protocole, socket.adresse, socket.port, proc_desc
         ),
         diff: None,
@@ -394,6 +407,37 @@ LISTEN  0       4096    0.0.0.0:9000        0.0.0.0:*
         assert_eq!(constats.len(), 1, "vu : {:?}", constats.iter().map(|c| &c.titre).collect::<Vec<_>>());
         assert!(constats[0].titre.contains("9000"));
         assert_eq!(constats[0].type_constat, TypeConstat::ShadowMcp);
+    }
+
+    #[test]
+    fn correlation_dedoublonne_dual_stack_ipv4_ipv6() {
+        // Régression : un process qui écoute en IPv4 ET IPv6 sur le même port
+        // (dual-stack) est énuméré deux fois (`tcp` 0.0.0.0 + `tcp6` ::). C'est
+        // UN listener logique → un seul constat, pas deux cartes identiques.
+        let sock = |proto: &str, adresse: &str| SocketEnEcoute {
+            protocole: proto.to_string(),
+            bind_toutes_interfaces: true,
+            adresse: adresse.to_string(),
+            port: 7000,
+            pid: Some(635),
+            processus: Some("ControlCe".to_string()),
+        };
+        let socks = vec![sock("tcp", "0.0.0.0"), sock("tcp6", "::")];
+        let constats = correler_avec_inventaire(&socks, &[]);
+        assert_eq!(
+            constats.len(),
+            1,
+            "le listener dual-stack (même port/pid) ne doit donner qu'un seul constat",
+        );
+        assert!(constats[0].titre.contains("7000"));
+        // Deux ports distincts restent deux constats (pas de sur-collapse).
+        let multi = vec![sock("tcp", "0.0.0.0"), {
+            let mut s = sock("tcp6", "::");
+            s.port = 5000;
+            s.pid = Some(652);
+            s
+        }];
+        assert_eq!(correler_avec_inventaire(&multi, &[]).len(), 2);
     }
 
     #[test]

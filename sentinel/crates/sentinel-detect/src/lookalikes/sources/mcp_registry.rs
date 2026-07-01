@@ -245,32 +245,41 @@ fn parser_registry_json(texte: &str) -> Vec<EntreeRegistre> {
 
 /// Extrait une `EntreeRegistre` à partir d'un nœud JSON `registry.json`.
 fn extraire_entree_json(node: &Value) -> Option<EntreeRegistre> {
-    let nom = node
+    // L'API officielle v0 (`registry.modelcontextprotocol.io`) enveloppe chaque
+    // entrée : `{"server": {"name", "description", "repository", …}, "_meta": …}`.
+    // On déballe `server` s'il est présent, sinon on lit le nœud à plat (compat
+    // avec l'ancien `registry.json` à la racine du dépôt GitHub).
+    let corps = node.get("server").unwrap_or(node);
+
+    let nom = corps
         .get("name")
         .and_then(|v| v.as_str())
-        .or_else(|| node.get("id").and_then(|v| v.as_str()))
+        .or_else(|| corps.get("id").and_then(|v| v.as_str()))
         .unwrap_or("")
         .to_string();
     if nom.is_empty() {
         return None;
     }
 
-    let description = node
+    let description = corps
         .get("description")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let url = node
+    // `repository` est un objet `{ "url": … }` dans l'API officielle, une chaîne
+    // dans l'ancien format : on tolère les deux.
+    let url = corps
         .get("url")
-        .or_else(|| node.get("homepage"))
-        .or_else(|| node.get("repository"))
+        .or_else(|| corps.get("homepage"))
+        .or_else(|| corps.get("repository").and_then(|r| r.get("url")))
+        .or_else(|| corps.get("repository"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let auteur = node
+    let auteur = corps
         .get("publisher")
-        .or_else(|| node.get("author"))
-        .or_else(|| node.get("owner"))
+        .or_else(|| corps.get("author"))
+        .or_else(|| corps.get("owner"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -580,6 +589,50 @@ mod tests_fixtures {
             Some("Secure file operations with configurable access controls.")
         );
         assert_eq!(entrees[1].nom, "io.github.example/postgres-mcp");
+    }
+
+    /// Format **actuel** de `registry.modelcontextprotocol.io/v0/servers` :
+    /// chaque entrée est enveloppée dans un objet `server` + un bloc `_meta`.
+    /// Régression : avant le déballage de `server`, le parser lisait `name` au
+    /// niveau racine → 0 entrée → le registre officiel ne contribuait rien.
+    const FIXTURE_OFFICIEL_IMBRIQUE: &str = r#"{
+      "servers": [
+        {
+          "server": {
+            "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+            "name": "ac.inference.sh/mcp",
+            "description": "Run 150+ AI apps — image, video, audio, LLMs.",
+            "title": "inference.sh",
+            "version": "1.0.0",
+            "repository": { "url": "https://github.com/inference-sh/mcp", "source": "github" }
+          },
+          "_meta": { "io.modelcontextprotocol.registry/official": { "status": "active" } }
+        },
+        {
+          "server": {
+            "name": "io.github.example/filesystem",
+            "description": "Secure file operations."
+          }
+        }
+      ],
+      "metadata": { "count": 2 }
+    }"#;
+
+    #[test]
+    fn parse_api_officielle_format_imbrique() {
+        let entrees = parser_registry_json(FIXTURE_OFFICIEL_IMBRIQUE);
+        assert_eq!(entrees.len(), 2, "le wrapper `server` doit être déballé");
+        assert_eq!(entrees[0].nom, "ac.inference.sh/mcp");
+        assert_eq!(
+            entrees[0].description.as_deref(),
+            Some("Run 150+ AI apps — image, video, audio, LLMs.")
+        );
+        // `repository.url` doit être extrait malgré l'objet imbriqué.
+        assert_eq!(
+            entrees[0].url.as_deref(),
+            Some("https://github.com/inference-sh/mcp")
+        );
+        assert_eq!(entrees[1].nom, "io.github.example/filesystem");
     }
 
     /// Échantillon réaliste du README du dépôt `modelcontextprotocol/servers`

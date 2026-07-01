@@ -13,6 +13,12 @@
   body,
   #root {
     height: 100%;
+    /* Le document racine ne scrolle JAMAIS : seul le panneau de contenu interne
+       (DashboardLayout) scrolle. Sans ça, sur le WKWebView macOS (Tauri),
+       l'inertie du trackpad en bas de liste se propageait au document et
+       révélait le fond noir sous le <body> (rubber-band / écran noir). */
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   body {
     color: theme('colors.sentinel.text-primary');
@@ -22,7 +28,7 @@
     text-rendering: optimizeLegibility;
   }
   ::selection {
-    background: rgba(122, 165, 255, 0.30);
+    background: rgba(110, 86, 247, 0.30);
     color: #fff;
   }
   /* Chiffres tabulaires partout où des métriques s'alignent. */
@@ -108,7 +114,7 @@
   .badge-accent {
     color: theme('colors.sentinel.accent');
     background: theme('colors.sentinel.accent-dim');
-    border-color: rgba(122, 165, 255, 0.30);
+    border-color: rgba(110, 86, 247, 0.30);
   }
   .badge-neutral {
     color: theme('colors.sentinel.text-secondary');
@@ -142,12 +148,12 @@
   .pill-cyan {
     color: theme('colors.sentinel.accent');
     background: theme('colors.sentinel.accent-dim');
-    border-color: rgba(122, 165, 255, 0.30);
+    border-color: rgba(110, 86, 247, 0.30);
   }
   .pill-violet {
     color: theme('colors.sentinel.violet');
-    background: rgba(157, 140, 240, 0.10);
-    border-color: rgba(157, 140, 240, 0.30);
+    background: rgba(155, 139, 255, 0.10);
+    border-color: rgba(155, 139, 255, 0.30);
   }
   .pill-tertiary {
     color: theme('colors.sentinel.text-tertiary');
@@ -220,12 +226,12 @@
   }
   .btn-primary {
     background: theme('colors.sentinel.accent');
-    color: #08090c;
+    color: #fff;
     border-color: transparent;
     font-weight: 600;
   }
   .btn-primary:hover {
-    background: #8fb3ff;
+    background: #8472ff;
     border-color: transparent;
   }
   .btn-danger {

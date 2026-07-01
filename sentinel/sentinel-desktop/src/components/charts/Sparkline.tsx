@@ -18,7 +18,7 @@ const COLOR_MAP: Record<SparklineColor, string> = {
   green: '#4cc38a',
   orange: '#e8804f',
   red: '#e5534b',
-  blue: '#7aa5ff',
+  blue: '#6E56F7',
 };
 
 export default function Sparkline({

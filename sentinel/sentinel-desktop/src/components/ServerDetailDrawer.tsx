@@ -76,6 +76,8 @@ function findDeclaringClient(
 export interface ServerDetailDrawerProps {
   serverId: string | null;
   onClose: () => void;
+  /** Navigation inter-vues (état NavId du DashboardLayout, pas de routeur). */
+  onNavigate?: (pageId: string) => void;
 }
 
 const STATUS_LABEL: Record<ServerStatus, string> = {
@@ -125,6 +127,7 @@ function deriveServerName(endpoint: string): string {
 export default function ServerDetailDrawer({
   serverId,
   onClose,
+  onNavigate,
 }: ServerDetailDrawerProps) {
   const open = serverId !== null;
 
@@ -286,7 +289,10 @@ export default function ServerDetailDrawer({
 
   const server = data?.server;
   const tools = data?.tools ?? [];
-  const openFindings = data?.open_findings ?? 0;
+  // Compteur branché sur la même source que la liste affichée juste en dessous
+  // (`serverFindings`, filtrée par serveur), au lieu du scalaire `open_findings`
+  // qui n'était pas revalidé en temps réel (clé SWR tuple vs mutate par chaîne).
+  const openFindings = serverFindings.length;
   const poisonSuspected = useMemo(() => hasPoisoning(tools), [tools]);
 
   if (!open) return null;
@@ -686,13 +692,17 @@ export default function ServerDetailDrawer({
                       {openFindings}
                     </span>
                   </div>
-                  <a
-                    href="#/alerts"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNavigate?.('alerts');
+                      onClose();
+                    }}
                     className="inline-flex items-center gap-1 text-caption text-sentinel-accent hover:underline no-drag focus-visible:outline-none focus-visible:shadow-focus rounded-lg"
                   >
                     Go to alerts
                     <ArrowUpRight size={13} />
-                  </a>
+                  </button>
                 </div>
 
                 {serverFindings.length > 0 && (

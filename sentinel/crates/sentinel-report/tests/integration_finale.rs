@@ -132,17 +132,17 @@ async fn test_pipeline_complet() {
         "Le plan de remédiation doit produire au moins une action pour un serveur rouge"
     );
 
-    let action_rouge = actions.iter().find(|a| a.action == "Bloquer");
+    let action_rouge = actions.iter().find(|a| a.action == "Block");
     assert!(
         action_rouge.is_some(),
-        "Il doit exister une action 'Bloquer' pour le serveur rouge"
+        "Il doit exister une action 'Block' pour le serveur rouge"
     );
 
     // Vérification : le Markdown est cohérent.
     let md = PlanRemediation::vers_markdown(&actions);
     assert!(
-        md.contains("Bloquer"),
-        "Le Markdown doit contenir l'action Bloquer"
+        md.contains("Block"),
+        "Le Markdown doit contenir l'action Block"
     );
 }
 

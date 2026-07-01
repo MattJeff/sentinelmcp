@@ -31,20 +31,21 @@ fn produire_contenu_cree_fichier_non_vide() {
     let _ = fs::remove_file(&chemin);
 
     let contenu = ContenuPdf {
-        titre: "Rapport de conformite Sentinel MCP".to_string(),
-        sous_titre: "Tests unitaires — agent 5.6".to_string(),
-        resume_exec: "Aucune anomalie detectee au cours de cette periode.".to_string(),
-        inventaire: "serveur-alpha  http://localhost:3000\nserveur-beta   http://localhost:4000"
+        titre: "Compliance Report Sentinel MCP".to_string(),
+        sous_titre: "Unit tests — agent 5.6".to_string(),
+        resume_exec: "No anomaly detected over this period.".to_string(),
+        inventaire: "server-alpha  http://localhost:3000\nserver-beta   http://localhost:4000"
             .to_string(),
-        journal: "2026-06-01T00:00:00Z  INFO  Demarrage du capteur\n\
-                  2026-06-01T00:01:00Z  WARN  Serveur inconnu detecte"
+        journal: "2026-06-01T00:00:00Z  INFO  Sensor startup\n\
+                  2026-06-01T00:01:00Z  WARN  Unknown server detected"
             .to_string(),
-        mapping_conformite: "OWASP MCP09  Shadow MCP  COUVERT\nOWASP MCP03  Tool Poisoning  COUVERT"
+        mapping_conformite: "OWASP MCP09  Shadow MCP  Covered\nOWASP MCP03  Tool Poisoning  Covered"
             .to_string(),
-        plan_remediation: "1. Approuver le serveur-alpha avant le 2026-06-07.\n\
-                           2. Auditer les outils du serveur-beta."
+        plan_remediation: "1. Approve server-alpha before 2026-06-07.\n\
+                           2. Audit server-beta tools."
             .to_string(),
         horodatage: "2026-06-01T00:00:00Z".to_string(),
+        ..Default::default()
     };
 
     let chemin_retourne =
@@ -123,19 +124,20 @@ fn produire_contenu_texte_long_pagination() {
 
     // Generer un texte long pour declencher la pagination
     let texte_long: String = (0..200)
-        .map(|i| format!("Ligne {} : serveur-mcp-{:04} detecte, statut ROUGE, risque eleve.", i, i))
+        .map(|i| format!("Line {} : server-mcp-{:04} detected, status RED, high risk.", i, i))
         .collect::<Vec<_>>()
         .join("\n");
 
     let contenu = ContenuPdf {
-        titre: "Rapport de conformite Sentinel MCP".to_string(),
-        sous_titre: "Test pagination".to_string(),
+        titre: "Compliance Report Sentinel MCP".to_string(),
+        sous_titre: "Pagination test".to_string(),
         resume_exec: texte_long.clone(),
         inventaire: texte_long.clone(),
         journal: texte_long,
-        mapping_conformite: "MCP09 COUVERT\nMCP03 COUVERT".to_string(),
-        plan_remediation: "Aucune action requise.".to_string(),
+        mapping_conformite: "MCP09 Covered\nMCP03 Covered".to_string(),
+        plan_remediation: "No action required.".to_string(),
         horodatage: "2026-06-01T12:00:00Z".to_string(),
+        ..Default::default()
     };
 
     RenduPdf::produire_contenu(&contenu, &chemin).expect("rendu avec texte long doit reussir");

@@ -178,7 +178,7 @@ fn sampling_injection_persistante_detectee() {
         .filter(|c| c.type_constat == TypeConstat::AbusSampling)
         .collect();
     assert_eq!(abus.len(), 1, "injection persistante attendue : {constats:?}");
-    assert!(abus[0].titre.contains("injection persistante"));
+    assert!(abus[0].titre.contains("persistent prompt injection"));
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn drain_quota_signale_une_seule_fois_au_franchissement() {
     );
     let (rang, constat) = &drains[0];
     assert_eq!(*rang, 4, "le drain doit être signalé au franchissement du seuil (4e requête)");
-    assert!(constat.titre.contains("volume anormal"), "titre : {}", constat.titre);
+    assert!(constat.titre.contains("abnormal volume"), "titre : {}", constat.titre);
     assert!(constat.detail.contains("sess-drain"), "détail : {}", constat.detail);
 }
 

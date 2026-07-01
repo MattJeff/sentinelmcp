@@ -105,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         mapping_conformite: bundle.mapping_conformite_md.clone(),
         plan_remediation: PlanRemediation::vers_markdown(&plan),
         horodatage: chrono::Utc::now().to_rfc3339(),
+        ..Default::default()
     };
     sentinel_report::pdf::RenduPdf::produire_contenu(&contenu_pdf, &chemin)?;
     let meta = std::fs::metadata(&chemin)?;

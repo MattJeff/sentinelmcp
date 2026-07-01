@@ -38,8 +38,8 @@ fn test_aucun_changement() {
     assert!(rendu.outils_ajoutes.is_empty());
     assert!(rendu.outils_supprimes.is_empty());
     assert!(rendu.outils_modifies.is_empty());
-    assert!(rendu.markdown.contains("Aucun changement"));
-    assert!(rendu.texte_brut.contains("Aucun changement"));
+    assert!(rendu.markdown.contains("No change"));
+    assert!(rendu.texte_brut.contains("No change"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ fn test_ajout_simple() {
 
     // Le rendu Markdown doit mentionner l'outil ajouté
     assert!(rendu.markdown.contains("supprimer_fichier"));
-    assert!(rendu.markdown.contains("Ajouts"));
+    assert!(rendu.markdown.contains("Additions"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ fn test_suppression_simple() {
     assert!(rendu.outils_modifies.is_empty());
 
     assert!(rendu.markdown.contains("executer_shell"));
-    assert!(rendu.markdown.contains("Suppressions"));
+    assert!(rendu.markdown.contains("Removals"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,9 +207,9 @@ fn test_rendu_markdown_contient_noms_impactes() {
     assert!(!md.contains("outil_stable"), "L'outil stable ne doit pas figurer dans le diff");
 
     // Sections structurées
-    assert!(md.contains("## Diff outils MCP"));
-    assert!(md.contains("### Ajouts"));
-    assert!(md.contains("### Suppressions"));
+    assert!(md.contains("## MCP tool diff"));
+    assert!(md.contains("### Additions"));
+    assert!(md.contains("### Removals"));
     assert!(md.contains("### Modifications"));
 }
 

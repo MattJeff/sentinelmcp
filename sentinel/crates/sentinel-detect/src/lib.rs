@@ -31,3 +31,20 @@ pub use cve_match::{rechercher_cve, severite_depuis_cvss, ConstatCve};
 pub use lookalikes::ConnecteurRegistres;
 pub use yara::{ConstatYara, MoteurYara};
 pub use llm_judge::{ConfigJugeLlm, JugeLlm, VerdictLlm, OLLAMA_DEFAULT_URL};
+
+/// Identifiant **déterministe et stable** d'un constat.
+///
+/// Deux re-détections du même constat logique (même serveur, même outil, même
+/// règle/pattern…) produisent le MÊME identifiant — la clé ne contient ni
+/// horodatage ni aléa. Le store déduplique alors via UPSERT au lieu d'empiler un
+/// doublon à chaque cycle de surveillance. Des constats *distincts* gardent des
+/// identifiants distincts (la clé encode tout ce qui les différencie).
+///
+/// Utilise UUID v5 (SHA-1 d'une clé namespacée) : reproductible entre exécutions
+/// et entre machines, sans état partagé.
+pub fn id_constat(parties: &[&str]) -> uuid::Uuid {
+    // U+001F (Unit Separator) — improbable dans les noms d'outils/règles, évite
+    // les collisions de concaténation (« a|b » vs « a », « b »).
+    let cle = parties.join("\u{1f}");
+    uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, cle.as_bytes())
+}

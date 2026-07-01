@@ -176,6 +176,19 @@ impl Store {
     fn backfill_v4_identite(conn: &mut Connection) -> Result<()> {
         let tx = conn.transaction()?;
 
+        // 0) Retirer l'index unique AVANT le remplissage/dédup. Sur une DB déjà
+        //    passée par V4, `idx_serveurs_identite` existe ; si une ligne a
+        //    encore `package_id = ''` (insérée par un chemin qui ne calculait
+        //    pas l'identité) et que la remplir collisionne avec une ligne
+        //    existante de même (package_id, scope), l'UPDATE de l'étape 1
+        //    échouerait sur l'index AVANT que la fusion de l'étape 5 ne puisse
+        //    dédupliquer — d'où l'erreur « UNIQUE constraint failed:
+        //    serveurs.package_id, serveurs.scope » au démarrage et le fallback
+        //    en mémoire. On dépose donc l'index ici ; il est recréé à l'étape 6
+        //    sur des données propres. Tout reste dans la même transaction :
+        //    en cas d'échec, l'index pré-existant est restauré par le rollback.
+        tx.execute_batch("DROP INDEX IF EXISTS idx_serveurs_identite;")?;
+
         // 1) Calcul du package_id pour toute ligne où il est encore vide.
         //    On lit (id, endpoint, transport, scope) et on remplit la
         //    colonne en un coup. Le transport est stocké en JSON sérialisé
@@ -1101,10 +1114,23 @@ impl Store {
 
     pub fn enregistrer_constat(&self, c: &Constat) -> Result<()> {
         let conn = self.inner.lock().unwrap();
+        // UPSERT : l'`id` d'un constat est désormais DÉTERMINISTE (dérivé du
+        // contenu, cf. `sentinel_detect::id_constat`). Une re-détection du même
+        // constat logique à chaque cycle de surveillance retombe donc sur la même
+        // ligne au lieu d'en empiler une nouvelle. On rafraîchit l'horodatage
+        // (« last seen ») et le contenu volatil (sévérité/détail/diff), mais on
+        // PRÉSERVE `etat` — la décision de triage de l'opérateur (résolu/ignoré)
+        // ne doit pas être écrasée par une re-détection automatique.
         conn.execute(
             r#"INSERT INTO constats (id, serveur_id, outil_nom, type_constat, severite,
                 titre, detail, diff, references_conformite, horodatage, etat)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+               ON CONFLICT(id) DO UPDATE SET
+                   horodatage = excluded.horodatage,
+                   severite = excluded.severite,
+                   detail = excluded.detail,
+                   diff = excluded.diff,
+                   references_conformite = excluded.references_conformite"#,
             params![
                 c.id.to_string(),
                 c.serveur_id.to_string(),

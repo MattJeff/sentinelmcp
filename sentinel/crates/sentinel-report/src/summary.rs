@@ -70,7 +70,7 @@ impl ResumeExecutif {
 
         let appel_action = if serveurs_a_risque > 0 || constats_critiques > 0 {
             Some(format!(
-                "Une action immédiate est requise sur {} serveur{}.",
+                "Immediate action is required on {} server{}.",
                 serveurs_a_risque,
                 if serveurs_a_risque > 1 { "s" } else { "" }
             ))
@@ -124,10 +124,10 @@ impl ResumeExecutif {
 
         let mut parties: Vec<String> = Vec::new();
         if trifecta > 0 {
-            parties.push(format!("trifecta létale d'exfiltration ({trifecta})"));
+            parties.push(format!("lethal exfiltration trifecta ({trifecta})"));
         }
         if cve > 0 {
-            parties.push(format!("vulnérabilité CVE connue ({cve})"));
+            parties.push(format!("known CVE vulnerability ({cve})"));
         }
         if confused > 0 {
             parties.push(format!("OAuth confused deputy / SSRF ({confused})"));
@@ -136,14 +136,14 @@ impl ResumeExecutif {
             parties.push(format!("cross-server shadowing ({shadowing})"));
         }
         if socket > 0 {
-            parties.push(format!("socket fantôme en écoute ({socket})"));
+            parties.push(format!("listening phantom socket ({socket})"));
         }
 
         if parties.is_empty() {
             return None;
         }
         Some(format!(
-            "Détections avancées : {}.",
+            "Advanced detections: {}.",
             parties.join(", ")
         ))
     }
@@ -157,53 +157,48 @@ impl ResumeExecutif {
         moyens: u64,
     ) -> String {
         if total == 0 {
-            return "Aucun serveur MCP détecté sur la période d'observation.".to_string();
+            return "No MCP server detected over the observation period.".to_string();
         }
 
         let mut lignes: Vec<String> = Vec::new();
 
         lignes.push(format!(
-            "Sur {} serveur{} MCP détecté{}, {} ne sont pas approuvé{}.",
+            "Of {} MCP server{} detected, {} {} not approved.",
             total,
             if total > 1 { "s" } else { "" },
-            if total > 1 { "s" } else { "" },
             non_approuves,
-            if non_approuves > 1 { "s" } else { "" },
+            if non_approuves == 1 { "is" } else { "are" },
         ));
 
         if a_risque > 0 {
             lignes.push(format!(
-                "{} {} à risque élevé (signalé{} en rouge).",
+                "{} {} at high risk (flagged in red).",
                 a_risque,
-                if a_risque > 1 { "sont" } else { "est" },
-                if a_risque > 1 { "s" } else { "" },
+                if a_risque > 1 { "are" } else { "is" },
             ));
         } else {
             lignes.push(
-                "Aucun serveur n'est actuellement classé à risque élevé.".to_string(),
+                "No server is currently classified as high risk.".to_string(),
             );
         }
 
         let total_constats = critiques + hauts + moyens;
         if total_constats > 0 {
             lignes.push(format!(
-                "Le pipeline a produit {} constat{} : {} critique{}, {} haut{} et {} moyen{}.",
+                "The pipeline produced {} finding{}: {} critical, {} high and {} medium.",
                 total_constats,
                 if total_constats > 1 { "s" } else { "" },
                 critiques,
-                if critiques > 1 { "s" } else { "" },
                 hauts,
-                if hauts > 1 { "s" } else { "" },
                 moyens,
-                if moyens > 1 { "s" } else { "" },
             ));
         } else {
-            lignes.push("Aucun constat de sévérité significative n'a été enregistré.".to_string());
+            lignes.push("No finding of significant severity was recorded.".to_string());
         }
 
         lignes.push(
-            "Ce rapport couvre les contrôles OWASP MCP09 (Shadow MCP) et MCP03 (Tool Poisoning), \
-             ainsi que SAFE-T1001 et SAFE-T1201."
+            "This report covers the OWASP MCP09 (Shadow MCP) and MCP03 (Tool Poisoning) controls, \
+             as well as SAFE-T1001 and SAFE-T1201."
                 .to_string(),
         );
 
@@ -214,18 +209,18 @@ impl ResumeExecutif {
     pub fn vers_markdown(&self) -> String {
         let mut md = String::new();
 
-        md.push_str("# Résumé exécutif — Sentinel MCP\n\n");
+        md.push_str("# Executive summary — Sentinel MCP\n\n");
 
         // Tableau KPI
-        md.push_str("| Indicateur | Valeur |\n");
+        md.push_str("| Metric | Value |\n");
         md.push_str("|---|---|\n");
-        md.push_str(&format!("| Serveurs détectés | {} |\n", self.serveurs_total));
-        md.push_str(&format!("| Serveurs approuvés | {} |\n", self.serveurs_approuves));
-        md.push_str(&format!("| Serveurs non approuvés | {} |\n", self.serveurs_non_approuves));
-        md.push_str(&format!("| Serveurs à risque (rouge) | {} |\n", self.serveurs_a_risque));
-        md.push_str(&format!("| Constats critiques | {} |\n", self.constats_critiques));
-        md.push_str(&format!("| Constats hauts | {} |\n", self.constats_hauts));
-        md.push_str(&format!("| Constats moyens | {} |\n", self.constats_moyens));
+        md.push_str(&format!("| Servers detected | {} |\n", self.serveurs_total));
+        md.push_str(&format!("| Approved servers | {} |\n", self.serveurs_approuves));
+        md.push_str(&format!("| Unapproved servers | {} |\n", self.serveurs_non_approuves));
+        md.push_str(&format!("| At-risk servers (red) | {} |\n", self.serveurs_a_risque));
+        md.push_str(&format!("| Critical findings | {} |\n", self.constats_critiques));
+        md.push_str(&format!("| High findings | {} |\n", self.constats_hauts));
+        md.push_str(&format!("| Medium findings | {} |\n", self.constats_moyens));
         md.push('\n');
 
         // Paragraphe explicatif
@@ -234,7 +229,7 @@ impl ResumeExecutif {
 
         // Appel à l'action
         if let Some(ref aa) = self.appel_action {
-            md.push_str(&format!("> **Action requise :** {}\n", aa));
+            md.push_str(&format!("> **Action required:** {}\n", aa));
         }
 
         md
@@ -244,17 +239,17 @@ impl ResumeExecutif {
     pub fn vers_texte_plain(&self) -> String {
         let mut out = String::new();
 
-        out.push_str("RÉSUMÉ EXÉCUTIF — Sentinel MCP\n");
+        out.push_str("EXECUTIVE SUMMARY — Sentinel MCP\n");
         out.push_str(&"=".repeat(40));
         out.push('\n');
 
-        out.push_str(&format!("Serveurs détectés       : {}\n", self.serveurs_total));
-        out.push_str(&format!("Serveurs approuvés      : {}\n", self.serveurs_approuves));
-        out.push_str(&format!("Serveurs non approuvés  : {}\n", self.serveurs_non_approuves));
-        out.push_str(&format!("Serveurs à risque       : {}\n", self.serveurs_a_risque));
-        out.push_str(&format!("Constats critiques      : {}\n", self.constats_critiques));
-        out.push_str(&format!("Constats hauts          : {}\n", self.constats_hauts));
-        out.push_str(&format!("Constats moyens         : {}\n", self.constats_moyens));
+        out.push_str(&format!("Servers detected        : {}\n", self.serveurs_total));
+        out.push_str(&format!("Approved servers        : {}\n", self.serveurs_approuves));
+        out.push_str(&format!("Unapproved servers      : {}\n", self.serveurs_non_approuves));
+        out.push_str(&format!("At-risk servers         : {}\n", self.serveurs_a_risque));
+        out.push_str(&format!("Critical findings       : {}\n", self.constats_critiques));
+        out.push_str(&format!("High findings           : {}\n", self.constats_hauts));
+        out.push_str(&format!("Medium findings         : {}\n", self.constats_moyens));
         out.push('\n');
 
         out.push_str(&self.texte);
@@ -262,7 +257,7 @@ impl ResumeExecutif {
 
         if let Some(ref aa) = self.appel_action {
             out.push('\n');
-            out.push_str(&format!("ACTION REQUISE : {}\n", aa));
+            out.push_str(&format!("ACTION REQUIRED: {}\n", aa));
         }
 
         out

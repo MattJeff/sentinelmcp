@@ -10,7 +10,6 @@ use sentinel_protocol::{
     Constat, EtatConstat, MessageMcp, MethodeMcp, Outil, ServeurId, Severite, TypeConstat,
 };
 use std::collections::HashMap;
-use uuid::Uuid;
 
 // --------------------------------------------------------------------------
 // Expressions régulières de classification
@@ -227,7 +226,7 @@ impl DetecteurExfiltration {
         for (session_id, (lectures, ecritures)) in &sessions {
             if !lectures.is_empty() && !ecritures.is_empty() {
                 return Some(format!(
-                    "Session {} : exfiltration détectée — lecture secret ({}) + écriture externe ({})",
+                    "Session {}: exfiltration detected — secret read ({}) + external write ({})",
                     session_id,
                     lectures.join(", "),
                     ecritures.join(", "),
@@ -272,7 +271,7 @@ impl DetecteurExfiltration {
         for (session_id, (lectures, ecritures)) in sessions {
             if !lectures.is_empty() && !ecritures.is_empty() {
                 let raison = format!(
-                    "Session {} : exfiltration détectée — lecture secret ({}) + écriture externe ({}). Identifiant SAFE-T1201.",
+                    "Session {}: exfiltration detected — secret read ({}) + external write ({}). Identifier SAFE-T1201.",
                     session_id,
                     lectures.join(", "),
                     ecritures.join(", "),
@@ -342,9 +341,9 @@ impl DetecteurExfiltration {
         for (session_id, (entrees, lectures, ecritures)) in sessions {
             if !entrees.is_empty() && !lectures.is_empty() && !ecritures.is_empty() {
                 let raison = format!(
-                    "Session {} : TRIFECTA LÉTALE détectée (sévérité critique, plus grave que \
-                     la combinaison 2-jambes) — entrée non fiable ({}) + lecture secret ({}) + \
-                     écriture externe ({}). Identifiant SAFE-T1201 (trifecta létale, Willison/Invariant).",
+                    "Session {}: LETHAL TRIFECTA detected (critical severity, more severe than \
+                     the 2-leg combination) — untrusted input ({}) + secret read ({}) + \
+                     external write ({}). Identifier SAFE-T1201 (lethal trifecta, Willison/Invariant).",
                     session_id,
                     entrees.join(", "),
                     lectures.join(", "),
@@ -367,12 +366,12 @@ impl DetecteurExfiltration {
     /// Convertit un `SignalTrifecta` en `Constat` formel (CRITIQUE) pour le store.
     pub fn vers_constat_trifecta(signal: &SignalTrifecta, serveur_id: ServeurId) -> Constat {
         Constat {
-            id: Uuid::new_v4(),
+            id: crate::id_constat(&["trifecta", &serveur_id.to_string()]),
             serveur_id,
             outil_nom: None,
             type_constat: TypeConstat::Exfiltration,
             severite: signal.severite,
-            titre: "Trifecta létale — entrée non fiable + lecture secret + écriture externe"
+            titre: "Lethal trifecta — untrusted input + secret read + external write"
                 .to_string(),
             detail: signal.raison.clone(),
             diff: None,
