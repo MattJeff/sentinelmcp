@@ -16,7 +16,7 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 rusqlite = { workspace = true }
-refinery = { version = "0.8", default-features = false, features = ["rusqlite"] }
+refinery = { version = "0.9", default-features = false, features = ["rusqlite"] }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
