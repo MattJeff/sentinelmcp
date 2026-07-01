@@ -33,7 +33,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
-dirs = "5"
+dirs = "6"
 walkdir = "2"
 
 [dev-dependencies]
